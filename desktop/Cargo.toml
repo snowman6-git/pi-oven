@@ -1,0 +1,27 @@
+[package]
+name = "pi-oven-desktop"
+version = "0.1.0"
+description = "pi-oven desktop shell: a window onto a pi-oven server"
+license = "Apache-2.0"
+edition = "2021"
+default-run = "pi-oven-desktop"
+
+[workspace]
+
+[lib]
+name = "pi_oven_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
+serde_json = "1"
+open = "5"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-oven</title>
+<style>
+  :root { color-scheme: dark; --bg:#14110f; --raised:#1d1916; --rule:#302a25; --ink:#ede6df; --ink2:#b3a89e; --ink3:#9a8f85; --accent:#ff7a1a; --bad:#ff7b6b; }
+  @media (prefers-color-scheme: light) { :root { color-scheme: light; --bg:#f6f2ed; --raised:#fffdfa; --rule:#e2d9cf; --ink:#2a231d; --ink2:#5c5047; --ink3:#7d7066; --accent:#d9560a; --bad:#c0392b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; padding:16px; display:grid; place-items:center; background:var(--bg); color:var(--ink); font:15px/1.6 'Noto Sans KR',system-ui,sans-serif; }
+  main { width:min(460px, calc(100vw - 32px)); display:grid; gap:18px; }
+  h1 { margin:0; font-size:26px; letter-spacing:-.02em; display:flex; align-items:center; gap:12px; }
+  h1 img { width:34px; height:34px; }
+  p { margin:0; color:var(--ink2); }
+  form { display:grid; gap:10px; }
+  input { height:44px; padding:0 14px; border:1px solid var(--rule); border-radius:10px; background:var(--raised); color:var(--ink); font:inherit; font-family:ui-monospace,'JetBrains Mono',monospace; font-size:14px; }
+  input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  button { height:44px; border:0; border-radius:10px; background:var(--accent); color:#1a0f05; font:inherit; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  #auto { display:grid; gap:14px; }
+  #auto .line { display:flex; align-items:center; gap:12px; font-size:17px; }
+  #auto code { color:var(--ink2); font-size:14px; overflow-wrap:anywhere; }
+  .spin { width:20px; height:20px; border-radius:50%; border:2.5px solid color-mix(in srgb, var(--accent) 22%, transparent); border-top-color:var(--accent); animation:spin .9s linear infinite; flex:none; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration:3s; } }
+  .ghost { background:transparent; border:1px solid var(--rule); color:var(--ink); font-weight:600; }
+  [hidden] { display: none !important; }
+  small { color:var(--ink3); font-size:12.5px; }
+  .err { color:var(--bad); min-height:1.6em; font-size:13.5px; }
+  code { font-family:ui-monospace,monospace; font-size:12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1><img src="logo.svg" alt="">pi-oven</h1>
+  <p id="intro">연결할 pi-oven 서버의 주소를 입력하세요. 서버는 따로 실행해 두어야 합니다.</p>
+  <div id="auto" hidden role="status">
+    <div class="line"><span class="spin" aria-hidden="true"></span><span>연결하는 중</span></div>
+    <code id="autoHost"></code>
+    <button type="button" id="cancel" class="ghost">서버 바꾸기</button>
+  </div>
+  <form id="f">
+    <input id="u" placeholder="localhost:4141" autocomplete="off" spellcheck="false" aria-label="서버 주소">
+    <input id="t" type="password" placeholder="토큰 (선택)" autocomplete="off" spellcheck="false" aria-label="토큰">
+    <button id="b" type="submit">연결</button>
+    <div class="err" id="e" role="alert"></div>
+  </form>
+  <small id="foot">토큰이나 비밀번호는 서버 화면에서 입력할 수도 있습니다. 주소는 이 PC에만 저장되고, 나중에 메뉴의 <code>서버 바꾸기…</code>(Ctrl+L)로 바꿀 수 있습니다.</small>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const invoke = window.__TAURI__.core.invoke;
+  setTimeout(() => $('u').focus(), 300);
+  let cancelled = false;
+  invoke('get_server').then(async (s) => {
+    if (!s) return;
+    $('u').value = s.replace(/#token=.*$/, '');
+    const tok = s.match(/#token=(.*)$/);
+    if (tok) { try { $('t').value = decodeURIComponent(tok[1]); } catch { $('t').value = tok[1]; } }
+    // A phone connects on its own, once per run: the back button brings the form back to change the server.
+    let first = false;
+    try { first = !sessionStorage.getItem('autoDone'); sessionStorage.setItem('autoDone', '1'); } catch { /* no storage */ }
+    if (first && (await invoke('auto_connect'))) {
+      show('auto');
+      $('autoHost').textContent = $('u').value.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      setTimeout(() => { if (!cancelled) $('f').requestSubmit(); }, 500);
+    }
+  });
+  // The form (with its explanations), or the "connecting" card on its own.
+  function show(which) {
+    const auto = which === 'auto';
+    $('auto').hidden = !auto; $('f').hidden = auto; $('intro').hidden = auto; $('foot').hidden = auto;
+  }
+  // The footer names the way back to this page, which differs between a phone and a computer.
+  invoke('auto_connect').then((phone) => {
+    if (phone) $('foot').textContent = '토큰이나 비밀번호는 서버 화면에서 입력할 수도 있습니다. 주소는 이 기기에만 저장되고, 서버를 바꾸려면 연결된 뒤 뒤로 가기를 누르세요.';
+  });
+  $('cancel').addEventListener('click', () => { cancelled = true; show('form'); });
+  $('f').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const err = $('e'); err.textContent = '';
+    let url = $('u').value.trim();
+    if (!url) { err.textContent = '서버 주소를 입력하세요.'; return; }
+    if (!/^[a-z]+:\/\//i.test(url)) url = 'http://' + url;
+    const tok = $('t').value.trim();
+    if (tok) url = url.replace(/#.*$/, '') + '#token=' + encodeURIComponent(tok);
+    $('b').disabled = true; $('b').textContent = '확인하는 중…';
+    try {
+      // Reachability only: an opaque answer is enough to know that something is listening.
+      const c = new AbortController(); const timer = setTimeout(() => c.abort(), 6000);
+      await fetch(url.replace(/#.*$/, ''), { mode: 'no-cors', signal: c.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      await invoke('connect', { url });
+    } catch (e) {
+      err.textContent = typeof e === 'string' ? e : '서버에 연결하지 못했습니다. 주소와 포트, 서버가 켜져 있는지 확인하세요.';
+      $('b').disabled = false; $('b').textContent = '연결'; show('form');
+    }
+  });
+</script>
+</body>
+</html>

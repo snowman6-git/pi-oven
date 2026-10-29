@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "pi-oven",
+  "version": "0.1.0",
+  "identifier": "dev.code4hub.pioven",
+  "build": { "frontendDist": "./ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "category": "DeveloperTool",
+    "shortDescription": "pi 코딩 에이전트 웹 UI 데스크톱 앱",
+    "longDescription": "pi-oven 서버에 연결하는 데스크톱 창입니다. 서버는 별도로 실행합니다.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+  }
+}
