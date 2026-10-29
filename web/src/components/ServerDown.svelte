@@ -29,7 +29,7 @@
     <button class="btn" type="button" onclick={() => app.boot()}>{S.retry}</button>
     <form onsubmit={(e) => { e.preventDefault(); apply(); }}>
       <input class="field mono" data-priv="hosts" bind:value={addr} placeholder="http://localhost:4141" spellcheck="false" aria-label="서버 주소" />
-      <button class="btn" type="submit">{S.serverChange}</button>
+      <button class="btn primary" type="submit">{S.serverChange}</button>
     </form>
     {#if serverUrl.value}
       <button class="btn quiet" type="button" onclick={useThisPage}>{S.serverReset}</button>
