@@ -24,6 +24,8 @@
   let pick = $state(0);
   let dragging = $state(false);
   let menu = $state<Menu>(null);
+  // A touch keyboard's Enter is the newline key (enterkeyhint=new-line on the textarea); sending is the button's job.
+  const coarse = matchMedia('(pointer: coarse)').matches;
   const toggle = (m: Exclude<Menu, null>) => {
     menu = menu === m ? null : m;
   };
@@ -89,6 +91,8 @@
   function onkeydown(e: KeyboardEvent) {
     // Korean/Japanese/Chinese IME: Enter while composing confirms the syllable, it must not send.
     if (e.isComposing || e.keyCode === 229) return;
+    // Touch: Enter makes a line break; the send button sends. (Desktop keeps Enter-to-send.)
+    if (coarse && e.key === 'Enter') return;
 
     if (slash.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); pick = (pick + 1) % slash.length; return; }
@@ -238,6 +242,7 @@
         placeholder={chat.running ? (app.narrow ? S.composerPlaceholderRunningShort : S.composerPlaceholderRunning) : S.composerPlaceholder}
         aria-label="메시지"
         spellcheck="false"
+        enterkeyhint={'new-line' as never} /* spec value predates the tooling's enum */
       ></textarea>
 
       {#if chat.running && !canSend}
