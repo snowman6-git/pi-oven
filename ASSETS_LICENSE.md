@@ -7,6 +7,7 @@ These are covered by the project's Apache-2.0 license (see `LICENSE`), like the 
 | File | Notes |
 |---|---|
 | `web/public/logo.svg` (copied to `desktop/ui/logo.svg`, and the icons in `desktop/icons/` made from it) | Original drawing for pi-oven (a flame). Colours are this app's own theme tokens. It is **not** the pi project's logo; the pi logo is not used anywhere in this repository. |
+| `docs/architecture.svg` | Diagram for the README, drawn for this project in the app's colours. The pi logo in it is the one published at https://pi.dev/logo-auto.svg; it belongs to its owners and is used only to say "this box is pi". It is not pi-oven's logo, and the Apache-2.0 grant above does not cover it. |
 | `web/src/lib/icons.ts`, `web/src/components/FileIcon.svelte`, `web/src/lib/filetypes.ts` | Line icons (24×24 grid, 1.8px stroke) and the file-type drawings, drawn for this project. They follow the common conventions of open line-icon sets, and a few simple shapes (menu, eye, copy, trash, bell, external link) look like their counterparts in [Feather](https://github.com/feathericons/feather) (MIT, © Cole Bemis) and [Lucide](https://github.com/lucide-icons/lucide) (ISC, © Lucide Contributors). As a precaution their notices are kept in `THIRD_PARTY_NOTICES.md`. |
 
 ## Fonts
