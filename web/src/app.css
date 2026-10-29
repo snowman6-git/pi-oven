@@ -1,0 +1,367 @@
+@import './composer-menus.css';
+/* Tokens. Dark warm charcoal with one orange accent; amber appears only while the agent works. */
+:root {
+  --paper: #14110f;
+  --paper-sunk: #0e0c0b;
+  --raised: #1d1916;
+  --ink: #ede6df;
+  --ink-2: #b3a89e;
+  --ink-3: #81776e;
+  --rule: #302a25;
+  --accent: #ff7a1a;
+  --accent-ink: #1a0d02;
+  --accent-wash: #3a2210;
+  --heat: #ffb020;
+  --heat-wash: #3d2d0e;
+  --ok: #7bc47f;
+  --bad: #ff6b5e;
+  --add-bg: #1f3022;
+  --del-bg: #3b1e1b;
+  --code-bg: #0f0d0b;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 10px 28px -8px rgb(0 0 0 / 0.7);
+  /* what dims the page behind a dialog: warm, not the cool green-grey it used to be */
+  --scrim: rgb(12 9 7 / 0.6);
+  /* the colour of a file kind's drawing (file icons); muted, so a list of them is calm */
+  --ft-ink: var(--ink-2); --ft-blue: #7da5d6; --ft-violet: #a58bd0; --ft-teal: #5fb8aa; --ft-green: #7bc47f; --ft-orange: #ff8a3d; --ft-amber: #d6a93a; --ft-red: #e47a6e;
+  color-scheme: dark;
+
+  --font-ui: 'NxMaple', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --sidebar-w: 292px;
+  --inspector-w: 280px;
+  --measure: 46rem;
+}
+:root[data-theme='light'] {
+  --paper: #f4efea;
+  --paper-sunk: #eae3dc;
+  --raised: #fbf8f5;
+  --ink: #221b16;
+  --ink-2: #5a4e45;
+  --ink-3: #8c7f74;
+  --rule: #d6ccc2;
+  --accent: #d9560a;
+  --accent-ink: #ffffff;
+  --accent-wash: #f8dcc6;
+  --heat: #e8890c;
+  --heat-wash: #f7e2b8;
+  --ok: #2c7a4b;
+  --bad: #b3261e;
+  --add-bg: #d6e8d4;
+  --del-bg: #f2d4cf;
+  --code-bg: #ebe4dc;
+  --shadow: 0 1px 0 rgb(0 0 0 / 0.04), 0 8px 24px -8px rgb(34 27 22 / 0.28);
+  --scrim: rgb(34 27 22 / 0.4);
+  --ft-ink: var(--ink-2); --ft-blue: #3d6fa5; --ft-violet: #7a5ba8; --ft-teal: #2f8577; --ft-green: #2c7a4b; --ft-orange: #d9560a; --ft-amber: #a77b12; --ft-red: #b3453a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme='auto'] {
+    --paper: #f4efea;
+    --paper-sunk: #eae3dc;
+    --raised: #fbf8f5;
+    --ink: #221b16;
+    --ink-2: #5a4e45;
+    --ink-3: #8c7f74;
+    --rule: #d6ccc2;
+    --accent: #d9560a;
+    --accent-ink: #ffffff;
+    --accent-wash: #f8dcc6;
+    --heat: #e8890c;
+    --heat-wash: #f7e2b8;
+    --ok: #2c7a4b;
+    --bad: #b3261e;
+    --add-bg: #d6e8d4;
+    --del-bg: #f2d4cf;
+    --code-bg: #ebe4dc;
+    --shadow: 0 1px 0 rgb(0 0 0 / 0.04), 0 8px 24px -8px rgb(34 27 22 / 0.28);
+    --scrim: rgb(34 27 22 / 0.4);
+    --ft-ink: var(--ink-2); --ft-blue: #3d6fa5; --ft-violet: #7a5ba8; --ft-teal: #2f8577; --ft-green: #2c7a4b; --ft-orange: #d9560a; --ft-amber: #a77b12; --ft-red: #b3453a;
+    color-scheme: light;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+/* Touch: no grey flash on tap, no double-tap-zoom delay. Hover styles live in @media (hover: hover). */
+* {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#app {
+  height: 100dvh;
+}
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 var(--fs, 15px)/1.6 var(--font-ui);
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* native checkboxes follow the palette */
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+::selection {
+  background: var(--accent-wash);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+code,
+pre,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-feature-settings: 'calt' 1;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+  @media (hover: hover) {
+    ::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-3);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  }
+
+
+/* Shared small controls */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-weight: 560;
+  font-size: 13.5px;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  background: var(--raised);
+  transition: background 0.12s, border-color 0.12s;
+}
+  @media (hover: hover) {
+    .btn:hover {
+    border-color: var(--ink-3);
+  }
+  }
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+  @media (hover: hover) {
+    .btn.primary:hover {
+    filter: brightness(1.08);
+  }
+  }
+
+.btn.danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--accent-ink);
+}
+@media (hover: hover) {
+  .btn.danger:hover {
+    filter: brightness(1.08);
+  }
+}
+.btn.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+}
+  @media (hover: hover) {
+    .btn.quiet:hover {
+    background: var(--paper-sunk);
+    color: var(--ink);
+  }
+  }
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--ink-2);
+}
+  @media (hover: hover) {
+    .icon-btn:hover {
+    background: var(--paper-sunk);
+    color: var(--ink);
+  }
+  }
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.field {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: var(--raised);
+}
+.field:focus-visible {
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Streaming text effects: see lib/stream-fx.ts. Chosen in settings, set as data-fx on .md. */
+[data-fx] .w {
+  animation-duration: 0.52s;
+  animation-fill-mode: both;
+}
+[data-fx='bounce'] .w {
+  display: inline-block;
+  animation-name: fx-rise;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-fx='fade'] .w {
+  animation-name: fx-fade;
+  animation-timing-function: ease-out;
+}
+[data-fx='ember'] .w {
+  animation-name: fx-ember;
+  animation-timing-function: ease-out;
+}
+@keyframes fx-rise {
+  0% { opacity: 0; transform: translateY(0.75em); }
+  55% { opacity: 1; transform: translateY(-0.16em); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes fx-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* New words arrive hot and cool down to the text colour. */
+@keyframes fx-ember {
+  0% { opacity: 0.25; color: var(--heat); text-shadow: 0 0 0.7em var(--heat); }
+  60% { opacity: 1; color: var(--heat); text-shadow: 0 0 0.3em var(--heat); }
+  100% { opacity: 1; color: inherit; text-shadow: none; }
+}
+
+@media (max-width: 720px) {
+  /* 16px stops iOS from zooming the page when a field is focused. */
+  textarea,
+  input,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* a line pi just changed in an open file */
+.cm-remote-line {
+  animation: cm-remote 1.7s ease-out;
+}
+@keyframes cm-remote {
+  from { background-color: color-mix(in srgb, var(--heat) 38%, transparent); }
+  to { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-remote-line { animation: none; background-color: color-mix(in srgb, var(--heat) 22%, transparent); }
+}
+
+/* a message the Pin tab sent you back to */
+.pinflash {
+  animation: pin-flash 1.7s ease-out;
+}
+@keyframes pin-flash {
+  from { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+  to { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pinflash { animation: none; background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
+}
+
+/* Showcase mode: elements marked data-priv are blurred when their kind is switched on (the page's data-showcase lists the kinds).
+   In the example style their text is overwritten instead (lib/maskdom.ts); form controls and the editor can't be, so they stay blurred. */
+html[data-showcase~='paths']:not([data-showcase-style='example']) [data-priv~='paths'],
+html[data-showcase~='titles']:not([data-showcase-style='example']) [data-priv~='titles'],
+html[data-showcase~='files']:not([data-showcase-style='example']) [data-priv~='files'],
+html[data-showcase~='secrets']:not([data-showcase-style='example']) [data-priv~='secrets'],
+html[data-showcase~='hosts']:not([data-showcase-style='example']) [data-priv~='hosts'],
+html[data-showcase~='chat']:not([data-showcase-style='example']) [data-priv~='chat'] {
+  filter: blur(6px);
+  user-select: none;
+  -webkit-user-select: none;
+}
+html[data-showcase~='paths'][data-showcase-style='example'] :is(input, textarea, .cm-editor)[data-priv~='paths'],
+html[data-showcase~='paths'][data-showcase-style='example'] [data-priv~='paths'] :is(input, textarea, .cm-editor),
+html[data-showcase~='titles'][data-showcase-style='example'] :is(input, textarea, .cm-editor)[data-priv~='titles'],
+html[data-showcase~='titles'][data-showcase-style='example'] [data-priv~='titles'] :is(input, textarea, .cm-editor),
+html[data-showcase~='files'][data-showcase-style='example'] :is(input, textarea, .cm-editor)[data-priv~='files'],
+html[data-showcase~='files'][data-showcase-style='example'] [data-priv~='files'] :is(input, textarea, .cm-editor),
+html[data-showcase~='secrets'][data-showcase-style='example'] :is(input, textarea, .cm-editor)[data-priv~='secrets'],
+html[data-showcase~='secrets'][data-showcase-style='example'] [data-priv~='secrets'] :is(input, textarea, .cm-editor),
+html[data-showcase~='hosts'][data-showcase-style='example'] :is(input, textarea, .cm-editor)[data-priv~='hosts'],
+html[data-showcase~='hosts'][data-showcase-style='example'] [data-priv~='hosts'] :is(input, textarea, .cm-editor),
+html[data-showcase~='chat'][data-showcase-style='example'] :is(input, textarea, .cm-editor)[data-priv~='chat'],
+html[data-showcase~='chat'][data-showcase-style='example'] [data-priv~='chat'] :is(input, textarea, .cm-editor) {
+  filter: blur(6px);
+  user-select: none;
+  -webkit-user-select: none;
+}

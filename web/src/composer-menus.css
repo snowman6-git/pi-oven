@@ -1,0 +1,98 @@
+/* The small menus that open above the message box (attach, permission, model, thinking, context). Composer and ComposerMeta share them, so they are global and live under .dock. */
+.dock .pop {
+  position: relative;
+}
+.dock .sheet {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  max-height: min(380px, 60vh);
+  overflow: auto;
+  z-index: 20;
+  padding: 6px;
+  background: var(--raised);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 2px;
+}
+.dock .sheet.narrow {
+  min-width: 150px;
+}
+.dock .sheet.narrow button[role='menuitem'] {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.dock .sheet.wide {
+  width: 320px;
+}
+.dock .sheet ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dock .sheet button:not(.btn) {
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+@media (hover: hover) {
+  .dock .sheet button:not(.btn):hover,
+  .dock .sheet button.on {
+    background: var(--paper-sunk);
+  }
+}
+.dock .sheet button.on {
+  font-weight: 650;
+}
+.dock .sheet small,
+.dock .sheet .none {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+.dock .sheet .none {
+  padding: 8px 10px;
+}
+.dock .sheet button.addmodel {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 8px 8px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+@media (hover: hover) {
+  .dock .sheet button.addmodel:hover {
+    color: var(--ink);
+    background: var(--paper-sunk);
+  }
+}
+@media (max-width: 720px) {
+  /* Menus open across the whole row instead of hanging off whichever chip was tapped. */
+  .dock .pop {
+    position: static;
+  }
+  .dock .sheet,
+  .dock .sheet.wide,
+  .dock .sheet.narrow,
+  .dock .meta .pop ~ .pop .sheet {
+    left: 0;
+    right: 0;
+    width: auto;
+    min-width: 0;
+    bottom: calc(100% + 4px);
+  }
+}
