@@ -187,6 +187,7 @@ export class Chat {
   /** pi's notice for a task has reached the conversation. If the task still has its chip and the conversation can be seen,
       the chip becomes the bubble (it flies there; the bubble stays hidden until it lands); otherwise the chip just goes. */
   #taskArrived(id: string) {
+    this.#awaitingNotice.delete(id);
     if (!this.bgChips.some((t) => t.id === id)) return;
     if (!this.chatVisible || document.hidden || this.bgLanding.includes(id)) {
       this.dismissBg(id);
@@ -202,6 +203,18 @@ export class Chat {
   landed(id: string) {
     this.bgHandoffHold = this.bgHandoffHold.filter((x) => x !== id);
     this.dismissBg(id);
+  }
+
+  /** Finished chips whose notice is held back because the agent is busy (pi delivers it as a follow-up, after the run). */
+  #awaitingNotice = new Set<string>();
+
+  /** pi sends the notice right away when it is idle, but while it is working the notice waits for the end of the run, which can be
+      long after the task. So a busy agent keeps the chip (up to 15 minutes); once it settles the notice has 10 s to come. */
+  #expireUnlessBusy(id: string) {
+    if (!this.bgFresh.includes(id)) return;
+    if (!this.running) return this.#expire(id);
+    this.#awaitingNotice.add(id);
+    setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 15 * 60_000);
   }
 
   /** The notice did not come: a finished chip does not stay for ever. */
@@ -293,7 +306,7 @@ export class Chat {
     if (!this.bgFresh.includes(t.id)) this.bgFresh = [...this.bgFresh, t.id];
     // A clean finish has its moment (the chip pops), then waits for pi's notice to take it into the conversation;
     // if none comes it goes by itself. A failure stays until someone has seen it.
-    if (t.status === 'completed') setTimeout(() => this.#expire(t.id), 10_000);
+    if (t.status === 'completed') setTimeout(() => this.#expireUnlessBusy(t.id), 10_000);
   }
 
   #announceLaunch(toolId: string, task?: BgTask) {
@@ -544,6 +557,8 @@ export class Chat {
       case 'agent_settled':
         this.running = false;
         this.#sending = false;
+        // the notices held back by the run come now; whatever has none in 10 s was not going to get one
+        for (const id of this.#awaitingNotice) setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 10_000);
         this.retry = null;
         for (const it of this.items) if (it.kind === 'assistant') it.live = false;
         this.host.changed();
