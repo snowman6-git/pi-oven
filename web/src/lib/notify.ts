@@ -18,10 +18,10 @@ export function askPermission() {
 let audio: AudioContext | undefined;
 const DROPS: Record<'bg-start' | 'bg-card' | 'bg-stop' | 'bg-done' | 'bg-bubble', [number, number, number, number]> = {
   'bg-start': [1150, 500, 0.16, 0.10], // object born: small and bright
-  'bg-card': [950, 420, 0.2, 0.11], // the card lands in the tool row
+  'bg-card': [700, 280, 0.22, 0.12], // the card lands in the tool row: lower, so it is not heard as the birth
   'bg-done': [820, 240, 0.34, 0.14], // finished: the big one
   'bg-stop': [320, 130, 0.22, 0.12], // killed: dull thud
-  'bg-bubble': [1400, 900, 0.12, 0.08], // its notice bubble enters the chat: a small, high pop
+  'bg-bubble': [1100, 620, 0.24, 0.14], // its notice bubble enters the chat: a clear, audible pop
 };
 export type Beep = 'done' | 'ask' | 'todo-step' | keyof typeof DROPS;
 const BEEP_HZ: Record<'done' | 'ask' | 'todo-step', number> = { done: 880, ask: 660, 'todo-step': 523 };
