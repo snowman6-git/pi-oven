@@ -1,5 +1,6 @@
 <script lang="ts">
   import { headline, summarize, unfinished, type Task } from '../addons/todo';
+  import { beep } from '../lib/notify';
   import type { Chat } from '../lib/chat.svelte';
   import Icon from './Icon.svelte';
 
@@ -31,6 +32,7 @@
   $effect(() => {
     const now = new Map(s.tasks.map((t) => [t.id, t.status]));
     const finished = ready ? s.tasks.filter((t) => t.status === 'completed' && before.get(t.id) && before.get(t.id) !== 'completed') : [];
+    if (finished.length && !document.hidden) beep('todo-step', s.done); // a semitone higher per step
     before = now;
     ready = true;
     if (!finished.length || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
