@@ -5,10 +5,7 @@
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[cfg(desktop)]
-use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
-    webview::NewWindowResponse,
-};
+use tauri::webview::NewWindowResponse;
 
 fn config_file(app: &AppHandle) -> Option<PathBuf> {
     Some(app.path().app_config_dir().ok()?.join("server.txt"))
@@ -59,7 +56,8 @@ fn get_server(app: AppHandle) -> Option<String> {
     given_server().or_else(|| saved_server(&app))
 }
 
-/// Windows open at 1280x720 (16:9), can be resized and can go full screen (F11 or the View menu).
+/// Windows open at 1280x720 (16:9) and can be resized. There is no menu bar: it made the web view miss its size on some
+/// Linux desktops (blank until a resize, clipped on resize), and what it offered lives elsewhere now.
 #[cfg(desktop)]
 const DEFAULT_SIZE: (f64, f64) = (1280.0, 720.0);
 
@@ -158,34 +156,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![get_server, connect, auto_connect])
         .setup(|app| {
             let h = app.handle();
-            #[cfg(desktop)]
-            {
-            let change = MenuItem::with_id(h, "server", "서버 바꾸기…", true, Some("CmdOrCtrl+L"))?;
-            let reload = MenuItem::with_id(h, "reload", "새로고침", true, Some("CmdOrCtrl+R"))?;
-            let fullscreen = MenuItem::with_id(h, "fullscreen", "전체 화면", true, Some("F11"))?;
-            let menu = Menu::with_items(
-                h,
-                &[
-                    &Submenu::with_items(h, "pi-oven", true, &[&change, &reload, &PredefinedMenuItem::separator(h)?, &PredefinedMenuItem::quit(h, Some("종료"))?])?,
-                    &Submenu::with_items(h, "보기", true, &[&fullscreen])?,
-                    &Submenu::with_items(
-                        h,
-                        "편집",
-                        true,
-                        &[
-                            &PredefinedMenuItem::undo(h, Some("실행 취소"))?,
-                            &PredefinedMenuItem::redo(h, Some("다시 실행"))?,
-                            &PredefinedMenuItem::separator(h)?,
-                            &PredefinedMenuItem::cut(h, Some("잘라내기"))?,
-                            &PredefinedMenuItem::copy(h, Some("복사"))?,
-                            &PredefinedMenuItem::paste(h, Some("붙여넣기"))?,
-                            &PredefinedMenuItem::select_all(h, Some("모두 선택"))?,
-                        ],
-                    )?,
-                ],
-            )?;
-            app.set_menu(menu)?;
-            }
 
             #[cfg(desktop)]
             match given_server().or_else(|| saved_server(h)).and_then(|v| parse_server(&v).ok()) {
@@ -196,29 +166,6 @@ pub fn run() {
             #[cfg(mobile)]
             show_launcher(h)?;
             Ok(())
-        });
-
-    #[cfg(desktop)]
-    let builder = builder
-        .on_menu_event(|app, ev| {
-            match ev.id().as_ref() {
-                "server" => {
-                    let _ = show_launcher(app);
-                }
-                "fullscreen" => {
-                    // The window the person is looking at: the server's if it is open, else the launcher.
-                    if let Some(win) = app.get_webview_window("main").or_else(|| app.get_webview_window("launcher")) {
-                        let on = win.is_fullscreen().unwrap_or(false);
-                        let _ = win.set_fullscreen(!on);
-                    }
-                }
-                "reload" => {
-                    if let Some(win) = app.get_webview_window("main") {
-                        let _ = win.eval("location.reload()");
-                    }
-                }
-                _ => {}
-            }
         });
 
     builder
