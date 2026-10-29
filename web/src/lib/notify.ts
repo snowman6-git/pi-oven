@@ -16,14 +16,15 @@ export function askPermission() {
 }
 
 let audio: AudioContext | undefined;
-export type Beep = 'done' | 'ask' | 'bg-start' | 'bg-stop' | 'bg-done' | 'todo-step';
-const BEEP_HZ: Record<'done' | 'ask' | 'todo-step', number> = { done: 880, ask: 660, 'todo-step': 523 };
-// A water drop: a sine that falls in pitch as it sinks, plus one quiet inharmonic partial for the "plink". [from, to, seconds, peak]
-const DROPS: Record<'bg-start' | 'bg-stop' | 'bg-done', [number, number, number, number]> = {
-  'bg-start': [1150, 500, 0.16, 0.10], // small and bright
-  'bg-done': [820, 240, 0.34, 0.14], // the big one
-  'bg-stop': [320, 130, 0.22, 0.12], // dull thud
+const DROPS: Record<'bg-start' | 'bg-card' | 'bg-stop' | 'bg-done' | 'bg-bubble', [number, number, number, number]> = {
+  'bg-start': [1150, 500, 0.16, 0.10], // object born: small and bright
+  'bg-card': [950, 420, 0.2, 0.11], // the card lands in the tool row
+  'bg-done': [820, 240, 0.34, 0.14], // finished: the big one
+  'bg-stop': [320, 130, 0.22, 0.12], // killed: dull thud
+  'bg-bubble': [1400, 900, 0.12, 0.08], // its notice bubble enters the chat: a small, high pop
 };
+export type Beep = 'done' | 'ask' | 'todo-step' | keyof typeof DROPS;
+const BEEP_HZ: Record<'done' | 'ask' | 'todo-step', number> = { done: 880, ask: 660, 'todo-step': 523 };
 function drop(ctx: AudioContext, f0: number, f1: number, dur: number, peak: number, t0: number) {
   const o = ctx.createOscillator();
   const g = ctx.createGain();
@@ -50,13 +51,14 @@ function tone(kind: Beep, step = 0) {
     audio ??= new AudioContext();
     if (audio.state === 'suspended') void audio.resume();
     const t0 = audio.currentTime;
-    if (kind === 'bg-start' || kind === 'bg-stop' || kind === 'bg-done') {
+    if (kind === 'bg-start' || kind === 'bg-card' || kind === 'bg-stop' || kind === 'bg-done' || kind === 'bg-bubble') {
+      // a water drop: a sine that falls in pitch as it sinks, plus one quiet inharmonic partial for the "plink"
       drop(audio, ...DROPS[kind], t0);
       return;
     }
     const o = audio.createOscillator();
     const g = audio.createGain();
-    o.frequency.value = kind === 'todo-step' ? BEEP_HZ['todo-step'] * Math.pow(2, Math.min(step, 24) / 12) : BEEP_HZ[kind]; // one semitone higher per finished step
+    o.frequency.value = kind === 'todo-step' ? BEEP_HZ['todo-step'] * Math.pow(2, Math.min(step, 10) / 12) : BEEP_HZ[kind]; // a fixed 10-step ladder
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);

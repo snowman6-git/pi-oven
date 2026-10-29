@@ -188,6 +188,7 @@ export class Chat {
   /** pi's notice for a task has reached the conversation. If the task still has its chip and the conversation can be seen,
       the chip becomes the bubble (it flies there; the bubble stays hidden until it lands); otherwise the chip just goes. */
   #taskArrived(id: string) {
+    if (this.chatVisible) beep('bg-bubble'); // the notice bubble enters the conversation
     this.#awaitingNotice.delete(id);
     if (!this.bgChips.some((t) => t.id === id)) return;
     if (!this.chatVisible || document.hidden || this.bgLanding.includes(id)) {
@@ -289,6 +290,7 @@ export class Chat {
     for (const id of this.#pending.keys()) if (!tasks.some((t) => t.id === id)) this.bgLanding = this.bgLanding.filter((x) => x !== id);
     this.#pending.clear();
     this.#pendingSince = 0;
+    if (tasks.length && this.chatVisible) beep('bg-card'); // the card(s) land in the tool row
   }
 
   #hold(id: string) {
