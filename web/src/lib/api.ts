@@ -111,6 +111,7 @@ export const api = {
     call<{ hash: string }>(`/api/runtimes/${id}/git/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
   /** The newest saved state of an extension (`appendEntry`) on the branch the session stands on, or null. */
   sessionState: (path: string, type: string) => call<{ data: unknown }>(`/api/sessions/state?path=${encodeURIComponent(path)}&type=${encodeURIComponent(type)}`),
+  tailSession: (path: string) => call<{ lines: string[] }>(`/api/sessions/tail?path=${encodeURIComponent(path)}&n=25`),
   files: (id: string, path = '') => call<FileListing>(`/api/runtimes/${id}/files?path=${encodeURIComponent(path)}`),
   readFile: (id: string, path: string) => call<FileText>(`/api/runtimes/${id}/files/read?path=${encodeURIComponent(path)}`),
   writeFile: (id: string, body: { path: string; content: string; rev?: string | null; overwrite?: boolean; eol?: string; bom?: boolean }) =>

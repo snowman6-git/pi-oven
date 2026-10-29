@@ -6,7 +6,7 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -463,6 +463,37 @@ pub async fn state(State(app): State<Arc<AppState>>, Query(q): Query<StateQuery>
         Ok(Err(e)) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
+}
+
+#[derive(Deserialize)]
+pub struct TailQuery {
+    path: String,
+    #[serde(default = "default_tail_n")]
+    n: u32,
+}
+
+fn default_tail_n() -> u32 {
+    20
+}
+
+/// The last `n` lines of a session file. Background-task notices only ever land in the file — the RPC
+/// stream never emits them — so the client reads them out of the tail while a task awaits its notice.
+pub async fn tail(State(app): State<Arc<AppState>>, Query(q): Query<TailQuery>) -> Response {
+    let n = q.n.clamp(1, 100);
+    let file = match resolve(&app, &q.path) {
+        Ok(f) => f,
+        Err((code, msg)) => return fail(code, msg),
+    };
+    match tokio::task::spawn_blocking(move || tail_lines(&file, n)).await {
+        Ok(Ok(lines)) => Json(serde_json::json!({ "lines": lines })).into_response(),
+        Ok(Err(e)) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+fn tail_lines(file: &Path, n: u32) -> Result<Vec<String>, String> {
+    let data = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
+    Ok(data.lines().rev().take(n as usize).map(str::to_string).collect::<Vec<_>>().into_iter().rev().collect())
 }
 
 pub async fn branch(State(app): State<Arc<AppState>>, Json(req): Json<BranchReq>) -> Response {

@@ -122,6 +122,7 @@ export class Chat {
   #bgBaseline = false;
   #bgFetching = false;
   #bgEventSeq = 0;
+  #noticeTimer: ReturnType<typeof setTimeout> | undefined;
   #handoffSeq = 0;
   /** Tool calls that can start background tasks and have not returned yet (toolCallId -> tool name). `bg_run` itself reports its task when it ends; a script that calls it (`codemode`) reports nothing, so its tasks are found on the list. */
   #launching = new Map<string, string>();
@@ -217,6 +218,38 @@ export class Chat {
     if (!this.running) return this.#expire(id);
     this.#awaitingNotice.add(id);
     setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 15 * 60_000);
+    if (!this.#noticeTimer) this.#pollNotice();
+  }
+
+  /** The notice only ever lands in the session file (the RPC stream never emits it), so while a task awaits its
+      notice the tail of the file is read for a `custom_message` record. */
+  #pollNotice() {
+    if (this.#awaitingNotice.size === 0) return;
+    const file = this.sessionFile;
+    if (file)
+      api
+        .tailSession(file)
+        .then(({ lines }) => {
+          for (const line of lines) {
+            let rec: any;
+            try {
+              rec = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (rec.type !== 'custom_message' || rec.customType !== 'background-task-notification') continue;
+            const id = String(rec.details?.id ?? '');
+            if (!id || !this.#awaitingNotice.has(id)) continue;
+            if (this.items.some((i) => i.kind === 'task' && i.id === id)) continue;
+            const t = taskItem(rec);
+            if (t) {
+              this.items.push(t);
+              this.#taskArrived(id); // the pop, and the card flying into the bubble
+            }
+          }
+        })
+        .catch(() => {});
+    this.#noticeTimer = setTimeout(() => this.#pollNotice(), 1500);
   }
 
   /** The notice did not come: a finished chip does not stay for ever. */
