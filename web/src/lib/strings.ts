@@ -48,6 +48,7 @@ export const S = {
   tokenWrong: '맞지 않습니다. 다시 확인해 주세요. 여러 번 틀리면 잠시 막힙니다.',
   tokenLocked: '시도가 너무 많았습니다. 잠시 뒤에 다시 해 주세요.',
   tokenSubmit: '연결',
+  tokenBack: '서버 바꾸기',
   serverDown: '서버에 연결할 수 없습니다. pi-oven 서버가 실행 중인지 확인하세요.',
   emptyTitle: '어디서 작업할까요?',
   emptyBody: '폴더를 선택하면 pi가 그 폴더에서 새 세션을 시작합니다. 왼쪽 목록에서 이전 세션을 이어갈 수도 있습니다.',
