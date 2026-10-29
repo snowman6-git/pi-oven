@@ -15,6 +15,7 @@
   import Icon from './components/Icon.svelte';
   import Inspector from './components/Inspector.svelte';
   import Sidebar from './components/Sidebar.svelte';
+  import ServerDown from './components/ServerDown.svelte';
   import TokenGate from './components/TokenGate.svelte';
   import Toasts from './components/Toasts.svelte';
   import Transcript from './components/Transcript.svelte';
@@ -153,10 +154,7 @@
 {#if app.status === 'auth'}
   <TokenGate />
 {:else if app.status === 'down'}
-  <main class="center">
-    <p>{S.serverDown}</p>
-    <button class="btn" type="button" onclick={() => app.boot()}>다시 시도</button>
-  </main>
+  <ServerDown />
 {:else if app.status === 'booting'}
   <main class="center"><p class="faint">{S.connecting}</p></main>
 {:else}
