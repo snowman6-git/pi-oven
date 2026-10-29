@@ -10,6 +10,7 @@ export const PATHS = {
     stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
     clip: '<path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7L14 5.5a3.3 3.3 0 0 1 4.7 4.7L10.2 18.7a1.7 1.7 0 0 1-2.4-2.4L15 9"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
+    left: '<path d="M15 6l-6 6 6 6"/>',
     right: '<path d="M9 6l6 6-6 6"/>',
     up: '<path d="M18 15l-6-6-6 6"/>',
     x: '<path d="M6 6l12 12M18 6L6 18"/>',

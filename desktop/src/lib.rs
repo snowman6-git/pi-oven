@@ -61,6 +61,14 @@ fn get_server(app: AppHandle) -> Option<String> {
 #[cfg(desktop)]
 const DEFAULT_SIZE: (f64, f64) = (1280.0, 720.0);
 
+/// Gives the server's page a way back to the launcher without any access to the app: it only sets a function on `window`.
+/// A phone steps back in history (the launcher is the page before); a computer navigates to a made-up address that the
+/// window intercepts (see `show_server`) and answers by opening the launcher.
+#[cfg(desktop)]
+const BACK_SCRIPT: &str = "window.__piOvenBack = () => { location.href = 'pi-oven-launcher://back'; };";
+#[cfg(mobile)]
+const BACK_SCRIPT: &str = "window.__piOvenBack = () => history.back();";
+
 /// The window onto the server. Its page is the server's, so it is given no access to the app.
 fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
     // A phone has one window: the launcher itself goes to the server.
@@ -72,9 +80,25 @@ fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
         w.navigate(url)?;
         return w.set_focus();
     }
-    let b = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url)).title("pi-oven");
+    let b = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+        .title("pi-oven")
+        .initialization_script(BACK_SCRIPT);
+    #[cfg(desktop)]
+    let handle = app.clone();
     #[cfg(desktop)]
     let b = b
+        .on_navigation(move |u| {
+            if u.scheme() != "pi-oven-launcher" {
+                return true;
+            }
+            // Open the launcher first so that closing this window never leaves the app without one.
+            if show_launcher(&handle).is_ok() {
+                if let Some(w) = handle.get_webview_window("main") {
+                    let _ = w.close();
+                }
+            }
+            false
+        })
         .inner_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1)
         .min_inner_size(640.0, 360.0)
         .center()
