@@ -59,6 +59,10 @@ fn get_server(app: AppHandle) -> Option<String> {
     given_server().or_else(|| saved_server(&app))
 }
 
+/// Windows open at 1280x720 (16:9), can be resized and can go full screen (F11 or the View menu).
+#[cfg(desktop)]
+const DEFAULT_SIZE: (f64, f64) = (1280.0, 720.0);
+
 /// The window onto the server. Its page is the server's, so it is given no access to the app.
 fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
     // A phone has one window: the launcher itself goes to the server.
@@ -73,8 +77,9 @@ fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
     let b = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url)).title("pi-oven");
     #[cfg(desktop)]
     let b = b
-        .inner_size(1360.0, 860.0)
-        .min_inner_size(420.0, 520.0)
+        .inner_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1)
+        .min_inner_size(640.0, 360.0)
+        .center()
         // The server's page opens links with window.open (Pin tab addresses, for one): those go to the system browser.
         .on_new_window(|url, _| {
             if matches!(url.scheme(), "http" | "https") {
@@ -82,18 +87,27 @@ fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
             }
             NewWindowResponse::Deny
         });
-    b.build().map(|_| ())
+    let w = b.build()?;
+    // Ask for the keyboard explicitly: a window opened by the app itself does not always get it from the desktop.
+    #[cfg(desktop)]
+    let _ = w.set_focus();
+    let _ = &w;
+    Ok(())
 }
 
-/// The small window for choosing a server.
+/// The window for choosing a server.
 fn show_launcher(app: &AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("launcher") {
         return w.set_focus();
     }
     let b = WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into())).title("pi-oven 서버");
     #[cfg(desktop)]
-    let b = b.inner_size(520.0, 460.0).resizable(false);
-    b.build().map(|_| ())
+    let b = b.inner_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1).min_inner_size(480.0, 360.0).center();
+    let w = b.build()?;
+    #[cfg(desktop)]
+    let _ = w.set_focus();
+    let _ = &w;
+    Ok(())
 }
 
 /// Remember the server (the file may hold a token, so only its owner can read it) and open it.
@@ -132,6 +146,14 @@ fn connect(app: AppHandle, window: WebviewWindow, url: String) -> Result<(), Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The AppImage carries its own copy of parts of the graphics stack (libwayland among them), and next to another system's
+    // drivers (Arch on Wayland, for one) WebKitGTK's DMA-BUF renderer misbehaves: the window turns black when it is minimised
+    // and shown again, or never gets the pointer and keyboard. Turning that one renderer off makes WebKit share frames the
+    // older way; the page is still composited on the GPU. Only the AppImage gets this, and a value the person set wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some() && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     let builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_server, connect, auto_connect])
         .setup(|app| {
@@ -140,10 +162,12 @@ pub fn run() {
             {
             let change = MenuItem::with_id(h, "server", "서버 바꾸기…", true, Some("CmdOrCtrl+L"))?;
             let reload = MenuItem::with_id(h, "reload", "새로고침", true, Some("CmdOrCtrl+R"))?;
+            let fullscreen = MenuItem::with_id(h, "fullscreen", "전체 화면", true, Some("F11"))?;
             let menu = Menu::with_items(
                 h,
                 &[
                     &Submenu::with_items(h, "pi-oven", true, &[&change, &reload, &PredefinedMenuItem::separator(h)?, &PredefinedMenuItem::quit(h, Some("종료"))?])?,
+                    &Submenu::with_items(h, "보기", true, &[&fullscreen])?,
                     &Submenu::with_items(
                         h,
                         "편집",
@@ -180,6 +204,13 @@ pub fn run() {
             match ev.id().as_ref() {
                 "server" => {
                     let _ = show_launcher(app);
+                }
+                "fullscreen" => {
+                    // The window the person is looking at: the server's if it is open, else the launcher.
+                    if let Some(win) = app.get_webview_window("main").or_else(|| app.get_webview_window("launcher")) {
+                        let on = win.is_fullscreen().unwrap_or(false);
+                        let _ = win.set_fullscreen(!on);
+                    }
                 }
                 "reload" => {
                     if let Some(win) = app.get_webview_window("main") {
