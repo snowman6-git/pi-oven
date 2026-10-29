@@ -16,12 +16,15 @@ export function askPermission() {
 }
 
 let audio: AudioContext | undefined;
-function tone(kind: 'done' | 'ask') {
+export type Beep = 'done' | 'ask' | 'bg-start' | 'bg-stop' | 'bg-done' | 'todo-step';
+const BEEP_HZ: Record<Beep, number> = { done: 880, ask: 660, 'bg-start': 440, 'bg-stop': 330, 'bg-done': 988, 'todo-step': 523 };
+function tone(kind: Beep, step = 0) {
   try {
     audio ??= new AudioContext();
+    if (audio.state === 'suspended') void audio.resume();
     const o = audio.createOscillator();
     const g = audio.createGain();
-    o.frequency.value = kind === 'ask' ? 660 : 880;
+    o.frequency.value = kind === 'todo-step' ? BEEP_HZ['todo-step'] * Math.pow(2, Math.min(step, 24) / 12) : BEEP_HZ[kind]; // one semitone higher per finished step
     g.gain.setValueAtTime(0.0001, audio.currentTime);
     g.gain.exponentialRampToValueAtTime(0.12, audio.currentTime + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.35);
@@ -29,6 +32,11 @@ function tone(kind: 'done' | 'ask') {
     o.start();
     o.stop(audio.currentTime + 0.4);
   } catch { /* autoplay blocked */ }
+}
+
+/** State-driven sounds (background tasks, todo steps): respect the notification-sound switch. */
+export function beep(kind: Beep, step = 0) {
+  if (notifyEnabled()) tone(kind, step);
 }
 
 export function alertPerson(kind: 'done' | 'ask', title: string, onClick: () => void) {

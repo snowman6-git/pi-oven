@@ -4,6 +4,7 @@ import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, 
 import { Connection } from './connection.svelte';
 import { Editors, type EditorHost } from './editor.svelte';
 import { pinsFor } from './pins.svelte';
+import { beep } from './notify';
 import { SPEED_STATUS_KEY, StreamTimer, parseSpeedLine, type Speed } from './speed';
 import type {
   BgTask, ExtensionRequest, ImagePart, ModelInfo, RuntimeInfo, SessionState, SessionStats,
@@ -302,6 +303,7 @@ export class Chat {
   }
 
   #bgEnded(t: BgTask) {
+    if (this.chatVisible) beep(t.status === 'completed' ? 'bg-done' : 'bg-stop');
     this.bgEvents = [...this.bgEvents.slice(-19), { n: ++this.#bgEventSeq, id: t.id, status: t.status }];
     if (!this.bgFresh.includes(t.id)) this.bgFresh = [...this.bgFresh, t.id];
     // A clean finish has its moment (the chip pops), then waits for pi's notice to take it into the conversation;
@@ -313,6 +315,7 @@ export class Chat {
     if (task?.id) {
       this.bgTasks = [...this.bgTasks.filter((t) => t.id !== task.id), { ...task, status: task.status ?? 'running', startTime: task.startTime ?? Date.now() }];
       this.#arrive(task.id, toolId);
+      if (this.chatVisible) beep('bg-start');
     }
     setTimeout(() => void this.refreshBgTasks(), 600);
   }
