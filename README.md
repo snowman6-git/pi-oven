@@ -27,6 +27,15 @@
 
 내려받기: [Releases](https://github.com/snowman6-git/pi-oven/releases) — Android(arm64) · Linux(AppImage) · Windows(x64). 브라우저만으로도 같은 화면을 쓸 수 있습니다(서버 주소를 열면 됩니다).
 
+| 앱 | 필요한 것 |
+|---|---|
+| Android (arm64) | Android 7.0(API 24) 이상. 설치할 때 "출처를 알 수 없는 앱" 허용 |
+| Linux (AppImage) | FUSE 2 (Arch `fuse2`, Debian·Ubuntu `libfuse2`). 없으면 `--appimage-extract-and-run`으로 실행. WebKit은 AppImage에 들어 있음 |
+| Linux (소스에서 빌드한 네이티브) | GTK 3와 `webkit2gtk-4.1` (Arch `gtk3` `webkit2gtk-4.1`, Debian·Ubuntu `libwebkit2gtk-4.1-0`) |
+| Windows (x64) | WebView2 런타임 (윈도우 10/11에는 보통 들어 있음) |
+
+리눅스에서 `GStreamer element appsink not found` 경고가 나오면 `gst-plugins-base`(Arch)·`gstreamer1.0-plugins-base`(Debian·Ubuntu)를 설치하면 사라집니다. 이 앱은 미디어를 재생하지 않아서 없어도 동작에는 지장이 없습니다. `Failed to load module "…-gtk-module"` 같은 메시지는 AppImage 안의 GTK가 시스템의 GTK 모듈을 못 찾는 것으로, 무시해도 됩니다.
+
 ## 사용법
 
 필요한 것: `pi`(`pi --mode rpc` 실행 가능), Rust(stable), Node.js.
