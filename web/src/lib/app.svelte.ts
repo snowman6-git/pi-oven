@@ -16,6 +16,8 @@ function save(key: string, v: unknown) {
 
 class App {
   status = $state<'booting' | 'auth' | 'down' | 'ready'>('booting');
+  /** What exactly failed on the last boot, for the down screen: the generic "unreachable" hides the real cause. */
+  bootError = $state('');
   home = $state('');
   sessions = $state<SessionSummary[]>([]);
   chats = $state<Chat[]>([]);
@@ -66,9 +68,11 @@ class App {
     try {
       const info = await api.info();
       this.home = info.home;
+      this.bootError = '';
       this.status = 'ready';
     } catch (e) {
       this.status = e instanceof AuthError ? 'auth' : 'down';
+      this.bootError = e instanceof AuthError ? '' : e instanceof Error ? e.message : String(e); // shown on the down screen: what exactly failed
       if (e instanceof AuthError) this.#lastAuth = e.why;
       return;
     }
