@@ -11,7 +11,7 @@ import type {
   SlashCommand, ThinkingLevel, Usage, WireMessage,
 } from './protocol';
 import {
-  applyResult, blocksFromContent, customLabel, itemsFromMessages, nextKey, taskItem, userItem,
+  applyResult, blocksFromContent, customLabel, itemsFromMessages, nextKey, taskItem, taskItemFromXml, userItem,
   type Block, type Item, type ToolBlock,
 } from './transcript';
 import { stripAnsi, textOf } from './util';
@@ -731,10 +731,17 @@ export class Chat {
         if (!this.#replaying && this.editors.active !== null) this.unreadReply = true;
         break;
       }
-      case 'user':
+      case 'user': {
         this.#ref = performance.now();
+        const x = taskItemFromXml(textOf(m.content));
+        if (x) {
+          this.items.push({ kind: 'task', key: nextKey(), id: x.id, name: x.name, command: '', status: x.status, exitCode: undefined, durationMs: undefined, text: x.name, ts: m.timestamp });
+          if (!this.#replaying) this.#taskArrived(x.id);
+          break;
+        }
         if (!this.items.some((i) => i.kind === 'user' && i.ts === m.timestamp)) this.items.push(userItem(m));
         break;
+      }
       case 'toolResult': {
         const t = m.toolCallId ? this.#findTool(m.toolCallId) : undefined;
         if (t) applyResult(t, m);

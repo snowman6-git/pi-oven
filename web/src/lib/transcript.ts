@@ -115,6 +115,18 @@ export function taskItem(m: WireMessage): Item | null {
   return { kind: 'task', key: nextKey(), id: String(d.id), name: String(d.name ?? d.command ?? d.id), command: String(d.command ?? ''), status: String(d.status ?? ''), exitCode: d.exitCode, durationMs, text: textOf(m.content), ts: m.timestamp };
 }
 
+/** Live delivery of the same notice: pi injects the XML as a user message; the `custom_message` form only exists in the session file (replay). */
+export function taskItemFromXml(text: string): { id: string; name: string; status: string } | null {
+  if (!text.includes('<background-task-notification>')) return null;
+  const id = text.match(/<task-id>([0-9a-f-]+)<\/task-id>/)?.[1];
+  if (!id) return null;
+  return {
+    id,
+    name: text.match(/<task-name>([^<]*)<\/task-name>/)?.[1] ?? id,
+    status: text.match(/<status>([a-z]+)<\/status>/)?.[1] ?? 'completed',
+  };
+}
+
 export function applyResult(t: ToolBlock, m: { content?: WireMessage['content']; isError?: boolean; details?: any }) {
   t.output = textOf(m.content);
   t.images = Array.isArray(m.content) ? (m.content.filter((p: any) => p.type === 'image') as ImagePart[]) : undefined;
