@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { app } from './lib/app.svelte';
+  import { menu } from './lib/contextmenu.svelte';
   import { FILE_MIME } from './lib/editor.svelte';
   import { showcase } from './lib/showcase.svelte';
   import { maskExample } from './lib/maskdom';
@@ -99,6 +100,43 @@
     return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
   };
 
+  // One history entry per open surface: the phone's back button is the webview's history.back(), and without this
+  // it would leave for the launcher with the dialog still open. Closing by other means (Escape, backdrop, button)
+  // consumes the entry so a plain back does not leave the page. A server-apply reload can leave one stale entry
+  // (settings open when the page reloads): it costs one extra back press.
+  let overlayDepth = 0;
+  let popping = false;
+  const overlayCount = () => {
+    const c = app.current;
+    return [
+      !!c?.bgOpen, !!c?.extTitle, app.folderPicker, app.settingsOpen, app.modelDialog, !!app.treeTarget, !!app.dialog, menu.open,
+      app.narrow && app.sidebarOpen, app.narrow && app.inspectorDrawer,
+    ].filter(Boolean).length;
+  };
+  $effect(() => {
+    const n = overlayCount();
+    if (n > overlayDepth) history.pushState(null, '');
+    else if (n < overlayDepth && !popping) history.back();
+    overlayDepth = n;
+  });
+  function onPopState() {
+    popping = true;
+    const open = document.querySelectorAll('dialog[open]');
+    if (open.length) {
+      const d = open[open.length - 1] as HTMLDialogElement;
+      const cancel = new Event('cancel', { cancelable: true });
+      d.dispatchEvent(cancel);
+      if (!cancel.defaultPrevented) d.close();
+    } else if (menu.open) {
+      menu.hide();
+    } else if (app.narrow && app.sidebarOpen) {
+      app.sidebarOpen = false;
+    } else if (app.narrow && app.inspectorDrawer) {
+      app.inspectorDrawer = false;
+    }
+    queueMicrotask(() => (popping = false));
+  }
+
   // Unsaved edits are worth a warning before the tab goes away.
   function beforeUnload(e: BeforeUnloadEvent) {
     if (app.chats.some((c) => c.editors.dirtyCount > 0)) e.preventDefault();
@@ -149,7 +187,7 @@
   });
 </script>
 
-<svelte:window onbeforeunload={beforeUnload} onpointerdowncapture={backdropDown} onclick={backdropClick} />
+<svelte:window onbeforeunload={beforeUnload} onpointerdowncapture={backdropDown} onclick={backdropClick} onpopstate={onPopState} />
 
 {#if app.status === 'auth'}
   <TokenGate />
