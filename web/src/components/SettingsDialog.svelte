@@ -4,6 +4,7 @@
   import { hasMaple } from '../lib/maple';
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
+  import { S } from '../lib/strings';
   import { serverUrl, settings, type FontSize, type StreamFx } from '../lib/settings.svelte';
 
   let dlg: HTMLDialogElement;
@@ -34,9 +35,22 @@
     if (!ruleError) ruleName = rulePattern = '';
   }
 
-  function saveServer() {
-    if (server.trim().replace(/\/+$/, '') === serverUrl.value) return;
-    serverUrl.value = server;
+  // An address nothing answers on is not applied: the page would only come back to the "cannot connect" screen.
+  async function saveServer() {
+    const next = server.trim().replace(/\/+$/, '');
+    if (next === serverUrl.value) return;
+    if (next) {
+      try {
+        const c = new AbortController();
+        const timer = setTimeout(() => c.abort(), 5000);
+        await fetch(next, { mode: 'no-cors', signal: c.signal, cache: 'no-store' });
+        clearTimeout(timer);
+      } catch {
+        app.flash(S.serverUnreachable);
+        return;
+      }
+    }
+    serverUrl.value = next;
     location.reload();
   }
 
