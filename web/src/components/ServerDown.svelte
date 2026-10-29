@@ -26,6 +26,7 @@
   <div class="box">
     <p>{S.serverDown}</p>
     <p class="faint mono" data-priv="hosts">{serverUrl.value || S.serverThisPage}</p>
+    {#if app.bootError}<p class="faint mono err" data-priv="hosts">{app.bootError}</p>{/if}
     <button class="btn" type="button" onclick={() => app.boot()}>{S.retry}</button>
     <form onsubmit={(e) => { e.preventDefault(); apply(); }}>
       <input class="field mono" data-priv="hosts" bind:value={addr} placeholder="http://localhost:4141" spellcheck="false" aria-label="서버 주소" />
@@ -59,6 +60,9 @@
   .faint {
     color: var(--ink-3);
     font-size: 13px;
+  }
+  .err {
+    color: var(--bad);
   }
   form {
     display: flex;
