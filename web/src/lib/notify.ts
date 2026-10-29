@@ -17,20 +17,52 @@ export function askPermission() {
 
 let audio: AudioContext | undefined;
 export type Beep = 'done' | 'ask' | 'bg-start' | 'bg-stop' | 'bg-done' | 'todo-step';
-const BEEP_HZ: Record<Beep, number> = { done: 880, ask: 660, 'bg-start': 440, 'bg-stop': 330, 'bg-done': 988, 'todo-step': 523 };
+const BEEP_HZ: Record<'done' | 'ask' | 'todo-step', number> = { done: 880, ask: 660, 'todo-step': 523 };
+// A water drop: a sine that falls in pitch as it sinks, plus one quiet inharmonic partial for the "plink". [from, to, seconds, peak]
+const DROPS: Record<'bg-start' | 'bg-stop' | 'bg-done', [number, number, number, number]> = {
+  'bg-start': [1150, 500, 0.16, 0.10], // small and bright
+  'bg-done': [820, 240, 0.34, 0.14], // the big one
+  'bg-stop': [320, 130, 0.22, 0.12], // dull thud
+};
+function drop(ctx: AudioContext, f0: number, f1: number, dur: number, peak: number, t0: number) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(f1, t0 + dur * 0.75);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(t0);
+  o.stop(t0 + dur + 0.02);
+  const p = ctx.createOscillator();
+  const pg = ctx.createGain();
+  p.frequency.setValueAtTime(f0 * 2.76, t0);
+  pg.gain.setValueAtTime(0.0001, t0);
+  pg.gain.exponentialRampToValueAtTime(peak * 0.3, t0 + 0.004);
+  pg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.4);
+  p.connect(pg).connect(ctx.destination);
+  p.start(t0);
+  p.stop(t0 + dur * 0.4 + 0.02);
+}
 function tone(kind: Beep, step = 0) {
   try {
     audio ??= new AudioContext();
     if (audio.state === 'suspended') void audio.resume();
+    const t0 = audio.currentTime;
+    if (kind === 'bg-start' || kind === 'bg-stop' || kind === 'bg-done') {
+      drop(audio, ...DROPS[kind], t0);
+      return;
+    }
     const o = audio.createOscillator();
     const g = audio.createGain();
     o.frequency.value = kind === 'todo-step' ? BEEP_HZ['todo-step'] * Math.pow(2, Math.min(step, 24) / 12) : BEEP_HZ[kind]; // one semitone higher per finished step
-    g.gain.setValueAtTime(0.0001, audio.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.12, audio.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.35);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
     o.connect(g).connect(audio.destination);
-    o.start();
-    o.stop(audio.currentTime + 0.4);
+    o.start(t0);
+    o.stop(t0 + 0.4);
   } catch { /* autoplay blocked */ }
 }
 
