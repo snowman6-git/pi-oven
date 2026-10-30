@@ -77,8 +77,7 @@
     }
     // what is selected in the open file goes along (once); a slash command never carries it
     void chat.send(msg + (msg.startsWith('/') ? '' : chat.editors.takeContext()), images, mode);
-    text = '';
-    images = [];
+    if (chat.conn.link === 'open') { text = ''; images = []; } // a dead link keeps the text: the send failed, the toast says so
   }
 
   function accept(i: number) {
