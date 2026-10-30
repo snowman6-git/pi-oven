@@ -648,6 +648,7 @@ export class Chat {
         if (rec.toolName === TODO_TOOL && !rec.isError) {
           const tasks = todoFromDetails(rec.result?.details);
           if (tasks) this.todo = tasks;
+          else if (!this.#replaying) this.refreshTodo(400); // delete results carry no details: pull the file's truth
         } else if (rec.toolName === 'codemode' && !this.#replaying && this.hasTodo) this.refreshTodo(400);
         const t = this.#findTool(rec.toolCallId);
         if (t) {
