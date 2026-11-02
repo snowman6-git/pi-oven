@@ -3,8 +3,7 @@
   import { runClock } from '../lib/util';
 
   // Shown where the answer will appear while the model has been asked and has not said anything yet: a spinner and what
-  // is going on, as far as it is known. With the llama-infra package the wait before the first token is the prompt
-  // being processed (prefill); a compaction or a retry says so; otherwise it is just waiting.
+  // is going on, as far as it is known: a compaction or a retry says so; otherwise it is just waiting.
   // `text` replaces the usual wording (the start-up wait uses it).
   let { chat, text }: { chat: Chat; text?: string } = $props();
 
@@ -18,8 +17,7 @@
   const label = $derived(
     text ? text : chat.compacting ? '컨텍스트 압축 중'
       : chat.retry ? `다시 시도하는 중 (${chat.retry})`
-        : chat.speedSeen ? '프리필 중'
-          : '대기 중',
+        : '대기 중',
   );
   const secs = $derived(chat.waitSince ? now - chat.waitSince : 0);
 </script>
@@ -48,8 +46,9 @@
   }
   .t {
     color: var(--heat);
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-    font-size: 12.5px;
+    font-size: 12px;
   }
   @keyframes spin {
     to {

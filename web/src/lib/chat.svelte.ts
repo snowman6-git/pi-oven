@@ -4,8 +4,7 @@ import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, 
 import { Connection } from './connection.svelte';
 import { Editors, type EditorHost } from './editor.svelte';
 import { pinsFor } from './pins.svelte';
-import { beep } from './notify';
-import { SPEED_STATUS_KEY, StreamTimer, parseSpeedLine, type Speed } from './speed';
+import { StreamTimer, type Speed } from './speed';
 import type {
   BgTask, ExtensionRequest, ImagePart, ModelInfo, RuntimeInfo, SessionState, SessionStats,
   SlashCommand, ThinkingLevel, Usage, WireMessage,
@@ -35,6 +34,17 @@ export const storedPermission = (): Permission => {
 
 type Dialog = Extract<ExtensionRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }>;
 
+/** A reload gives every item a new key, which would rebuild the whole conversation on screen. Items that are the
+    same message as before (same place, kind and time) keep their old key, so only what changed is drawn again. */
+function keepKeys(old: Item[], next: Item[]): Item[] {
+  for (let i = 0; i < next.length && i < old.length; i++) {
+    const a = old[i], b = next[i];
+    if (a.kind !== b.kind || !('ts' in a) || !('ts' in b) || a.ts == null || a.ts !== b.ts) break;
+    (b as { key: number }).key = a.key;
+  }
+  return next;
+}
+
 export class Chat {
   runtime = $state<RuntimeInfo>() as RuntimeInfo;
   conn: Connection;
@@ -48,10 +58,6 @@ export class Chat {
   waitSince = $state(0);
   /** A message was sent and pi has not said it started yet. */
   #sending = $state(false);
-  /** The llama-infra package has reported at all: its "before the first token" is the prompt prefill. */
-  speedSeen = $state(false);
-  /** The generation and prompt rates the llama-infra package last measured (it writes them to a status line). */
-  pkgSpeed = $state<{ prefill?: number; gen?: number; at: number } | null>(null);
   /** pi answered while the conversation was not in view (another tab was). */
   unreadReply = $state(false);
   /** Bumped when files may have changed under the explorer (pi ran a tool that writes). */
@@ -189,7 +195,6 @@ export class Chat {
   /** pi's notice for a task has reached the conversation. If the task still has its chip and the conversation can be seen,
       the chip becomes the bubble (it flies there; the bubble stays hidden until it lands); otherwise the chip just goes. */
   #taskArrived(id: string) {
-    if (this.chatVisible) beep('bg-bubble'); // the notice bubble enters the conversation
     this.#awaitingNotice.delete(id);
     if (!this.bgChips.some((t) => t.id === id)) return;
     if (!this.chatVisible || document.hidden || this.bgLanding.includes(id)) {
@@ -228,7 +233,7 @@ export class Chat {
     const file = this.sessionFile;
     if (file)
       api
-        .tailSession(file)
+        .tailSession(file, 'background-task-notification')
         .then(({ lines }) => {
           for (const line of lines) {
             let rec: any;
@@ -323,7 +328,6 @@ export class Chat {
     for (const id of this.#pending.keys()) if (!tasks.some((t) => t.id === id)) this.bgLanding = this.bgLanding.filter((x) => x !== id);
     this.#pending.clear();
     this.#pendingSince = 0;
-    if (tasks.length && this.chatVisible) beep('bg-card'); // the card(s) land in the tool row
   }
 
   #hold(id: string) {
@@ -338,7 +342,6 @@ export class Chat {
   }
 
   #bgEnded(t: BgTask) {
-    if (this.chatVisible) beep(t.status === 'completed' ? 'bg-done' : 'bg-stop');
     this.bgEvents = [...this.bgEvents.slice(-19), { n: ++this.#bgEventSeq, id: t.id, status: t.status }];
     if (!this.bgFresh.includes(t.id)) this.bgFresh = [...this.bgFresh, t.id];
     // A clean finish has its moment (the chip pops), then waits for pi's notice to take it into the conversation;
@@ -350,7 +353,6 @@ export class Chat {
     if (task?.id) {
       this.bgTasks = [...this.bgTasks.filter((t) => t.id !== task.id), { ...task, status: task.status ?? 'running', startTime: task.startTime ?? Date.now() }];
       this.#arrive(task.id, toolId);
-      if (this.chatVisible) beep('bg-start');
     }
     setTimeout(() => void this.refreshBgTasks(), 600);
   }
@@ -381,16 +383,19 @@ export class Chat {
   }
 
   // ── loading ──────────────────────────────────────────────────────────────
+  #loadSeq = 0;
   async load() {
+    const seq = ++this.#loadSeq;
     try {
       const [state, msgs] = await Promise.all([
         this.conn.request<SessionState>({ type: 'get_state' }),
         this.conn.request<{ messages: WireMessage[] }>({ type: 'get_messages' }),
       ]);
+      if (seq !== this.#loadSeq) return; // a later load is under way: an older answer must not overwrite it
       this.state = state;
       this.running = state.isStreaming;
       this.compacting = state.isCompacting;
-      this.items = itemsFromMessages(msgs.messages);
+      this.items = keepKeys(this.items, itemsFromMessages(msgs.messages));
       this.todo = todoFromItems(this.items);
       this.loaded = true;
       this.loadError = null;
@@ -399,7 +404,7 @@ export class Chat {
       void this.refreshBgTasks();
       if (!this.#metaLoaded) void this.#loadMeta();
     } catch (e) {
-      this.loadError = (e as Error).message;
+      if (seq === this.#loadSeq) this.loadError = (e as Error).message;
     }
   }
 
@@ -413,8 +418,6 @@ export class Chat {
     if (cmds.status === 'fulfilled') { this.commands = cmds.value.commands; this.refreshTodo(); }
     if (models.status === 'fulfilled') this.models = models.value.models;
     if (levels.status === 'fulfilled') this.levels = levels.value.levels;
-    const want = storedPermission();
-    if (this.hasPermissionExt && want !== this.permission) this.setPermission(want);
   }
 
   async refreshStats() {
@@ -458,6 +461,25 @@ export class Chat {
   }
 
   abort() { this.conn.request({ type: 'abort' }).catch(() => {}); }
+
+  /** Send now: stop the run, and send what was waiting in the queue together with this, as one new message.
+      pi's abort waits until the run has settled, so the prompt that follows starts a fresh run instead of queueing. */
+  async sendNow(text: string, images: ImagePart[] = []) {
+    let waiting: string[] = [];
+    try {
+      const q = await this.conn.request<{ steering?: string[]; followUp?: string[] }>({ type: 'clear_queue' });
+      waiting = [...(q?.steering ?? []), ...(q?.followUp ?? [])];
+    } catch { /* nothing was queued, or an older pi: send what was typed */ }
+    const message = [...waiting, text].filter((t) => t.trim()).join('\n\n');
+    if (!message && !images.length) return;
+    try {
+      await this.conn.request({ type: 'abort' });
+    } catch (e) {
+      this.notice('error', (e as Error).message);
+      return;
+    }
+    await this.send(message, images);
+  }
 
   async setModel(m: ModelInfo) {
     try {
@@ -621,7 +643,7 @@ export class Chat {
         }
         break;
       case 'message_update':
-        if (this.#skipTs == null) this.#onAssistantEvent(rec.assistantMessageEvent);
+        if (this.#skipTs == null) this.#onAssistantEvent(rec.assistantMessageEvent, rec.usage?.output);
         break;
       case 'message_end':
         this.#onMessageEnd(rec.message as WireMessage);
@@ -705,7 +727,7 @@ export class Chat {
     }
   }
 
-  #onAssistantEvent(ev: any) {
+  #onAssistantEvent(ev: any, outputTokens?: number) {
     if (!ev) return;
     const live = this.#liveAssistant();
     if (!live) return;
@@ -716,7 +738,7 @@ export class Chat {
       // the line under the answer follows it, a few times a second rather than at every token
       if (now - this.#speedAt > 200) {
         this.#speedAt = now;
-        live.speed = this.#timer.snapshot(now, ev.partial?.usage?.output);
+        live.speed = this.#timer.snapshot(now, outputTokens ?? ev.partial?.usage?.output);
       }
     }
     switch (ev.type) {
@@ -821,14 +843,11 @@ export class Chat {
           if (wasRunning && next.running === 0) this.host.notify(this, 'done');
           break;
         }
-        if (r.statusKey === SPEED_STATUS_KEY) {
-          if (r.statusText) this.speedSeen = true;
-          const v = r.statusText ? parseSpeedLine(stripAnsi(r.statusText)) : null;
-          this.pkgSpeed = v && (v.gen || v.prefill) ? { ...v, at: performance.now() } : null;
-          break;
-        }
         if (r.statusKey === 'oven-permission') {
-          this.permission = r.statusText === 'manual' ? 'manual' : 'auto';
+          // The server's choice is the truth (shared by every device). Only when nothing was ever chosen there
+          // is the choice this browser kept from before brought over.
+          this.permission = r.statusText?.startsWith('manual') ? 'manual' : 'auto';
+          if (r.statusText?.endsWith('-default') && storedPermission() !== this.permission) this.setPermission(storedPermission());
           break;
         }
         const text = r.statusText ? stripAnsi(r.statusText).trim() : '';

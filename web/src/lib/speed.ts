@@ -1,6 +1,6 @@
 // How fast an answer is coming: the wait before the first token (TTFT) and the rate once it flows (tokens a second).
-// pi's events carry no timing, so it is measured here as they arrive; where the llama-infra package already
-// measures the rate (it writes it to a status line), that number is read instead of guessed.
+// pi's events carry no timing, so it is measured here as they arrive. The rate uses the output token count pi
+// sends with each piece when the provider reports it, and an estimate from the characters otherwise.
 
 export interface Speed {
   /** Milliseconds from the request to the first token. */
@@ -59,17 +59,6 @@ export class StreamTimer {
   }
 }
 
-/** `⚡ 1234 t/s 🔥 42.3 t/s` (prompt rate, generation rate) from the llama-infra package's status line. */
-export function parseSpeedLine(text: string): { prefill?: number; gen?: number } {
-  const num = (re: RegExp) => {
-    const m = text.match(re);
-    const v = m ? Number(m[1]) : NaN;
-    return Number.isFinite(v) && v > 0 ? v : undefined;
-  };
-  return { prefill: num(/⚡\s*([\d.]+)\s*t\/s/), gen: num(/🔥\s*([\d.]+)\s*t\/s/) };
-}
-
-export const SPEED_STATUS_KEY = 'llama-infra-speed';
 
 export const formatMs = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}초`);
 export const formatRate = (r: number) => (r < 10 ? r.toFixed(1) : String(Math.round(r)));

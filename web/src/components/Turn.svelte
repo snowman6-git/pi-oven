@@ -121,12 +121,9 @@
     app.flash(chat.pins.toggleMessage(pinRole, pinText, item.ts) ? '핀에 추가했습니다' : '핀에서 뺐습니다');
   }
 
-  // How fast the answer is coming. While it streams, the rate the llama-infra package measured is used if it has
-  // spoken since this answer began; otherwise it is estimated here, and marked with a ~.
+  // How fast the answer is coming, measured as it streams (an estimate is marked with a ~).
   const liveSpeed = $derived.by<Speed | null>(() => {
     if (item.kind !== 'assistant' || !item.live || !item.speed || item.speed.ttft === undefined) return null;
-    const p = chat.pkgSpeed;
-    if (p?.gen && item.speed.first !== undefined && p.at >= item.speed.first) return { ...item.speed, tps: p.gen, est: false };
     return item.speed;
   });
   const speedText = (s: Speed | undefined, ttft = true) =>
@@ -227,6 +224,14 @@
   .turn {
     position: relative;
     padding: 14px 0;
+    /* A long session draws hundreds of turns; those far out of view skip layout and paint until scrolled to
+       (the size they had is remembered, so the scrollbar does not jump once they have been seen). */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 160px;
+  }
+  /* the newest one is where streaming and the flights happen: always fully drawn */
+  .turn:last-of-type {
+    content-visibility: visible;
   }
   .margin {
     display: none;

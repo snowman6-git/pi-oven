@@ -21,6 +21,9 @@ export class Connection {
   #ws: WebSocket | null = null;
   #pending = new Map<string, Pending>();
   #seq = 0;
+  /** Responses go to every device attached to the same pi; ids that start differently per connection keep each
+      device from taking another's answer as its own (events carry no id and still reach everyone). */
+  readonly #tag = Math.random().toString(36).slice(2, 8);
   #retry = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #disposed = false;
@@ -121,7 +124,7 @@ export class Connection {
 
   /** Send a command and wait for its response. Rejects on `success: false`. */
   async request<T = any>(cmd: Record<string, unknown>, timeoutMs?: number): Promise<T> {
-    const id = `c${++this.#seq}`;
+    const id = `${this.#tag}-${++this.#seq}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const res = await new Promise<Response>((resolve, reject) => {
       if (this.#ws?.readyState !== WebSocket.OPEN) return reject(new Error('not connected'));

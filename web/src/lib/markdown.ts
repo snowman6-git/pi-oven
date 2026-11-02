@@ -17,7 +17,7 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
-import { Marked } from 'marked';
+import { Marked, type Token, type TokensList } from 'marked';
 import { S } from './strings';
 
 const langs: Record<string, any> = {
@@ -51,7 +51,23 @@ const md = new Marked({
   },
 });
 
+// A picture from another server in the model's text would be fetched the moment it is drawn, and its address can
+// carry anything the model was talked into putting there (a file it read can tell it to). Only pictures carried
+// in the text itself (data:) are shown; one from the web becomes a link to open on purpose.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'IMG') {
+    const src = node.getAttribute('src') ?? '';
+    if (!/^data:image\//i.test(src)) {
+      const a = node.ownerDocument.createElement('a');
+      a.setAttribute('href', src);
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+      a.className = 'remote-img';
+      a.textContent = `🖼 ${node.getAttribute('alt') || src}`;
+      node.replaceWith(a);
+    }
+    return;
+  }
   if (node.tagName === 'A') {
     node.setAttribute('target', '_blank');
     node.setAttribute('rel', 'noopener noreferrer');
@@ -65,13 +81,42 @@ const memo = new Map<string, string>();
 const MEMO_ENTRIES = 300;
 const MEMO_MAX_CHARS = 40_000;
 
+const clean = (html: string) => DOMPurify.sanitize(html, { ADD_TAGS: ['button'], ADD_ATTR: ['data-copy'] });
+
 function render(src: string): string {
-  const html = md.parse(src, { async: false }) as string;
-  return DOMPurify.sanitize(html, { ADD_TAGS: ['button'], ADD_ATTR: ['data-copy'] });
+  return clean(md.parse(src, { async: false }) as string);
+}
+
+// While an answer streams, only its last block is still changing: the blocks before it are drawn once and kept,
+// so a long answer costs the same per frame at the end as at the start (instead of parsing everything every frame).
+const blocks = new Map<string, string>();
+const BLOCK_ENTRIES = 400;
+
+function renderBlock(t: Token, links: TokensList['links'], keep: boolean): string {
+  if (keep) {
+    const hit = blocks.get(t.raw);
+    if (hit !== undefined) return hit;
+  }
+  const one = Object.assign([t], { links }) as TokensList;
+  const out = clean(md.parser(one));
+  if (keep) {
+    blocks.set(t.raw, out);
+    if (blocks.size > BLOCK_ENTRIES) blocks.delete(blocks.keys().next().value as string);
+  }
+  return out;
+}
+
+function renderStreaming(src: string): string {
+  const tokens = md.lexer(src);
+  if (tokens.length < 2) return render(src);
+  let out = '';
+  for (let i = 0; i < tokens.length; i++) out += renderBlock(tokens[i], tokens.links, i < tokens.length - 1);
+  return out;
 }
 
 export function renderMarkdown(src: string, finished = false): string {
-  if (!finished || src.length > MEMO_MAX_CHARS) return render(src);
+  if (!finished) return renderStreaming(src);
+  if (src.length > MEMO_MAX_CHARS) return render(src);
   const hit = memo.get(src);
   if (hit !== undefined) {
     memo.delete(src); // most recently used goes last
