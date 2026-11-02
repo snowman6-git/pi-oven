@@ -6,7 +6,13 @@
 //! only ever needs to *read* the state. The two things it writes (staging and committing) are the
 //! ones a person asked for with a click; a commit runs the repository's own hooks, as it would in a shell.
 
-use std::{path::Path, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    path::Path,
+    process::Stdio,
+    sync::{Arc, LazyLock, Mutex},
+    time::Duration,
+};
 
 use axum::{
     extract::{Path as UrlPath, Query, State},
@@ -22,6 +28,7 @@ use crate::{api::fail, AppState};
 const MAX_OUTPUT: usize = 1_000_000;
 const MAX_FILES: usize = 500;
 const MAX_DIFF_LINES: usize = 4000;
+const UNTRACKED_READ: u64 = 2_000_000;
 
 /// Runs `git` in `dir`; returns (stdout, was it cut at the size limit).
 async fn git(dir: &Path, args: &[&str]) -> Result<(Vec<u8>, bool), String> {
@@ -120,7 +127,21 @@ pub fn parse_numstat(raw: &[u8]) -> Vec<(String, Option<u32>, Option<u32>)> {
 
 /// A new file as a diff, for files git does not know yet.
 fn untracked_diff(root: &Path, rel: &str) -> String {
-    let Ok(bytes) = std::fs::read(root.join(rel)) else { return String::new() };
+    use std::io::Read;
+    // A link is followed only while it stays inside the repository (as the file API does), and only the
+    // first part of a big file is read: the diff shows MAX_DIFF_LINES lines at most anyway.
+    let (Ok(base), Ok(path)) = (root.canonicalize(), root.join(rel).canonicalize()) else { return String::new() };
+    if !path.starts_with(&base) {
+        return format!("Link outside the repository: {rel}\n");
+    }
+    if !path.is_file() {
+        return String::new();
+    }
+    let mut bytes = Vec::new();
+    let Ok(f) = std::fs::File::open(&path) else { return String::new() };
+    if f.take(UNTRACKED_READ).read_to_end(&mut bytes).is_err() {
+        return String::new();
+    }
     if bytes.contains(&0) {
         return format!("Binary file {rel} (new)\n");
     }
@@ -132,19 +153,38 @@ fn untracked_diff(root: &Path, rel: &str) -> String {
         out.push_str(l);
         out.push('\n');
     }
-    if text.lines().count() > lines.len() {
+    if text.lines().count() > lines.len() || bytes.len() as u64 >= UNTRACKED_READ {
         out.push_str("\\ (the rest of the file is not shown)\n");
     }
     out
 }
 
+/// Line counts of untracked files, kept while the file's size and time stay the same: the Git tab asks every few
+/// seconds while pi works, and reading every new file again each time is wasted.
+type LineCache = HashMap<std::path::PathBuf, (std::time::SystemTime, u64, Option<u32>)>;
+static LINE_CACHE: LazyLock<Mutex<LineCache>> = LazyLock::new(Default::default);
+
 fn count_lines(root: &Path, rel: &str) -> Option<u32> {
-    let meta = std::fs::metadata(root.join(rel)).ok()?;
+    let path = root.join(rel);
+    let meta = std::fs::metadata(&path).ok()?;
     if !meta.is_file() || meta.len() > 2_000_000 {
         return None;
     }
-    let bytes = std::fs::read(root.join(rel)).ok()?;
-    (!bytes.contains(&0)).then(|| String::from_utf8_lossy(&bytes).lines().count() as u32)
+    let stamp = (meta.modified().ok()?, meta.len());
+    if let Some(&(m, l, n)) = LINE_CACHE.lock().ok()?.get(&path) {
+        if (m, l) == stamp {
+            return n;
+        }
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    let n = (!bytes.contains(&0)).then(|| String::from_utf8_lossy(&bytes).lines().count() as u32);
+    if let Ok(mut c) = LINE_CACHE.lock() {
+        if c.len() > 5000 {
+            c.clear();
+        }
+        c.insert(path, (stamp.0, stamp.1, n));
+    }
+    n
 }
 
 async fn repo_root(cwd: &Path) -> Option<std::path::PathBuf> {

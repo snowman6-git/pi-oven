@@ -45,25 +45,61 @@ pub struct RuntimeInfo {
 struct Replay {
     active: bool,
     run: Vec<Arc<str>>,
+    /// Where in `run` each running tool's latest output update sits: an update carries the whole output so
+    /// far, so only the newest one is worth keeping.
+    tool_updates: HashMap<String, usize>,
     /// Latest setStatus / setWidget per key, so a reload keeps extension state.
     ui: HashMap<String, Arc<str>>,
     /// Dialogs nobody has answered yet.
     dialogs: Vec<(String, Arc<str>)>,
 }
 
+const TOOL_UPDATE: &str = r#"{"type":"tool_execution_update""#;
+const MESSAGE_UPDATE: &str = r#"{"type":"message_update""#;
+
+fn tool_call_id(line: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Id {
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+    }
+    serde_json::from_str::<Id>(line).ok().map(|i| i.tool_call_id)
+}
+
 impl Replay {
     fn record(&mut self, line: &Arc<str>) {
         if line.starts_with(r#"{"type":"agent_start""#) {
             self.active = true;
-            self.run.clear();
+            self.clear_run();
         }
         if self.active {
-            if !line.starts_with(r#"{"type":"extension_ui_request""#) {
+            if line.starts_with(TOOL_UPDATE) {
+                match tool_call_id(line) {
+                    Some(id) => match self.tool_updates.get(&id) {
+                        Some(&i) => self.run[i] = line.clone(),
+                        None => {
+                            self.tool_updates.insert(id, self.run.len());
+                            self.run.push(line.clone());
+                        }
+                    },
+                    None => self.run.push(line.clone()),
+                }
+            } else if !line.starts_with(r#"{"type":"extension_ui_request""#) {
                 self.run.push(line.clone());
+            }
+            // A finished message is in the history a late joiner loads anyway: its streamed pieces are not needed.
+            if line.starts_with(r#"{"type":"message_end""#) {
+                self.run.retain(|l| !l.starts_with(MESSAGE_UPDATE));
+                self.reindex();
+            } else if line.starts_with(r#"{"type":"tool_execution_end""#) {
+                if let Some(i) = tool_call_id(line).and_then(|id| self.tool_updates.remove(&id)) {
+                    self.run.remove(i);
+                    self.reindex();
+                }
             }
             if line.starts_with(r#"{"type":"agent_settled""#) {
                 self.active = false;
-                self.run.clear();
+                self.clear_run();
             }
         }
         if line.starts_with(r#"{"type":"extension_ui_request""#) {
@@ -74,6 +110,22 @@ impl Replay {
                 Some("setWidget") => self.keep(format!("w:{}", v["widgetKey"].as_str().unwrap_or_default()), v["widgetLines"].is_null(), line),
                 Some("select" | "confirm" | "input" | "editor") => self.dialogs.push((id, line.clone())),
                 _ => {}
+            }
+        }
+    }
+
+    fn clear_run(&mut self) {
+        self.run.clear();
+        self.tool_updates.clear();
+    }
+
+    fn reindex(&mut self) {
+        self.tool_updates.clear();
+        for (i, l) in self.run.iter().enumerate() {
+            if l.starts_with(TOOL_UPDATE) {
+                if let Some(id) = tool_call_id(l) {
+                    self.tool_updates.insert(id, i);
+                }
             }
         }
     }
@@ -135,6 +187,8 @@ impl Runtime {
 pub struct Manager {
     cfg: Arc<Config>,
     map: RwLock<HashMap<String, Arc<Runtime>>>,
+    /// Held for a whole spawn: two requests for the same session at once must not both start pi.
+    spawning: tokio::sync::Mutex<()>,
     /// What the desktop pet follows: pi's events, translated.
     pub pet: Arc<crate::pet::PetHub>,
 }
@@ -148,7 +202,7 @@ fn now_ms() -> u64 {
 
 impl Manager {
     pub fn new(cfg: Arc<Config>) -> Arc<Self> {
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), pet: crate::pet::PetHub::new() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -198,6 +252,7 @@ impl Manager {
     }
 
     pub async fn spawn(self: &Arc<Self>, req: SpawnRequest) -> Result<Arc<Runtime>> {
+        let _one_at_a_time = self.spawning.lock().await;
         // Opening the same session twice would give two processes writing one file.
         if let Some(path) = &req.session_path {
             let map = self.map.read().await;
@@ -224,6 +279,11 @@ impl Manager {
         }
         if let Some(ext) = &self.cfg.extension_path {
             cmd.arg("--extension").arg(ext);
+            // the chosen permission mode lives next to the extension, so a new pi starts in it (not in "auto"
+            // until a browser happens to connect and say otherwise)
+            if let Some(dir) = ext.parent() {
+                cmd.env("PI_OVEN_PERMISSION_FILE", dir.join("permission"));
+            }
         }
         cmd.args(&self.cfg.pi_args)
             .current_dir(&cwd)
@@ -364,5 +424,52 @@ impl Manager {
         tracing::info!(runtime = %id, pid = ?rt.info.pid, cwd = %rt.info.cwd, "pi started");
         self.map.write().await.insert(id, rt.clone());
         Ok(rt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn feed(r: &mut Replay, lines: &[&str]) {
+        for l in lines {
+            r.record(&Arc::from(*l));
+        }
+    }
+
+    #[test]
+    fn a_long_run_keeps_only_what_a_late_joiner_needs() {
+        let mut r = Replay::default();
+        feed(
+            &mut r,
+            &[
+                r#"{"type":"agent_start"}"#,
+                r#"{"type":"message_start","message":{"role":"assistant"}}"#,
+                r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"a"}}"#,
+                r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"b"}}"#,
+                r#"{"type":"message_end","message":{"role":"assistant"}}"#,
+                r#"{"type":"tool_execution_start","toolCallId":"t1"}"#,
+                r#"{"type":"tool_execution_update","toolCallId":"t1","partialResult":"1"}"#,
+                r#"{"type":"tool_execution_start","toolCallId":"t2"}"#,
+                r#"{"type":"tool_execution_update","toolCallId":"t1","partialResult":"12"}"#,
+                r#"{"type":"tool_execution_update","toolCallId":"t2","partialResult":"x"}"#,
+                r#"{"type":"tool_execution_update","toolCallId":"t1","partialResult":"123"}"#,
+            ],
+        );
+        let kinds: Vec<String> = r.run.iter().map(|l| l.chars().take(60).collect()).collect();
+        assert!(!kinds.iter().any(|l| l.contains("message_update")), "finished message's pieces dropped: {kinds:?}");
+        let t1: Vec<_> = r.run.iter().filter(|l| l.contains(r#""toolCallId":"t1","partialResult""#)).collect();
+        assert_eq!(t1.len(), 1);
+        assert!(t1[0].contains(r#""123""#), "the newest output stays");
+        assert_eq!(r.run.iter().filter(|l| l.contains(r#""t2","partialResult""#)).count(), 1);
+
+        feed(&mut r, &[r#"{"type":"tool_execution_end","toolCallId":"t1"}"#, r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"c"}}"#]);
+        assert!(!r.run.iter().any(|l| l.contains(r#""t1","partialResult""#)), "an ended tool's update goes");
+        assert!(r.run.iter().any(|l| l.contains(r#""t2","partialResult""#)), "a running one's stays");
+        assert!(r.run.iter().any(|l| l.contains(r#""delta":"c""#)), "the message still streaming is kept");
+        assert_eq!(r.tool_updates.get("t2").map(|&i| r.run[i].contains("t2")), Some(true), "index follows the removals");
+
+        feed(&mut r, &[r#"{"type":"agent_settled"}"#]);
+        assert!(r.run.is_empty() && r.tool_updates.is_empty());
     }
 }

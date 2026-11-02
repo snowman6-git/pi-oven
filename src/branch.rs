@@ -470,6 +470,8 @@ pub struct TailQuery {
     path: String,
     #[serde(default = "default_tail_n")]
     n: u32,
+    /// Only `custom_message` lines of this `customType` (the others can be megabytes of images).
+    custom: Option<String>,
 }
 
 fn default_tail_n() -> u32 {
@@ -480,20 +482,48 @@ fn default_tail_n() -> u32 {
 /// stream never emits them — so the client reads them out of the tail while a task awaits its notice.
 pub async fn tail(State(app): State<Arc<AppState>>, Query(q): Query<TailQuery>) -> Response {
     let n = q.n.clamp(1, 100);
+    if q.custom.as_ref().is_some_and(|c| c.is_empty() || c.len() > 64 || !c.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))) {
+        return fail(StatusCode::BAD_REQUEST, "bad type");
+    }
     let file = match resolve(&app, &q.path) {
         Ok(f) => f,
         Err((code, msg)) => return fail(code, msg),
     };
-    match tokio::task::spawn_blocking(move || tail_lines(&file, n)).await {
+    match tokio::task::spawn_blocking(move || tail_lines(&file, n, q.custom.as_deref())).await {
         Ok(Ok(lines)) => Json(serde_json::json!({ "lines": lines })).into_response(),
         Ok(Err(e)) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
 
-fn tail_lines(file: &Path, n: u32) -> Result<Vec<String>, String> {
-    let data = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
-    Ok(data.lines().rev().take(n as usize).map(str::to_string).collect::<Vec<_>>().into_iter().rev().collect())
+/// How far back from the end the tail looks. What it is used for (a notice just appended) is near the end.
+const TAIL_WINDOW: u64 = 4 << 20;
+
+/// The last `n` complete lines (a line still being written is left out), read from the end of the file only.
+fn tail_lines(file: &Path, n: u32, custom: Option<&str>) -> Result<Vec<String>, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(file).map_err(|e| e.to_string())?;
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
+    let start = len.saturating_sub(TAIL_WINDOW);
+    f.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    f.take(len - start).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let mut lines: Vec<&[u8]> = buf.split(|b| *b == b'\n').collect();
+    lines.pop(); // after the last newline: empty, or a line not finished yet
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0); // began before the window
+    }
+    let want = custom.map(|c| (format!(r#""customType":"{c}""#), r#""type":"custom_message""#));
+    let keep = |l: &&&[u8]| match &want {
+        None => true,
+        Some((ct, ty)) => {
+            let s = String::from_utf8_lossy(l);
+            s.contains(ct.as_str()) && s.contains(ty)
+        }
+    };
+    let mut out: Vec<String> = lines.iter().rev().filter(keep).take(n as usize).map(|l| String::from_utf8_lossy(l).into_owned()).collect();
+    out.reverse();
+    Ok(out)
 }
 
 pub async fn branch(State(app): State<Arc<AppState>>, Json(req): Json<BranchReq>) -> Response {
@@ -542,5 +572,26 @@ mod tests {
     fn text_is_flattened_and_clipped_by_characters() {
         assert_eq!(clip("a\n\n  b   c", 20), "a b c");
         assert_eq!(clip(&"가".repeat(10), 4), "가가가가…");
+    }
+}
+
+#[cfg(test)]
+mod tail_tests {
+    use super::*;
+
+    #[test]
+    fn tail_reads_complete_lines_and_filters_by_custom_type() {
+        let dir = std::env::temp_dir().join(format!("oven-tail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("s.jsonl");
+        let note = r#"{"type":"custom_message","customType":"background-task-notification","details":{"id":"a"}}"#;
+        std::fs::write(&f, format!("{{\"type\":\"session\"}}\n{}\n{note}\n{{\"type\":\"message\",\"x\":\"한글\"}}\n{{\"type\":\"mess", "x".repeat(100))).unwrap();
+        let all = tail_lines(&f, 2, None).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0], note);
+        assert!(all[1].contains("한글"), "a half-written last line is left out");
+        assert_eq!(tail_lines(&f, 10, Some("background-task-notification")).unwrap(), vec![note.to_string()]);
+        std::fs::remove_file(&f).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
     }
 }

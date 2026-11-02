@@ -46,7 +46,8 @@ pub async fn delete_session(State(app): State<Arc<AppState>>, Query(q): Query<Pa
     if !file.starts_with(&root) || file.extension().and_then(|e| e.to_str()) != Some("jsonl") {
         return fail(StatusCode::FORBIDDEN, "not a session file");
     }
-    if app.runtimes.list().await.iter().any(|r| r.session_path.as_deref() == Some(path.as_str())) {
+    let open = |p: &str| PathBuf::from(p).canonicalize().is_ok_and(|p| p == file);
+    if app.runtimes.list().await.iter().any(|r| r.session_path.as_deref().is_some_and(open)) {
         return fail(StatusCode::CONFLICT, "session is open — close it first");
     }
     match std::fs::remove_file(&file) {

@@ -25,7 +25,18 @@ pub async fn serve(uri: Uri) -> Response {
 
     let mime = mime_guess::from_path(name).first_or_octet_stream();
     let cache = if name.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
-    ([(header::CONTENT_TYPE, mime.to_string()), (header::CACHE_CONTROL, cache.to_string())], file.data).into_response()
+    (
+        [
+            (header::CONTENT_TYPE, mime.to_string()),
+            (header::CACHE_CONTROL, cache.to_string()),
+            // no other site may put this page in a frame (clicks could be steered onto it)
+            (header::X_FRAME_OPTIONS, "DENY".to_owned()),
+            (header::CONTENT_SECURITY_POLICY, "frame-ancestors 'none'".to_owned()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+        ],
+        file.data,
+    )
+        .into_response()
 }
 
 fn missing() -> Response {

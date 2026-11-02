@@ -66,6 +66,10 @@ fn existing(root: &Path, rel: &str, allow_root: bool) -> Result<PathBuf, Fail> {
     if !p.starts_with(root) {
         return Err((StatusCode::FORBIDDEN, "outside the folder"));
     }
+    // a link may lead into .git under another name: the resolved path is checked too
+    if p.strip_prefix(root).is_ok_and(|r| protected(&r.to_string_lossy())) {
+        return Err((StatusCode::FORBIDDEN, "protected"));
+    }
     Ok(p)
 }
 
@@ -78,6 +82,9 @@ fn entry(root: &Path, rel: &str) -> Result<PathBuf, Fail> {
     let parent = full.parent().ok_or((StatusCode::BAD_REQUEST, "bad path"))?.canonicalize().map_err(|_| (StatusCode::NOT_FOUND, "not found"))?;
     if !parent.starts_with(root) {
         return Err((StatusCode::FORBIDDEN, "outside the folder"));
+    }
+    if parent.strip_prefix(root).is_ok_and(|r| protected(&r.to_string_lossy())) {
+        return Err((StatusCode::FORBIDDEN, "protected"));
     }
     Ok(parent.join(name))
 }
