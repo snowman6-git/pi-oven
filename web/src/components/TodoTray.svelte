@@ -13,6 +13,7 @@
   let open = $state(read());
   let hiddenAt = $state<string | null>(null);
   let list = $state<HTMLElement>();
+  let tray = $state<HTMLElement>();
 
   function read() { try { return localStorage.getItem('pi-oven.todo-open') === 'on'; } catch { return false; } }
   function toggle() {
@@ -27,6 +28,7 @@
   const label = (t: Task) => (t.status === 'completed' ? '완료' : t.status === 'in_progress' ? '진행 중' : '대기');
 
   // A task that has just finished pops its square, the way a background task's chip does.
+  // When the last one finishes the whole tray boings once, with a ring in the finished colour, like a background task's chip.
   let before = new Map<number, string>();
   let ready = false;
   $effect(() => {
@@ -36,7 +38,18 @@
     before = now;
     ready = true;
     if (!finished.length || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const all = s.allDone;
     requestAnimationFrame(() => {
+      if (all && tray && !document.hidden) {
+        tray.animate(
+          [{ transform: 'scale(1)' }, { transform: 'scale(1.035)', offset: 0.28 }, { transform: 'scale(0.988)', offset: 0.52 }, { transform: 'scale(1.01)', offset: 0.74 }, { transform: 'scale(1)' }],
+          { duration: 700, easing: 'cubic-bezier(0.3, 1.4, 0.5, 1)' },
+        );
+        tray.animate(
+          [{ boxShadow: '0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent)' }, { boxShadow: '0 0 0 12px color-mix(in srgb, var(--ok) 0%, transparent)' }],
+          { duration: 700, easing: 'ease-out' },
+        );
+      }
       for (const t of finished) {
         for (const el of document.querySelectorAll<HTMLElement>(`[data-todo-seg="${t.id}"]`)) {
           el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.7)', offset: 0.3 }, { transform: 'scale(0.9)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: 640, easing: 'cubic-bezier(0.3, 1.4, 0.5, 1)' });
@@ -54,7 +67,7 @@
 </script>
 
 {#if show}
-  <div class="todo" class:open class:done={s.allDone} role="region" aria-label="할 일">
+  <div class="todo" bind:this={tray} class:open class:done={s.allDone} role="region" aria-label="할 일">
     <div class="head">
       <button class="bar" type="button" aria-expanded={open} aria-controls="todo-list" onclick={toggle}>
         {#if squares}
@@ -75,7 +88,7 @@
         {#each s.tasks as t (t.id)}
           {@const wait = t.status === 'pending' ? unfinished(t, s.tasks) : []}
           <li class="row {t.status}" class:blocked={wait.length > 0} data-now={t.status === 'in_progress'} title={t.description}>
-            <span class="mark" role="img" aria-label={label(t)}>
+            <span class="mark" role="img" aria-label={label(t)} data-todo-seg={t.id}>
               {#if t.status === 'completed'}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>{/if}
             </span>
             <span class="sj">{t.subject}</span>

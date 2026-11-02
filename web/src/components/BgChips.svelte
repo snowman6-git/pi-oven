@@ -109,8 +109,12 @@
   /* amber: only while the task is actually running */
   .bgchip .st.tm {
     color: var(--heat);
+    font-family: var(--font-mono); /* the UI font's digits differ in width: a ticking clock would shake the chip */
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
-    font-weight: 560;
+    font-weight: 500;
+    min-width: 4ch;
+    text-align: right;
   }
   .bgchip .x {
     flex: none;

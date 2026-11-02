@@ -14,6 +14,8 @@ export const S = {
   send: '보내기',
   steer: '방향 전환',
   followUp: '이어서 보내기',
+  sendNow: '지금 보내기',
+  sendNowHint: '지금 작업을 멈추고 바로 보냅니다',
   stop: '중단',
   thinking: '생각',
   copy: '복사',

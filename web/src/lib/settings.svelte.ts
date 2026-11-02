@@ -1,17 +1,19 @@
 export type StreamFx = 'bounce' | 'fade' | 'ember' | 'none';
 export type FontSize = 'small' | 'normal' | 'large';
 export type FontFamily = 'maple' | 'system';
+export type ToolImages = 'always' | 'expanded';
 
 const KEY = 'pi-oven.settings';
 
-interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean }
-const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true };
+interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages }
+const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always' };
 
 function read(): Saved {
   try {
     const v = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
     // A saved value this version does not know (an older font choice) means the system font.
     if (v.family !== 'maple' && v.family !== 'system') v.family = 'system';
+    if (v.toolImages !== 'always' && v.toolImages !== 'expanded') v.toolImages = 'always';
     return v;
   } catch { return defaults; }
 }
@@ -23,6 +25,7 @@ class Settings {
   get font() { return this.#s.font; }
   get family() { return this.#s.family; }
   get thinkingOpen() { return this.#s.thinkingOpen; }
+  get toolImages() { return this.#s.toolImages; }
 
   set<K extends keyof Saved>(key: K, value: Saved[K]) {
     this.#s[key] = value;

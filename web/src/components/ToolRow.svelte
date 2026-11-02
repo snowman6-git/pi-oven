@@ -2,6 +2,7 @@
   import type { ToolBlock } from '../lib/chat.svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
+  import { settings } from '../lib/settings.svelte';
   import { contextMenu, type MenuItem } from '../lib/contextmenu.svelte';
   import { S } from '../lib/strings';
   import { duration, runClock } from '../lib/util';
@@ -67,6 +68,17 @@
     <span class="sum mono" data-priv="files">{showcase.text(summary)}</span>
     {#if running >= 3000}<span class="dur live" aria-hidden="true">{runClock(running)}</span>{:else}<span class="dur">{duration(tool.durationMs)}</span>{/if}
   </button>
+
+  <!-- a picture the tool brought back (a screenshot, an image it read) shows without opening the row, unless the setting says otherwise -->
+  {#if !open && settings.toolImages === 'always' && tool.images?.length}
+    <div class="shots" data-priv="files">
+      {#each tool.images as img}
+        <button class="shotbtn" type="button" aria-label="이미지가 있는 도구 결과 펼치기" onclick={() => (open = true)}>
+          <img class="shot" alt="" src={`data:${img.mimeType};base64,${img.data}`} />
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if tool.status === 'running' && !open && tool.name === 'bash' && tail}
     <pre class="peek mono">{tail}</pre>
@@ -169,6 +181,8 @@
   /* amber: only while the work is actually running */
   .dur.live {
     color: var(--heat);
+    font-family: var(--font-mono); /* same-width digits: the clock does not shake the row */
+    font-size: 11.5px;
   }
   .peek {
     margin: 0 0 6px 28px;
@@ -211,6 +225,22 @@
     font-size: 12.5px;
     color: var(--accent);
     padding: 2px 4px;
+  }
+  .shots {
+    margin: 2px 0 10px 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .shotbtn {
+    display: block;
+    padding: 0;
+    max-width: 100%;
+    border-radius: 6px;
+  }
+  .shotbtn .shot {
+    display: block;
+    max-height: 320px;
   }
   .shot {
     max-width: min(100%, 420px);

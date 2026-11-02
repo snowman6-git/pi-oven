@@ -7,6 +7,8 @@ export const PATHS = {
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
     more: '<path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/>',
     send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    now: '<path d="M13 3L5.5 13.5H11L10 21l7.5-10.5H12z"/>',
     stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
     clip: '<path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7L14 5.5a3.3 3.3 0 0 1 4.7 4.7L10.2 18.7a1.7 1.7 0 0 1-2.4-2.4L15 9"/>',
     down: '<path d="M6 9l6 6 6-6"/>',

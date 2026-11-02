@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { Chat } from '../lib/chat.svelte';
+  import { beep, type Beep } from '../lib/notify';
 
   let { chat }: { chat: Chat } = $props();
   let layer: HTMLElement;
@@ -28,6 +29,9 @@
   }
 
   const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Each sound plays on the moment it belongs to (the orb appearing, the card landing, the ending, the bubble),
+  // not when the state changed, so what is heard matches what is seen. Only while this conversation is in view.
+  const sound = (kind: Beep) => { if (chat.chatVisible && !document.hidden) beep(kind); };
 
   /** Where it lands: that task's own chip; with more than fit, the circle that stacks the rest. */
   function chipOf(taskId: string | null): HTMLElement | null {
@@ -48,6 +52,7 @@
   function land(taskId: string | null) {
     if (taskId) chat.bgLanding = chat.bgLanding.filter((x) => x !== taskId);
     const el = home(taskId);
+    if (el) sound('bg-card');
     if (!el || calm()) return;
     el.animate(
       el.matches('[data-bg-stack]')
@@ -143,6 +148,7 @@
       land(taskId);
       return Promise.resolve();
     }
+    sound('bg-start');
     return ember(from, () => target(taskId), total, 40).then(() => land(taskId));
   }
 
@@ -179,6 +185,7 @@
       return { x: r.left + 20, y };
     };
     const arrive = () => {
+      if (bubble()) sound('bg-bubble');
       chat.landed(id);
       requestAnimationFrame(() => {
         if (calm()) return;
@@ -257,7 +264,10 @@
     for (const ev of events) {
       if (ev.n <= handled) continue;
       handled = ev.n;
-      const play = () => celebrate(ev.id, ev.status);
+      const play = () => {
+        if (chipOf(ev.id)) sound(ev.status === 'completed' ? 'bg-done' : 'bg-stop');
+        celebrate(ev.id, ev.status);
+      };
       if (chat.bgLanding.includes(ev.id)) setTimeout(play, 900);
       else requestAnimationFrame(play); // after the chip has taken its new colour
     }

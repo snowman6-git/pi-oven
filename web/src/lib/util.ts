@@ -27,12 +27,12 @@ export function duration(ms?: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
-/** A running clock in whole seconds: 7s, 1m 05s, 1h 02m. */
+/** A running clock in whole seconds, one shape all the way so it never jumps: 0:07, 1:05, 12:05, 1:02:03. */
 export function runClock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
-  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+  const ss = String(s % 60).padStart(2, '0');
+  if (s < 3600) return `${Math.floor(s / 60)}:${ss}`;
+  return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${ss}`;
 }
 
 export function compactNumber(n: number): string {

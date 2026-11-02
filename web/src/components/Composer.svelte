@@ -66,8 +66,9 @@
     queueMicrotask(() => area?.focus());
   });
 
-  function submit(mode: 'steer' | 'followUp' = 'steer') {
+  function submit(mode: 'steer' | 'followUp' | 'now' = 'steer') {
     if (!canSend) return;
+    if (mode === 'now' && !chat.running) mode = 'steer';
     askPermission();
     const msg = text.trim();
     // pi's terminal-only commands (/new, /model, ...) are mapped to RPC here instead of being sent as prompts.
@@ -76,7 +77,8 @@
       return;
     }
     // what is selected in the open file goes along (once); a slash command never carries it
-    void chat.send(msg + (msg.startsWith('/') ? '' : chat.editors.takeContext()), images, mode);
+    const body = msg + (msg.startsWith('/') ? '' : chat.editors.takeContext());
+    void (mode === 'now' ? chat.sendNow(body, images) : chat.send(body, images, mode));
     if (chat.conn.link === 'open') { text = ''; images = []; } // a dead link keeps the text: the send failed, the toast says so
   }
 
@@ -116,7 +118,7 @@
     // Only the Enter key sends (checked by its code too: some soft keyboards report other keys oddly).
     if (e.key === 'Enter' && e.keyCode !== 9 && !e.shiftKey) {
       e.preventDefault();
-      submit(e.altKey ? 'followUp' : 'steer');
+      submit(e.ctrlKey || e.metaKey ? 'now' : e.altKey ? 'followUp' : 'steer');
     } else if (e.key === 'Escape' && chat.running) {
       chat.abort();
     }
@@ -163,15 +165,23 @@
 <div class="dock">
   <BgChips {chat} />
 
-  <!-- the model's task list sits between the background chips above and the message box below -->
-  <TodoTray {chat} />
-
+  <!-- Messages waiting for the agent: a card of their own above the task list, so the list stays against the
+       message box and does not move when the queue comes and goes. -->
   {#if queued}
-    <ul class="queue" aria-label={S.queue}>
-      {#each chat.queue.steering as q}<li><b>{S.steer}</b>{q}</li>{/each}
-      {#each chat.queue.followUp as q}<li><b>{S.followUp}</b>{q}</li>{/each}
-    </ul>
+    <section class="queue" aria-label={S.queue}>
+      <span class="qhead"><Icon name="clock" size={13} />{S.queue} {queued}</span>
+      <ul>
+        {#each chat.queue.steering as q}<li><b>{S.steer}</b><span class="q">{q}</span></li>{/each}
+        {#each chat.queue.followUp as q}<li><b>{S.followUp}</b><span class="q">{q}</span></li>{/each}
+      </ul>
+      {#if chat.running}
+        <button class="now" type="button" title={S.sendNowHint} onclick={() => void chat.sendNow('')}><Icon name="now" size={14} />{S.sendNow}</button>
+      {/if}
+    </section>
   {/if}
+
+  <!-- the model's task list sits right on the message box -->
+  <TodoTray {chat} />
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -247,6 +257,9 @@
       {#if chat.running && !canSend}
         <button class="round solid" type="button" aria-label={S.stop} title="{S.stop} (Esc)" onclick={() => chat.abort()}><Icon name="stop" size={16} /></button>
       {:else}
+        {#if chat.running}
+          <button class="round" type="button" aria-label={S.sendNow} title="{S.sendNow}: {S.sendNowHint} (Ctrl+Enter)" onclick={() => submit('now')}><Icon name="now" size={17} /></button>
+        {/if}
         <button class="round solid" type="button" disabled={!canSend} aria-label={chat.running ? S.steer : S.send} title={chat.running ? `${S.steer} (Enter), ${S.followUp} (Alt+Enter)` : S.send} onclick={() => submit()}>
           <Icon name="send" size={16} />
         </button>
@@ -261,25 +274,77 @@
     padding: 0 24px 12px;
   }
   .queue {
-    list-style: none;
-    margin: 0 auto 8px;
-    padding: 0;
     max-width: calc(var(--measure) + 74px);
+    margin: 0 auto 8px;
+    padding: 8px 8px 8px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--raised);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'head now' 'list list';
+    align-items: center;
+    row-gap: 4px;
     font-size: 13px;
-    color: var(--ink-2);
+  }
+  .qhead {
+    grid-area: head;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-3);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .queue ul {
+    grid-area: list;
+    list-style: none;
+    margin: 0;
+    padding: 0 6px 0 0;
     display: grid;
     gap: 2px;
+    /* four whole lines, then it scrolls (never a line cut in half) */
+    max-height: calc(4 * 20px + 3 * 2px);
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .queue ul::-webkit-scrollbar {
+    display: none;
   }
   .queue li {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding-left: 18px;
+    display: flex;
+    gap: 8px;
+    line-height: 20px;
+    min-width: 0;
+    color: var(--ink);
   }
   .queue b {
-    margin-right: 8px;
+    flex: none;
     color: var(--ink-3);
     font-weight: 560;
+  }
+  .queue .q {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .queue .now {
+    grid-area: now;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  @media (hover: hover) {
+    .queue .now:hover {
+      background: var(--accent-wash);
+    }
   }
   .composer {
     max-width: calc(var(--measure) + 74px);
