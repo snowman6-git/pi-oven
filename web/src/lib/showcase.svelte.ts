@@ -27,16 +27,17 @@ function load(): { on: boolean; style: Style; parts: Record<Part, boolean> } {
     const v = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (v && typeof v === 'object') {
       for (const p of PARTS) if (typeof v.parts?.[p.id] === 'boolean') parts[p.id] = v.parts[p.id];
-      return { on: v.on === true, style: v.style === 'example' ? 'example' : 'blur', parts };
+      // before v2 the stored style was only ever the old default (blur): those start on the new default, example text
+      return { on: v.on === true, style: v.v === 2 && v.style === 'blur' ? 'blur' : 'example', parts };
     }
   } catch { /* private mode, or something else wrote here */ }
-  return { on: false, style: 'blur', parts };
+  return { on: false, style: 'example', parts };
 }
 
 class Showcase {
   on = $state(false);
   /** How a hidden thing is drawn: blurred, or overwritten with example text. */
-  style = $state<Style>('blur');
+  style = $state<Style>('example');
   parts = $state<Record<Part, boolean>>(Object.fromEntries(PARTS.map((p) => [p.id, p.on])) as Record<Part, boolean>);
   /** Folders and the home folder as this machine knows them (set by the app). */
   cwds = $state.raw<string[]>([]);
@@ -50,7 +51,7 @@ class Showcase {
   }
 
   #save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, style: this.style, parts: this.parts })); } catch { /* private mode */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ v: 2, on: this.on, style: this.style, parts: this.parts })); } catch { /* private mode */ }
   }
 
   setOn(on: boolean) {

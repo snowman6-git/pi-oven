@@ -116,6 +116,7 @@ class App {
     return {
       changed: () => void this.refreshSessionsSoon(),
       gone: (c: Chat) => void this.reopenChat(c, true),
+      exited: (c: Chat) => this.#followRestart(c),
       updates: () => void this.refreshUpdates(),
       notify: (c: Chat, kind: 'done' | 'ask') => this.#attention(c, kind),
       flash: (t: string) => this.flash(t),
@@ -279,6 +280,21 @@ class App {
     const busy = this.chats.length - idle.length;
     this.updates.result = null;
     this.flash(failed ? t('appmsg.restartFailed', { n: failed }) : busy ? t('appmsg.restartBusy', { n: busy }) : t('appmsg.restarted'));
+  }
+
+  /** A pi that ended because some device restarted it (/reload, "restart sessions" after an update) has a successor on
+      the same session file: switch this tab to it instead of leaving it on "pi has exited". A pi that was closed or
+      crashed has none, and the tab stays as it is with its "reopen" button. */
+  #followRestart(chat: Chat) {
+    const file = chat.sessionFile;
+    if (!file) return;
+    for (const wait of [800, 2500, 6000]) {
+      setTimeout(async () => {
+        if (!this.chats.includes(chat) || chat.link !== 'exited') return; // closed, or already followed
+        const list = await api.runtimes().catch(() => []);
+        if (list.some((r) => r.sessionPath === file && r.id !== chat.runtime.id)) await this.reopenChat(chat, true);
+      }, wait);
+    }
   }
 
   /** A session whose pi has ended (or that a restarted server no longer knows): start pi again on the same session

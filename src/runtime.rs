@@ -195,6 +195,12 @@ pub struct Manager {
     pub updates: Arc<crate::update::Updates>,
 }
 
+/// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
+/// `{"type":"oven_exit"` prefix, and `json!` would put "code" first (keys come out sorted).
+fn exit_frame(code: Option<i32>) -> String {
+    format!(r#"{{"type":"oven_exit","code":{}}}"#, code.map_or_else(|| "null".to_owned(), |c| c.to_string()))
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -426,8 +432,7 @@ impl Manager {
                         }
                     }
                 };
-                let frame = serde_json::json!({ "type": "oven_exit", "code": code });
-                let _ = rt.events.send(Arc::from(frame.to_string()));
+                let _ = rt.events.send(Arc::from(exit_frame(code)));
                 mgr.map.write().await.remove(&id);
                 tracing::info!(runtime = %id, ?code, "pi exited");
             });
@@ -483,5 +488,14 @@ mod tests {
 
         feed(&mut r, &[r#"{"type":"agent_settled"}"#]);
         assert!(r.run.is_empty() && r.tool_updates.is_empty());
+    }
+
+    #[test]
+    fn the_exit_frame_starts_with_its_type() {
+        for code in [Some(0), Some(-1), None] {
+            let f = super::exit_frame(code);
+            assert!(f.starts_with(r#"{"type":"oven_exit""#), "{f}");
+            assert_eq!(serde_json::from_str::<serde_json::Value>(&f).unwrap()["type"], "oven_exit");
+        }
     }
 }

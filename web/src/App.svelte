@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { popovers } from './lib/popover.svelte';
   import { t } from './lib/i18n.svelte';
   import { onMount } from 'svelte';
   import { app } from './lib/app.svelte';
@@ -107,20 +108,30 @@
   // (settings open when the page reloads): it costs one extra back press.
   let overlayDepth = 0;
   let popping = false;
+  /** Back steps this page took itself (to drop the entry of something closed another way). Their popstate is not the
+      person pressing back, so it must not close whatever is still open underneath (the list behind a menu, say). */
+  let selfBack = 0;
   const overlayCount = () => {
     const c = app.current;
     return [
       !!c?.bgOpen, !!c?.extTitle, app.folderPicker, app.settingsOpen, app.modelDialog, !!app.treeTarget, !!app.dialog, menu.open,
       app.narrow && app.sidebarOpen, app.narrow && app.inspectorDrawer,
-    ].filter(Boolean).length;
+    ].filter(Boolean).length + popovers.count;
   };
   $effect(() => {
     const n = overlayCount();
     if (n > overlayDepth) history.pushState(null, '');
-    else if (n < overlayDepth && !popping) history.back();
+    else if (n < overlayDepth && !popping) {
+      selfBack++;
+      history.go(n - overlayDepth); // one popstate, however many closed at once
+    }
     overlayDepth = n;
   });
   function onPopState() {
+    if (selfBack > 0) {
+      selfBack--;
+      return;
+    }
     popping = true;
     const open = document.querySelectorAll('dialog[open]');
     if (open.length) {
@@ -130,6 +141,8 @@
       if (!cancel.defaultPrevented) d.close();
     } else if (menu.open) {
       menu.hide();
+    } else if (popovers.closeTop()) {
+      // the newest popover closed
     } else if (app.narrow && app.sidebarOpen) {
       app.sidebarOpen = false;
     } else if (app.narrow && app.inspectorDrawer) {

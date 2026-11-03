@@ -25,6 +25,8 @@ export interface ChatHost extends EditorHost {
   changed(): void;
   /** The server no longer has this pi (it restarted): open the same session again in a new one. */
   gone(chat: Chat): void;
+  /** This pi ended; another device may have restarted it on the same session (then follow it there). */
+  exited(chat: Chat): void;
   /** pi offered updates (the server answered the prompt): the list shows them. */
   updates(): void;
   /** A run finished or a question is waiting; the host decides whether anyone needs to be told. */
@@ -607,6 +609,7 @@ export class Chat {
         this.running = false;
         this.notice('error', t('chatmsg.exited', { code: rec.code != null ? t('chatmsg.code', { n: rec.code }) : '' }));
         this.host.changed();
+        this.host.exited(this);
         break;
       case 'oven_update':
         this.host.updates();

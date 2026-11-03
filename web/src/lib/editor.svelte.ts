@@ -216,6 +216,7 @@ export class Editors {
       doc.dirty = false;
       doc.conflict = null;
       doc.error = null;
+      doc.missing = false;
       doc.version++;
     } catch (e) {
       const st = e instanceof HttpError ? e.status : 0;

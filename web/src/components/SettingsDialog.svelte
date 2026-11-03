@@ -172,12 +172,12 @@
       <section>
         <h3>{t('settings.thinkNotify')}</h3>
         <label class="row">
-          <input type="checkbox" checked={settings.thinkingOpen} onchange={(e) => settings.set('thinkingOpen', e.currentTarget.checked)} />
           <span>{t('settings.thinkingOpen')}</span>
+          <input class="switch" type="checkbox" role="switch" checked={settings.thinkingOpen} onchange={(e) => settings.set('thinkingOpen', e.currentTarget.checked)} />
         </label>
         <label class="row">
-          <input type="checkbox" checked={app.notifyOn} onchange={toggleNotify} />
           <span>{t('settings.notify')}</span>
+          <input class="switch" type="checkbox" role="switch" checked={app.notifyOn} onchange={toggleNotify} />
         </label>
       </section>
       {:else if tab === 'pins'}
@@ -188,7 +188,7 @@
           <ul class="rules">
             {#each pinRules.list as r (r.id)}
               <li>
-                <label class="row"><input type="checkbox" checked={r.on} onchange={(e) => pinRules.toggle(r.id, e.currentTarget.checked)} /><span><b>{r.name}</b><small class="mono">{r.pattern}</small></span></label>
+                <label class="row"><span><b>{r.name}</b><small class="mono">{r.pattern}</small></span><input class="switch" type="checkbox" role="switch" checked={r.on} onchange={(e) => pinRules.toggle(r.id, e.currentTarget.checked)} /></label>
                 <button class="btn quiet" type="button" aria-label={t('settings.pins.removeLabel', { name: r.name })} onclick={() => pinRules.remove(r.id)}>{t('settings.pins.remove')}</button>
               </li>
             {/each}
@@ -212,18 +212,18 @@
         <h3>{t('settings.showcase.title')}</h3>
         <p class="note">{t('settings.showcase.note')}</p>
         <label class="row">
-          <input type="checkbox" role="switch" aria-checked={showcase.on} checked={showcase.on} onchange={(e) => showcase.setOn(e.currentTarget.checked)} />
           <span><b>{t('settings.showcase.on')}</b></span>
+          <input class="switch" type="checkbox" role="switch" checked={showcase.on} onchange={(e) => showcase.setOn(e.currentTarget.checked)} />
         </label>
         <div class="seg" role="radiogroup" aria-label={t('settings.showcase.style')} class:off={!showcase.on}>
-          <button type="button" role="radio" aria-checked={showcase.style === 'blur'} class:on={showcase.style === 'blur'} disabled={!showcase.on} onclick={() => showcase.setStyle('blur')}>{t('settings.showcase.blur')}</button>
           <button type="button" role="radio" aria-checked={showcase.style === 'example'} class:on={showcase.style === 'example'} disabled={!showcase.on} onclick={() => showcase.setStyle('example')}>{t('settings.showcase.example')}</button>
+          <button type="button" role="radio" aria-checked={showcase.style === 'blur'} class:on={showcase.style === 'blur'} disabled={!showcase.on} onclick={() => showcase.setStyle('blur')}>{t('settings.showcase.blur')}</button>
         </div>
         <div class="subs" class:off={!showcase.on} role="group" aria-label={t('settings.showcase.parts')}>
           {#each PARTS as p (p.id)}
             <label class="row sub">
-              <input type="checkbox" checked={showcase.parts[p.id]} disabled={!showcase.on} onchange={(e) => showcase.set(p.id, e.currentTarget.checked)} />
               <span>{t(`showcase.${p.id}.label`)}<small>{t(`showcase.${p.id}.hint`)}</small></span>
+              <input class="switch" type="checkbox" role="switch" checked={showcase.parts[p.id]} disabled={!showcase.on} onchange={(e) => showcase.set(p.id, e.currentTarget.checked)} />
             </label>
           {/each}
         </div>
@@ -401,14 +401,15 @@
   }
   .row {
     display: flex;
-    gap: 10px;
+    justify-content: space-between;
+    gap: 14px;
     align-items: center;
-    padding: 5px 0;
+    padding: 6px 0;
+    cursor: pointer;
   }
-  .row input {
-    accent-color: var(--accent);
-    width: 16px;
-    height: 16px;
+  .row > span {
+    flex: 1;
+    min-width: 0;
   }
   .cur {
     display: flex;

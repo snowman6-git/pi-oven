@@ -12,8 +12,13 @@ class MenuState {
   /** Touch devices get a bottom sheet instead of a floating menu. */
   sheet = $state(false);
   shownAt = 0;
+  /** When it last closed, and which opener it belonged to: a button that toggles its menu must not reopen it on the
+      same press that closed it (the outside-press closes it first, then the button's click arrives). */
+  hiddenAt = 0;
+  owner: string | null = null;
 
-  show(x: number, y: number, items: MenuItem[], sheet = false) {
+  show(x: number, y: number, items: MenuItem[], sheet = false, owner: string | null = null) {
+    this.owner = owner;
     const real = items.filter((it, i) => !(it === 'sep' && (i === 0 || items[i - 1] === 'sep' || i === items.length - 1)));
     if (!real.some((i) => i !== 'sep')) return;
     this.items = real;
@@ -25,7 +30,14 @@ class MenuState {
   }
 
   hide() {
+    if (this.open) this.hiddenAt = performance.now();
     this.open = false;
+  }
+
+  /** For a button that opens a menu: true when this press should only close it (it was open, or just closed by it). */
+  closedBy(owner: string): boolean {
+    if (this.open && this.owner === owner) { this.hide(); return true; }
+    return this.owner === owner && performance.now() - this.hiddenAt < 350;
   }
 }
 

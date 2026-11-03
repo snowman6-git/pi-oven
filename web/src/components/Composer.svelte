@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { trackPopover } from '../lib/popover.svelte';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { handleSlash, builtins } from '../lib/builtins';
@@ -25,6 +26,10 @@
   let pick = $state(0);
   let dragging = $state(false);
   let menu = $state<Menu>(null);
+  // the phone's back button closes an open popover first (App.svelte)
+  $effect(() => {
+    if (menu) return trackPopover(() => (menu = null));
+  });
   // A touch keyboard's Enter is the newline key (enterkeyhint=new-line on the textarea); sending is the button's job.
   const coarse = matchMedia('(pointer: coarse)').matches;
   const toggle = (m: Exclude<Menu, null>) => {

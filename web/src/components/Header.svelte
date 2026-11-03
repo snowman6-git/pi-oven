@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { trackPopover } from '../lib/popover.svelte';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
@@ -13,6 +14,10 @@
   let editing = $state(false);
   let draft = $state('');
   let menu = $state<'more' | null>(null);
+  // the phone's back button closes an open popover first (App.svelte)
+  $effect(() => {
+    if (menu) return trackPopover(() => (menu = null));
+  });
 
   const title = $derived(chat.title || S.untitled);
 

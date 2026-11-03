@@ -75,14 +75,14 @@
     {/if}
   </section>
 
-  {#if chat.stats}
+  {#if chat.stats?.tokens}
     <section>
       <h3>{t('inspector.usage')}</h3>
       <dl>
         <dt>{t('inspector.tokIn')}</dt><dd>{chat.stats.tokens.input.toLocaleString()}</dd>
         <dt>{t('inspector.tokOut')}</dt><dd>{chat.stats.tokens.output.toLocaleString()}</dd>
         <dt>{t('inspector.cacheRead')}</dt><dd>{chat.stats.tokens.cacheRead.toLocaleString()}</dd>
-        <dt>{S.cost}</dt><dd>${chat.stats.cost.toFixed(chat.stats.cost < 1 ? 3 : 2)}</dd>
+        <dt>{S.cost}</dt><dd>${(chat.stats.cost ?? 0).toFixed((chat.stats.cost ?? 0) < 1 ? 3 : 2)}</dd>
         <dt>{t('inspector.reqRes')}</dt><dd>{chat.stats.userMessages} / {chat.stats.assistantMessages}</dd>
         <dt>{t('inspector.toolCalls')}</dt><dd>{chat.stats.toolCalls}</dd>
       </dl>

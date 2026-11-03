@@ -176,13 +176,13 @@
   const langName = $derived(LANGS.find((l) => l.code === i18n.lang)?.name ?? i18n.lang);
   /** The language list opens above the button; pressing the button again closes it. */
   function pickLang(e: MouseEvent) {
-    if (menu.open) { menu.hide(); return; }
+    if (menu.closedBy('lang')) return;
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    menu.show(r.left, r.top - 8 - LANGS.length * 36, LANGS.map((l) => ({ label: l.name, icon: l.code === i18n.lang ? 'check' : 'globe', run: () => setLang(l.code) } as MenuItem)), matchMedia('(pointer: coarse)').matches);
+    menu.show(r.left, r.top - 8 - LANGS.length * 36, LANGS.map((l) => ({ label: l.name, icon: l.code === i18n.lang ? 'check' : 'globe', run: () => setLang(l.code) } as MenuItem)), matchMedia('(pointer: coarse)').matches, 'lang');
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' && app.selecting && !app.dialog && !document.querySelector('dialog[open]')) app.stopSelect();
+    if (e.key === 'Escape' && !e.defaultPrevented && app.selecting && !app.dialog && !document.querySelector('dialog[open]')) app.stopSelect();
   }
 </script>
 
