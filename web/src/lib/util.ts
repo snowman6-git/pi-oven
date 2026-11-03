@@ -60,3 +60,10 @@ export function textOf(content: unknown): string {
     .map((p: any) => p.text)
     .join('\n');
 }
+
+/** The secret in `#token=…`, decoded. A password may hold any visible character, so nothing is cut off at a symbol. */
+export function tokenFromHash(hash: string): string | null {
+  const m = /(?:^#|&)token=([^&]*)/.exec(hash);
+  if (!m || !m[1]) return null;
+  try { return decodeURIComponent(m[1]).trim() || null; } catch { return m[1].trim() || null; }
+}

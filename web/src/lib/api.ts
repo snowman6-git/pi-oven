@@ -3,6 +3,7 @@ import type { Entry } from './tree';
 
 import { serverUrl } from './settings.svelte';
 import { currentLang } from './i18n';
+import { tokenFromHash } from './util';
 
 const TOKEN_KEY = 'pi-oven.token';
 
@@ -27,11 +28,12 @@ export const auth = {
     // ask the browser not to evict the saved login when it is short of space
     if (v) void navigator.storage?.persist?.().catch(() => {});
   },
-  /** Accept `#token=…` from the printed URL, store it, and clean the address bar. */
+  /** Accept `#token=…` (the printed URL, or what the app's first screen sends: a token or a password, URL-encoded),
+      store it, and clean the address bar. */
   captureFromHash() {
-    const m = location.hash.match(/token=([0-9a-zA-Z_-]+)/);
-    if (m) {
-      this.token = m[1];
+    const v = tokenFromHash(location.hash);
+    if (v) {
+      this.token = v;
       history.replaceState(null, '', location.pathname + location.search);
     }
   },
