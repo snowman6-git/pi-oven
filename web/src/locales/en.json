@@ -174,7 +174,11 @@
     "server": {
       "title": "Server address",
       "note": "Leave empty to use the server that opened this page. Set it only when opening from elsewhere, like the desktop app.",
-      "apply": "Apply"
+      "apply": "Apply",
+      "current": "Connected server",
+      "thisPage": "the server that opened this page",
+      "signedIn": "signed in",
+      "switchTo": "Switch to another server"
     }
   },
   "showcase": {

@@ -13,7 +13,17 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const dir = join(root, 'locales');
 const strict = process.argv.includes('--strict');
 
-const isLeaf = (v) => typeof v === 'string' || (v && typeof v === 'object' && 'other' in v);
+const FORMS = new Set(['zero', 'one', 'two', 'few', 'many', 'other']);
+const isLeaf = (v) => typeof v === 'string' || (v && typeof v === 'object' && 'other' in v && Object.keys(v).every((k) => FORMS.has(k)));
+// an object with an "other" key and anything else is a group that the plural rule would swallow
+function badGroups(o, p = '', out = []) {
+  for (const [k, v] of Object.entries(o)) {
+    if (!v || typeof v !== 'object') continue;
+    if ('other' in v && !Object.keys(v).every((x) => FORMS.has(x))) out.push(p + k);
+    badGroups(v, `${p}${k}.`, out);
+  }
+  return out;
+}
 function flat(o, p = '', out = new Map()) {
   for (const [k, v] of Object.entries(o)) {
     if (!p && k === '_meta') continue;
@@ -24,8 +34,10 @@ function flat(o, p = '', out = new Map()) {
 }
 const holes = (v) => new Set((typeof v === 'string' ? [v] : Object.values(v)).flatMap((s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1])));
 
-const source = flat(JSON.parse(readFileSync(join(dir, 'ko.json'), 'utf8')));
+const koJson = JSON.parse(readFileSync(join(dir, 'ko.json'), 'utf8'));
+const source = flat(koJson);
 let bad = 0;
+for (const g of badGroups(koJson)) { console.log(`ko.json: "${g}" has a key named "other" next to other keys; rename it (it reads as a plural)`); bad++; }
 
 for (const file of readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'ko.json').sort()) {
   const json = JSON.parse(readFileSync(join(dir, file), 'utf8'));

@@ -5,6 +5,7 @@
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
+  import { auth } from '../lib/api';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
   import type { IconName } from '../lib/icons';
@@ -229,10 +230,15 @@
       </section>
       {:else if tab === 'server'}
       <section>
-        <h3>{t('settings.server.title')}</h3>
+        <h3>{t('settings.server.current')}</h3>
+        <p class="cur"><span class="mono" data-priv="hosts">{showcase.text(serverUrl.value || location.origin)}</span>
+          <small>{serverUrl.value ? '' : t('settings.server.thisPage')}{auth.token ? `${serverUrl.value ? '' : ' · '}${t('settings.server.signedIn')}` : ''}</small></p>
+      </section>
+      <section>
+        <h3>{t('settings.server.switchTo')}</h3>
         <p class="note">{t('settings.server.note')}</p>
         <div class="srv">
-          <input class="field mono" data-priv="hosts" bind:value={server} placeholder="http://localhost:4141" spellcheck="false" aria-label={t('settings.server.title')}
+          <input class="field mono" data-priv="hosts" bind:value={server} placeholder={serverUrl.value || location.origin} spellcheck="false" aria-label={t('settings.server.title')}
             onkeydown={(e) => e.key === 'Enter' && saveServer()} />
           <button class="btn" type="button" onclick={saveServer}>{t('settings.server.apply')}</button>
         </div>
@@ -403,6 +409,19 @@
     accent-color: var(--accent);
     width: 16px;
     height: 16px;
+  }
+  .cur {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    margin: 0;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .cur small {
+    color: var(--ink-3);
+    font-size: 12px;
   }
   .srv {
     display: flex;
