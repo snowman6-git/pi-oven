@@ -169,7 +169,13 @@ pi가 `edit`·`write`로 **성공시킨** 변경을 실시간으로 보여줍니
 - **폰(안드로이드)**: 저장된 서버가 있으면 앱을 열 때 스스로 연결합니다(토큰도 함께 저장되어 다시 입력하지 않습니다). 서버를 바꾸려면 연결 중 화면의 "취소하고 서버 바꾸기"를 누르거나, 연결된 뒤 뒤로 가기를 누르세요.
 - 창에 메뉴 줄은 없습니다(일부 리눅스 데스크톱에서 화면 크기 계산을 틀어지게 해서 뺐습니다). 다른 서버로 바꾸려면 앱을 `--server 주소`(또는 환경변수 `PI_OVEN_SERVER`)로 실행하거나, 저장된 `server.txt`(리눅스 `~/.config/dev.code4hub.pioven/`, 윈도우 `%APPDATA%\dev.code4hub.pioven\`)를 지우면 처음 화면이 나옵니다. 서버 화면의 외부 링크는 시스템 브라우저로 열립니다.
 - `--server <주소>`나 `PI_OVEN_SERVER`로 저장된 주소 대신 쓸 서버를 줄 수 있습니다.
-- 빌드: `cd desktop && cargo tauri build`(deb, AppImage). 서버 화면에는 앱의 기능(IPC) 권한이 없습니다. Linux만 빌드해 확인했고 Windows·macOS는 빌드하지 않았습니다.
+- 빌드: `cd desktop && cargo tauri build`(deb, AppImage) 뒤에 **`desktop/scripts/fix-appimage.sh`** 로 AppImage를 다시 묶습니다. 빌드 PC의 libwayland를 빼고(다른 배포판의 Mesa와 섞이면 죽어서 linuxdeploy가 X11을 강제하던 원인), 그 강제를 지웁니다. 서버 화면에는 앱의 기능(IPC) 권한이 없습니다. Linux만 빌드해 확인했고 Windows·macOS는 빌드하지 않았습니다.
+- **리눅스 AppImage의 실행 환경**: 앱이 시작할 때 정합니다(사용자가 직접 준 값이 항상 우선).
+  - Wayland 세션이면 네이티브 Wayland로(`GDK_BACKEND=wayland,x11`), 아니면 X11.
+  - fcitx/fcitx5: AppImage 안에는 fcitx 입력 모듈이 없어서, Wayland에서는 컴포지터의 입력기(text-input, `GTK_IM_MODULE=wayland`)를, X11에서는 XIM(`XMODIFIERS=@im=fcitx`)을 씁니다. 그 밖에 AppImage에 없는 모듈을 요청하면 GTK가 고르게 둡니다.
+  - NVIDIA 독점 드라이버에서만 WebKit의 DMA-BUF 렌더러를 끕니다(검은 창 방지). 다른 GPU에서는 켜 둡니다.
+  - 무엇이 정해졌는지 보려면 `PI_OVEN_DEBUG_ENV=1`로 실행하세요. 문제가 있으면 `GDK_BACKEND=x11`이나 `WEBKIT_DISABLE_DMABUF_RENDERER=1`을 직접 주어 바꿀 수 있습니다.
+  - 네이티브 tar.gz는 시스템의 GTK·입력기 모듈·드라이버를 그대로 써서 이 조정이 필요 없습니다. AppImage에서 계속 문제가 있으면 이쪽을 쓰세요.
 
 ## 8. 데스크톱 펫 연동 (선택)
 

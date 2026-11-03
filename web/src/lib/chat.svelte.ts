@@ -22,6 +22,8 @@ export interface Toast { id: number; text: string; level: 'info' | 'warning' | '
 
 export interface ChatHost extends EditorHost {
   changed(): void;
+  /** The server no longer has this pi (it restarted): open the same session again in a new one. */
+  gone(chat: Chat): void;
   /** A run finished or a question is waiting; the host decides whether anyone needs to be told. */
   notify(chat: Chat, kind: 'done' | 'ask'): void;
 }
@@ -602,6 +604,10 @@ export class Chat {
         this.running = false;
         this.notice('error', `pi 프로세스가 종료되었습니다${rec.code != null ? ` (코드 ${rec.code})` : ''}.`);
         this.host.changed();
+        break;
+      case 'oven_gone':
+        this.running = false;
+        this.host.gone(this);
         break;
       case 'oven_lagged':
         void this.load();

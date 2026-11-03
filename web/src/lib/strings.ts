@@ -26,6 +26,7 @@ export const S = {
   connecting: '연결하는 중…',
   reconnecting: '연결이 끊겼습니다. 다시 연결하는 중…',
   exited: 'pi 프로세스가 종료되었습니다.',
+  reopen: '다시 열기',
   restart: '세션 다시 열기',
   chooseFolder: '작업할 폴더 선택',
   chooseFolderHelp: 'pi는 이 폴더에서 파일을 읽고 명령을 실행합니다.',

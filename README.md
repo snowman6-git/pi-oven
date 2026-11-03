@@ -69,6 +69,7 @@ cargo build --release
 
 - `GStreamer element appsink not found`: `gst-plugins-base`(Arch) 또는 `gstreamer1.0-plugins-base`(Debian·Ubuntu)를 설치하면 사라집니다. 미디어를 재생하지 않으므로 무시해도 됩니다.
 - `Failed to load module "…-gtk-module"`: AppImage 안의 GTK가 시스템 모듈을 못 찾는 것이라 무시해도 됩니다.
+- AppImage는 Wayland 세션에서 네이티브 Wayland로 뜨고, fcitx5는 컴포지터의 입력기(Wayland)나 XIM(X11)으로 연결합니다. 화면이 검거나 입력이 이상하면 `GDK_BACKEND=x11` 또는 `WEBKIT_DISABLE_DMABUF_RENDERER=1`을 주고 실행해 보거나, 시스템 라이브러리를 그대로 쓰는 네이티브 tar.gz를 쓰세요. 자세한 내용은 [docs/USAGE.md](docs/USAGE.md#7-데스크톱-앱-tauri).
 
 </details>
 

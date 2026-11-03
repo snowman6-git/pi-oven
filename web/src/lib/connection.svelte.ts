@@ -81,7 +81,24 @@ export class Connection {
       this.link = 'reconnecting';
       const delay = BACKOFF[Math.min(this.#retry++, BACKOFF.length - 1)];
       this.#timer = setTimeout(() => this.#connect(), delay);
+      // After a few failures, ask the server whether this pi still exists. A server that restarted is back but has
+      // forgotten it: knocking would go on for ever, so the session is reported gone (and can be opened again).
+      if (this.#retry >= 3 && !this.#checking) void this.#stillThere();
     };
+  }
+
+  #checking = false;
+  async #stillThere() {
+    this.#checking = true;
+    try {
+      const list = await api.runtimes();
+      if (this.#disposed || this.link === 'open' || list.some((r) => r.id === this.runtimeId)) return;
+      clearTimeout(this.#timer);
+      this.link = 'exited';
+      this.onRecord({ type: 'oven_gone' });
+    } catch { /* the server itself is still away: keep trying */ } finally {
+      this.#checking = false;
+    }
   }
 
   /** Give up on this socket now (without waiting for it to say it is closed) and open a new one. */

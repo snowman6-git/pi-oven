@@ -105,6 +105,7 @@ class App {
   #host() {
     return {
       changed: () => void this.refreshSessionsSoon(),
+      gone: (c: Chat) => void this.reopenChat(c, true),
       notify: (c: Chat, kind: 'done' | 'ask') => this.#attention(c, kind),
       flash: (t: string) => this.flash(t),
       ask: (o: Parameters<App['ask']>[0]) => this.ask(o),
@@ -221,6 +222,27 @@ class App {
       at >= 0 ? this.chats.splice(at, 1, fresh) : this.chats.push(fresh);
       this.select(rt.id);
     } catch (e) { this.#fail(e); }
+  }
+
+  /** A session whose pi has ended (or that a restarted server no longer knows): start pi again on the same session
+      file, in the same place in the list. A session never saved has no file: its folder is opened fresh. */
+  async reopenChat(chat: Chat, quiet = false) {
+    if (!this.chats.includes(chat)) return;
+    try {
+      const rt = await api.openRuntime({ cwd: chat.runtime.cwd, sessionPath: chat.sessionFile });
+      if (!this.chats.includes(chat)) return; // closed meanwhile
+      const at = this.chats.indexOf(chat);
+      const wasCurrent = this.currentId === chat.runtime.id;
+      chat.dispose();
+      const existing = this.chats.find((c) => c.runtime.id === rt.id);
+      if (existing) this.chats.splice(at, 1);
+      else this.chats.splice(at, 1, new Chat(rt, this.#host()));
+      if (wasCurrent) this.select(rt.id);
+      if (!quiet) this.flash('세션을 다시 열었습니다');
+    } catch (e) {
+      if (quiet) return; // the button stays there to try again
+      this.flash(`다시 열지 못했습니다: ${e instanceof Error ? e.message : e}`);
+    }
   }
 
   async openFolder(cwd: string) {

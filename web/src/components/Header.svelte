@@ -70,7 +70,10 @@
   <div class="strip" class:bad={chat.link === 'exited'} role="status">
     {#if chat.link === 'exited'}
       {S.exited}
-      <button class="btn" type="button" onclick={() => app.closeChat(chat)}>{S.closeSession}</button>
+      <span class="acts">
+        <button class="btn primary" type="button" onclick={() => app.reopenChat(chat)}><Icon name="refresh" size={14} />{S.reopen}</button>
+        <button class="btn" type="button" onclick={() => app.closeChat(chat)}>{S.closeSession}</button>
+      </span>
     {:else if chat.link === 'reconnecting'}{S.reconnecting}
     {:else if chat.link === 'connecting'}{S.connecting}
     {:else if chat.compacting}{S.compacting}
@@ -191,6 +194,19 @@
   }
   .strip.bad {
     background: color-mix(in srgb, var(--bad) 18%, var(--paper));
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .acts {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .acts .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
   }
   @media (max-width: 900px) {
     .menu {
