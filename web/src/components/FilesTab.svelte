@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t } from '../lib/i18n.svelte';
   import { untrack } from 'svelte';
   import { api, HttpError, type FileEntry } from '../lib/api';
   import { app } from '../lib/app.svelte';
@@ -32,7 +34,7 @@
       const r = await api.files(id, path);
       dirs[path] = { entries: r.entries, loading: false, error: null, truncated: r.truncated };
     } catch (e) {
-      dirs[path] = { entries: prev?.entries ?? [], loading: false, error: e instanceof HttpError && e.status === 404 ? '폴더가 없습니다.' : '폴더를 읽지 못했습니다.', truncated: false };
+      dirs[path] = { entries: prev?.entries ?? [], loading: false, error: e instanceof HttpError && e.status === 404 ? t('files.noFolder') : t('files.readFailed'), truncated: false };
       // a folder that has gone is not worth keeping open
       if (e instanceof HttpError && e.status === 404) expanded = expanded.filter((x) => x !== path && !x.startsWith(path + '/'));
     }
@@ -136,7 +138,7 @@
     if (!ed || ed.busy) return;
     const name = ed.value.trim();
     if (!name) { editing = null; return; }
-    if (bad(name)) { app.flash('이름에는 / 를 쓸 수 없습니다'); return; }
+    if (bad(name)) { app.flash(t('files.noSlash')); return; }
     ed.busy = true;
     try {
       if (ed.mode === 'rename') {
@@ -162,16 +164,16 @@
       }
     } catch (e) {
       ed.busy = false;
-      app.flash(e instanceof HttpError && e.status === 409 ? '같은 이름이 이미 있습니다' : e instanceof HttpError && e.status === 403 ? '여기에는 만들 수 없습니다' : '처리하지 못했습니다');
+      app.flash(e instanceof HttpError && e.status === 409 ? t('files.exists') : e instanceof HttpError && e.status === 403 ? t('files.forbidden') : t('files.failed'));
     }
   }
 
   async function remove(path: string, dir: boolean) {
     const ok = await app.ask({
-      title: dir ? '폴더를 삭제할까요?' : '파일을 삭제할까요?',
-      body: dir ? '폴더 안의 모든 파일이 함께 영구 삭제되며 되돌릴 수 없습니다.' : '영구 삭제되며 되돌릴 수 없습니다.',
+      title: dir ? t('files.delDirAsk') : t('files.delFileAsk'),
+      body: dir ? t('files.delDirBody') : t('files.delFileBody'),
       items: [path],
-      confirm: '삭제',
+      confirm: t('files.delete'),
       danger: true,
     });
     if (!ok) return;
@@ -183,33 +185,33 @@
       if (selected === path) selected = null;
       await load(parentOf(path));
     } catch {
-      app.flash('삭제하지 못했습니다');
+      app.flash(t('files.delFailed'));
     }
   }
 
   function itemsFor(r: Extract<Row, { t: 'item' }>): MenuItem[] {
     const where = r.dir ? r.path : parentOf(r.path);
     return [
-      ...(r.dir ? [] : [{ label: '편집기로 열기', icon: 'file', disabled: r.e.blocked, run: () => openFile(r.path) } as MenuItem]),
-      ...(r.dir ? [{ label: r.open ? '접기' : '펼치기', icon: r.open ? 'up' : 'down', run: () => void toggle(r.path) } as MenuItem] : []),
+      ...(r.dir ? [] : [{ label: t('files.openEditor'), icon: 'file', disabled: r.e.blocked, run: () => openFile(r.path) } as MenuItem]),
+      ...(r.dir ? [{ label: r.open ? t('files.collapse') : t('files.expand'), icon: r.open ? 'up' : 'down', run: () => void toggle(r.path) } as MenuItem] : []),
       'sep',
-      { label: '새 파일…', icon: 'filePlus', run: () => startNew('file', where) },
-      { label: '새 폴더…', icon: 'folderPlus', run: () => startNew('dir', where) },
+      { label: t('files.newFileMenu'), icon: 'filePlus', run: () => startNew('file', where) },
+      { label: t('files.newDirMenu'), icon: 'folderPlus', run: () => startNew('dir', where) },
       'sep',
-      { label: '이름 바꾸기', icon: 'edit', run: () => startRename(r.path) },
-      { label: '삭제…', icon: 'trash', danger: true, run: () => void remove(r.path, r.dir) },
+      { label: S.rename, icon: 'edit', run: () => startRename(r.path) },
+      { label: t('files.deleteMenu'), icon: 'trash', danger: true, run: () => void remove(r.path, r.dir) },
       'sep',
-      { label: '경로 복사', icon: 'link', run: () => app.copy(r.path) },
-      { label: '전체 경로 복사', icon: 'link', run: () => app.copy(`${chat.runtime.cwd}/${r.path}`) },
-      ...(r.dir ? [{ label: '새로 고침', icon: 'refresh', run: () => void load(r.path) } as MenuItem] : []),
+      { label: t('files.copyPath'), icon: 'link', run: () => app.copy(r.path) },
+      { label: t('files.copyFullPath'), icon: 'link', run: () => app.copy(`${chat.runtime.cwd}/${r.path}`) },
+      ...(r.dir ? [{ label: S.refresh, icon: 'refresh', run: () => void load(r.path) } as MenuItem] : []),
     ];
   }
 
   const rootItems = (): MenuItem[] => [
-    { label: '새 파일…', icon: 'filePlus', run: () => startNew('file', '') },
-    { label: '새 폴더…', icon: 'folderPlus', run: () => startNew('dir', '') },
+    { label: t('files.newFileMenu'), icon: 'filePlus', run: () => startNew('file', '') },
+    { label: t('files.newDirMenu'), icon: 'folderPlus', run: () => startNew('dir', '') },
     'sep',
-    { label: '새로 고침', icon: 'refresh', run: () => void loadAll() },
+    { label: S.refresh, icon: 'refresh', run: () => void loadAll() },
   ];
 
   function dragStart(e: DragEvent, path: string) {
@@ -259,17 +261,17 @@
   <div class="bar">
     <span class="root mono" title={showcase.tip('paths', chat.runtime.cwd)} data-priv="paths">{baseName(chat.runtime.cwd)}</span>
     <span class="acts">
-      <button class="icon-btn sm" type="button" title="새 파일" aria-label="새 파일" onclick={() => startNew('file', targetDir)}><Icon name="filePlus" size={16} /></button>
-      <button class="icon-btn sm" type="button" title="새 폴더" aria-label="새 폴더" onclick={() => startNew('dir', targetDir)}><Icon name="folderPlus" size={16} /></button>
-      <button class="icon-btn sm" type="button" title="새로 고침" aria-label="새로 고침" onclick={() => void loadAll()}><Icon name="refresh" size={15} /></button>
+      <button class="icon-btn sm" type="button" title={t('files.newFile')} aria-label={t('files.newFile')} onclick={() => startNew('file', targetDir)}><Icon name="filePlus" size={16} /></button>
+      <button class="icon-btn sm" type="button" title={t('files.newDir')} aria-label={t('files.newDir')} onclick={() => startNew('dir', targetDir)}><Icon name="folderPlus" size={16} /></button>
+      <button class="icon-btn sm" type="button" title={S.refresh} aria-label={S.refresh} onclick={() => void loadAll()}><Icon name="refresh" size={15} /></button>
     </span>
   </div>
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="tree" role="tree" aria-label="파일" tabindex="-1" bind:this={box} onkeydown={onKey} use:contextMenu={(e) => ((e.target as HTMLElement).closest('[data-path]') ? null : rootItems())}>
+  <div class="tree" role="tree" aria-label={t('files.tree')} tabindex="-1" bind:this={box} onkeydown={onKey} use:contextMenu={(e) => ((e.target as HTMLElement).closest('[data-path]') ? null : rootItems())}>
     {#if root?.error}<p class="err" role="alert">{root.error}</p>{/if}
     {#if root && !root.loading && root.entries.length === 0 && !editing && !root.error}
-      <p class="note">비어 있는 폴더입니다. 위의 + 로 새 파일을 만들 수 있어요.</p>
+      <p class="note">{t('files.empty')}</p>
     {/if}
     {#each rows as r (r.t === 'item' ? r.path : r.key)}
       {#if r.t === 'item'}
@@ -278,20 +280,20 @@
           use:contextMenu={() => itemsFor(r)}>
           <button type="button" class="hit" data-path={r.path} tabindex={selected === r.path || (!selected && r.path === rows.find((x) => x.t === 'item')?.['path' as never]) ? 0 : -1}
             draggable={!r.dir && !r.e.blocked} ondragstart={(e) => dragStart(e, r.path)} onclick={() => click(r)} ondblclick={() => (!r.dir && !r.e.blocked ? openFile(r.path) : null)}
-            title={r.e.blocked ? '폴더 밖을 가리키는 링크라 열 수 없습니다' : showcase.tip('files', r.path)}>
+            title={r.e.blocked ? t('files.blocked') : showcase.tip('files', r.path)}>
             <span class="chev" class:up={r.open} aria-hidden="true">{#if r.dir}<Icon name="right" size={13} />{/if}</span>
             <span class="ic" class:dot={r.name.startsWith('.')} aria-hidden="true">{#if r.dir}<Icon name={r.open ? 'folderOpen' : 'folder'} size={15} />{:else}<FileIcon name={r.name} />{/if}</span>
             <span class="nm" data-priv="files">{r.name}</span>
-            {#if r.e.link}<span class="lk" aria-label="링크">↗</span>{/if}
-            {#if openPaths.has(r.path)}<i class="od" role="img" aria-label="열려 있음"></i>{/if}
+            {#if r.e.link}<span class="lk" aria-label={t('files.link')}>↗</span>{/if}
+            {#if openPaths.has(r.path)}<i class="od" role="img" aria-label={t('files.isOpen')}></i>{/if}
           </button>
         </div>
         {#if r.dir && r.open && dirs[r.path]?.loading && !dirs[r.path]?.entries.length}
-          <p class="note" style="--d:{r.depth + 1}">불러오는 중…</p>
+          <p class="note" style="--d:{r.depth + 1}">{S.loading}</p>
         {:else if r.dir && r.open && dirs[r.path]?.error}
           <p class="err" style="--d:{r.depth + 1}">{dirs[r.path].error}</p>
         {:else if r.dir && r.open && dirs[r.path]?.truncated}
-          <p class="note" style="--d:{r.depth + 1}">항목이 많아 일부만 표시합니다.</p>
+          <p class="note" style="--d:{r.depth + 1}">{t('files.truncated')}</p>
         {/if}
       {:else}
         <div class="row editing" style="--d:{r.depth}">
@@ -299,8 +301,8 @@
             <span class="chev"></span>
             <span class="ic" aria-hidden="true">{#if r.kind === 'dir'}<Icon name="folder" size={15} />{:else if editing && editing.value}<FileIcon name={editing.value} />{:else}<Icon name="file" size={15} />{/if}</span>
             {#if editing}
-              <input class="name" aria-label={r.kind === 'rename' ? '새 이름' : r.kind === 'dir' ? '새 폴더 이름' : '새 파일 이름'} bind:value={editing.value} use:stem disabled={editing.busy}
-                placeholder={r.kind === 'dir' ? '폴더 이름' : '파일 이름'}
+              <input class="name" aria-label={r.kind === 'rename' ? t('files.newName') : r.kind === 'dir' ? t('files.newDirName') : t('files.newFileName')} bind:value={editing.value} use:stem disabled={editing.busy}
+                placeholder={r.kind === 'dir' ? t('files.dirName') : t('files.fileName')}
                 onkeydown={(e) => { if (e.isComposing) return; if (e.key === 'Enter') { e.preventDefault(); void commit(); } else if (e.key === 'Escape') { e.preventDefault(); editing = null; } }}
                 onblur={() => { if (editing && !editing.busy) { editing.value.trim() ? void commit() : (editing = null); } }} />
             {/if}
@@ -308,9 +310,9 @@
         </div>
       {/if}
     {/each}
-    {#if root?.truncated}<p class="note">항목이 많아 일부만 표시합니다.</p>{/if}
+    {#if root?.truncated}<p class="note">{t('files.truncated')}</p>{/if}
   </div>
-  <p class="hint">파일을 가운데로 끌어다 놓거나 눌러서 편집합니다. 입력창으로 끌면 경로가 들어갑니다.</p>
+  <p class="hint">{t('files.hint')}</p>
 </div>
 
 <style>

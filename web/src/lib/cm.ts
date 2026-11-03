@@ -7,6 +7,7 @@ import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/sea
 import { Compartment, EditorState, StateEffect, StateField, Transaction, type Extension, type Text } from '@codemirror/state';
 import { Decoration, drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder, type ViewUpdate } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
+import { t as tr } from './i18n';
 
 export { Text } from '@codemirror/state';
 export type { EditorState };
@@ -183,7 +184,7 @@ export function createState(doc: string, indent: string, hooks: Hooks, wrap: boo
       wrapping.of(wrap ? EditorView.lineWrapping : []),
       language.of([]),
       flashField,
-      placeholder('빈 파일입니다.'),
+      placeholder(tr('cm.empty')),
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: () => (hooks.onSave(), true) },
         indentWithTab,
@@ -192,7 +193,7 @@ export function createState(doc: string, indent: string, hooks: Hooks, wrap: boo
         ...defaultKeymap,
       ]),
       EditorView.updateListener.of((u) => hooks.onChange(u)),
-      EditorView.contentAttributes.of({ 'aria-label': '파일 편집기', spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off' }),
+      EditorView.contentAttributes.of({ 'aria-label': tr('editor.label'), spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off' }),
     ],
   });
 }

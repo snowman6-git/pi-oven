@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { untrack } from 'svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { contentAsDiff, runningEdits, sessionChanges, shortPath } from '../lib/changes';
@@ -40,12 +41,12 @@
 
 <div class="tab" bind:this={box}>
   <div class="bar">
-    <p>{files.length ? `${files.length}개 파일, 수정 ${total}번` : 'pi가 고친 파일이 여기에 나타납니다.'}</p>
-    <label class="follow" title="새 수정이 생기면 그 파일을 자동으로 펼칩니다"><input type="checkbox" bind:checked={follow} /> 따라가기</label>
+    <p>{files.length ? t('diff.summary', { n: files.length, edits: total }) : t('diff.empty')}</p>
+    <label class="follow" title={t('diff.followHint')}><input type="checkbox" bind:checked={follow} /> {t('diff.follow')}</label>
   </div>
 
   {#each busy as p (p)}
-    <div class="working" role="status"><span class="spin" aria-hidden="true"></span><span class="mono">{pathOf(p)}</span> 수정 중…</div>
+    <div class="working" role="status"><span class="spin" aria-hidden="true"></span><span class="mono">{pathOf(p)}</span> {t('diff.editing')}</div>
   {/each}
 
   <ul>
@@ -58,14 +59,14 @@
         </button>
         {#if open}
           <div class="body">
-            {#each f.touches as t, i (i)}
+            {#each f.touches as tc, i (i)}
               <div class="touch" data-latest={f === latest && i === f.touches.length - 1}>
-                {#if f.touches.length > 1}<small>{i + 1}번째 {t.kind === 'write' ? '쓰기' : '수정'}</small>{/if}
-                {#if t.kind === 'edit'}
-                  {#if t.diff}<Diff diff={t.diff} />{:else}<small>diff가 기록되어 있지 않습니다.</small>{/if}
+                {#if f.touches.length > 1}<small>{t('diff.nth', { n: i + 1, kind: tc.kind === 'write' ? t('diff.write') : t('diff.edit') })}</small>{/if}
+                {#if tc.kind === 'edit'}
+                  {#if tc.diff}<Diff diff={tc.diff} />{:else}<small>{t('diff.noDiff')}</small>{/if}
                 {:else}
-                  <small>파일 전체를 새로 썼습니다.</small>
-                  <Diff diff={contentAsDiff(t.content ?? '')} />
+                  <small>{t('diff.rewritten')}</small>
+                  <Diff diff={contentAsDiff(tc.content ?? '')} />
                 {/if}
               </div>
             {/each}
@@ -74,7 +75,7 @@
       </li>
     {/each}
   </ul>
-  {#if files.length}<p class="foot"><code class="mono">bash</code>로 바뀐 파일은 여기 없습니다. Git 탭에서 보세요.</p>{/if}
+  {#if files.length}<p class="foot">{@html t('diff.bashNote')}</p>{/if}
 </div>
 
 <style>

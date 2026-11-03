@@ -1,3 +1,4 @@
+import { t } from './i18n';
 // "Points": the things worth keeping in view while building: addresses a server printed, tokens it
 // handed out. Found by pattern in what the conversation already contains; nothing leaves the browser.
 // A heuristic, so it can miss one or flag one that is not; a person can always pin by hand.
@@ -107,21 +108,21 @@ const NESTED = /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,\d*\})/
 
 /** Why a pattern is refused, or null when it is fine. Backtracking can't be interrupted, so the shapes that blow up are turned away. */
 export function ruleProblem(pattern: string): string | null {
-  if (!pattern.trim()) return '패턴을 입력하세요.';
-  if (pattern.length > 200) return '패턴이 너무 깁니다(200자까지).';
-  if (NESTED.test(pattern)) return '반복 안에 반복이 있는 패턴은 쓸 수 없습니다. 예: (a+)+';
+  if (!pattern.trim()) return t('rules.empty');
+  if (pattern.length > 200) return t('rules.long');
+  if (NESTED.test(pattern)) return t('rules.nested');
   try {
     const re = new RegExp(pattern, 'g');
-    if (re.test('')) return '빈 글자에도 맞는 패턴입니다.';
+    if (re.test('')) return t('rules.matchesEmpty');
   } catch (e) {
-    return '정규식이 올바르지 않습니다.';
+    return t('rules.invalid');
   }
   return null;
 }
 
 export function compileRule(name: string, pattern: string): CompiledRule | null {
   if (ruleProblem(pattern)) return null;
-  return { name: name.trim() || '규칙', re: new RegExp(pattern, 'g') };
+  return { name: name.trim() || t('rules.rule'), re: new RegExp(pattern, 'g') };
 }
 
 export function findSecrets(text: string, rules: CompiledRule[] = []): { label: string; value: string }[] {

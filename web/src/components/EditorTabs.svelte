@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
   import type { Chat } from '../lib/chat.svelte';
@@ -19,11 +21,11 @@
   });
 
   const items = (path: string): MenuItem[] => [
-    { label: '닫기', icon: 'x', run: () => void editors.close(path) },
-    { label: '다른 탭 닫기', icon: 'x', disabled: editors.docs.length < 2, run: () => void editors.closeOthers(path) },
-    { label: '모두 닫기', icon: 'x', run: async () => { for (const d of [...editors.docs]) if (!(await editors.close(d.path))) break; } },
+    { label: S.close, icon: 'x', run: () => void editors.close(path) },
+    { label: t('tabs.closeOthers'), icon: 'x', disabled: editors.docs.length < 2, run: () => void editors.closeOthers(path) },
+    { label: t('tabs.closeAll'), icon: 'x', run: async () => { for (const d of [...editors.docs]) if (!(await editors.close(d.path))) break; } },
     'sep',
-    { label: '경로 복사', icon: 'link', run: () => app.copy(path) },
+    { label: t('files.copyPath'), icon: 'link', run: () => app.copy(path) },
   ];
 
   function onKey(e: KeyboardEvent) {
@@ -37,10 +39,10 @@
   }
 </script>
 
-<div class="tabs" role="tablist" aria-label="열린 화면" tabindex="-1" bind:this={strip} onkeydown={onKey}>
+<div class="tabs" role="tablist" aria-label={t('tabs.label')} tabindex="-1" bind:this={strip} onkeydown={onKey}>
   {#if !splitOn}
     <button class="tab chat" role="tab" type="button" aria-selected={editors.active === null} tabindex={editors.active === null ? 0 : -1} onclick={() => editors.activate(null)}>
-      대화{#if chat.unreadReply}<i class="dot" role="img" aria-label="새 답변"></i>{/if}
+      {t('tabs.chat')}{#if chat.unreadReply}<i class="dot" role="img" aria-label={t('tabs.newReply')}></i>{/if}
     </button>
   {/if}
   {#each editors.docs as d (d.path)}
@@ -50,13 +52,13 @@
         onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); void editors.close(d.path); } }}>
         <FileIcon name={d.name} size={14} />
         <span class="nm" data-priv="files">{d.name}</span>
-        {#if d.dirty}<i class="dot" role="img" aria-label="저장하지 않음"></i>{/if}
+        {#if d.dirty}<i class="dot" role="img" aria-label={t('tabs.unsaved')}></i>{/if}
       </button>
-      <button class="x" type="button" aria-label="{d.name} 닫기" onclick={() => editors.close(d.path)}>×</button>
+      <button class="x" type="button" aria-label={t('tabs.closeName', { name: d.name })} onclick={() => editors.close(d.path)}>×</button>
     </span>
   {/each}
   {#if canSplit || splitOn}
-    <button class="split" type="button" aria-pressed={splitOn} title={splitOn ? '탭으로 보기' : '대화와 나란히 보기'} aria-label={splitOn ? '탭으로 보기' : '대화와 나란히 보기'} onclick={() => editors.setSplit(!editors.split)}>
+    <button class="split" type="button" aria-pressed={splitOn} title={splitOn ? t('tabs.asTabs') : t('tabs.sideBySide')} aria-label={splitOn ? t('tabs.asTabs') : t('tabs.sideBySide')} onclick={() => editors.setSplit(!editors.split)}>
       <Icon name="split" size={16} />
     </button>
   {/if}

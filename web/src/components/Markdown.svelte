@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { copyText } from '../lib/clipboard';
   import { renderMarkdown } from '../lib/markdown';
   import { settings } from '../lib/settings.svelte';
@@ -37,7 +38,7 @@
     if (!btn) return;
     const code = btn.closest('.code')?.querySelector('code')?.textContent ?? '';
     void copyText(code).then((ok) => {
-      btn.textContent = ok ? S.copied : '복사 실패';
+      btn.textContent = ok ? S.copied : t('md.copyFailed');
       setTimeout(() => (btn.textContent = S.copy), 1400);
     });
   }

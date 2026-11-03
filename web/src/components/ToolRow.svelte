@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import type { ToolBlock } from '../lib/chat.svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
@@ -19,7 +20,7 @@
       case 'read': return a.path ? `${a.path}${a.offset ? `:${a.offset}` : ''}` : '';
       case 'write': case 'edit': return String(a.path ?? '');
       case 'todo': {
-        const what = a.subject ?? (Array.isArray(a.tasks) ? `${a.tasks.length}개` : '');
+        const what = a.subject ?? (Array.isArray(a.tasks) ? t('tool.tasksN', { n: a.tasks.length }) : '');
         return [a.action, a.id != null ? `#${a.id}` : '', what, a.status ? `→ ${a.status}` : ''].filter(Boolean).join(' ');
       }
       default: {
@@ -30,12 +31,12 @@
   });
 
   const toolItems = (): MenuItem[] => [
-    { label: tool.name === 'bash' ? '명령 복사' : '경로·요약 복사', icon: tool.name === 'bash' ? 'terminal' : 'link', disabled: !summary, run: () => app.copy(tool.name === 'bash' ? String(tool.args.command ?? '') : summary) },
-    { label: '인자(JSON) 복사', icon: 'code', run: () => app.copy(JSON.stringify(tool.args, null, 2)) },
-    { label: '출력 복사', icon: 'copy', disabled: !tool.output, run: () => app.copy(tool.output) },
-    ...(diff ? [{ label: '변경 내용(diff) 복사', icon: 'copy', run: () => app.copy(diff) } as MenuItem] : []),
+    { label: tool.name === 'bash' ? t('turn.copyCommand') : t('tool.copyPath'), icon: tool.name === 'bash' ? 'terminal' : 'link', disabled: !summary, run: () => app.copy(tool.name === 'bash' ? String(tool.args.command ?? '') : summary) },
+    { label: t('tool.copyArgs'), icon: 'code', run: () => app.copy(JSON.stringify(tool.args, null, 2)) },
+    { label: t('turn.copyOutput'), icon: 'copy', disabled: !tool.output, run: () => app.copy(tool.output) },
+    ...(diff ? [{ label: t('tool.copyDiff'), icon: 'copy', run: () => app.copy(diff) } as MenuItem] : []),
     'sep',
-    { label: open ? '접기' : '펼치기', icon: open ? 'up' : 'down', run: () => (open = !open) },
+    { label: open ? t('files.collapse') : t('files.expand'), icon: open ? 'up' : 'down', run: () => (open = !open) },
   ];
 
   // A call that takes a while shows how long it has been running (after 3s, so quick ones stay quiet). The time it
@@ -57,7 +58,7 @@
   const diff = $derived(tool.name === 'edit' && typeof tool.details?.diff === 'string' ? (tool.details.diff as string) : '');
   const written = $derived(tool.name === 'write' && typeof tool.args?.content === 'string' ? (tool.args.content as string) : '');
   const label = $derived(
-    tool.status === 'running' ? '실행 중' : tool.status === 'error' ? '실패' : tool.status === 'ok' ? '완료' : '대기',
+    t(tool.status === 'running' ? 'tool.status.running' : tool.status === 'error' ? 'tool.status.error' : tool.status === 'ok' ? 'tool.status.ok' : 'tool.status.pending'),
   );
 </script>
 
@@ -73,7 +74,7 @@
   {#if !open && settings.toolImages === 'always' && tool.images?.length}
     <div class="shots" data-priv="files">
       {#each tool.images as img}
-        <button class="shotbtn" type="button" aria-label="이미지가 있는 도구 결과 펼치기" onclick={() => (open = true)}>
+        <button class="shotbtn" type="button" aria-label={t('tool.showImage')} onclick={() => (open = true)}>
           <img class="shot" alt="" src={`data:${img.mimeType};base64,${img.data}`} />
         </button>
       {/each}
@@ -102,7 +103,7 @@
         <pre class="out mono" class:err={tool.status === 'error'}>{showcase.text(shown)}</pre>
         {#if outLines.length > MAX_LINES}
           <button class="more" type="button" onclick={() => (expanded = !expanded)}>
-            {expanded ? S.showLess : `${S.showMore} (${outLines.length - MAX_LINES}줄)`}
+            {expanded ? S.showLess : `${S.showMore} (${t('tool.lines', { n: outLines.length - MAX_LINES })})`}
           </button>
         {/if}
       {:else if tool.status === 'error' && tool.output}

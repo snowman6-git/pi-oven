@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t } from '../lib/i18n.svelte';
   import { onMount, untrack } from 'svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
@@ -168,19 +170,19 @@
 
 <svelte:window onkeydown={onKey} />
 
-<section class="pane" class:hidden={!visible} aria-hidden={!visible} aria-label="파일 편집기">
+<section class="pane" class:hidden={!visible} aria-hidden={!visible} aria-label={t('editor.label')}>
   {#if doc?.conflict === 'changed'}
     <div class="banner warn" role="alert">
-      <span>디스크의 파일이 바뀌었습니다. pi나 다른 프로그램이 고쳤을 수 있어요.</span>
+      <span>{t('editor.changedOnDisk')}</span>
       <span class="acts">
-        <button class="btn" type="button" onclick={() => editors.reload(doc.path)}>디스크 내용 불러오기</button>
-        <button class="btn" type="button" onclick={() => editors.save(doc.path, true)}>내 내용으로 덮어쓰기</button>
+        <button class="btn" type="button" onclick={() => editors.reload(doc.path)}>{t('editor.loadDisk')}</button>
+        <button class="btn" type="button" onclick={() => editors.save(doc.path, true)}>{t('editor.overwrite')}</button>
       </span>
     </div>
   {:else if doc?.conflict === 'deleted'}
     <div class="banner warn" role="alert">
-      <span>이 파일이 디스크에서 삭제되었습니다. 저장하면 다시 만듭니다.</span>
-      <span class="acts"><button class="btn" type="button" onclick={() => editors.save(doc.path, true)}>다시 만들어 저장</button></span>
+      <span>{t('editor.deleted')}</span>
+      <span class="acts"><button class="btn" type="button" onclick={() => editors.save(doc.path, true)}>{t('editor.recreate')}</button></span>
     </div>
   {/if}
 
@@ -188,10 +190,10 @@
     <div class="cm" bind:this={host} class:off={!ready}></div>
     {#if doc && !ready}
       <div class="msg">
-        {#if doc.loading}<p>불러오는 중…</p>
+        {#if doc.loading}<p>{S.loading}</p>
         {:else}
           <p>{doc.error}</p>
-          <button class="btn" type="button" onclick={() => editors.close(doc.path, false)}>탭 닫기</button>
+          <button class="btn" type="button" onclick={() => editors.close(doc.path, false)}>{t('editor.closeTab')}</button>
         {/if}
       </div>
     {/if}
@@ -201,11 +203,11 @@
     <footer>
       <span class="path mono" title={showcase.tip('files', doc.path)} data-priv="files">{doc.path}</span>
       <span class="grow"></span>
-      <span class="stat">줄 {pos.line}, 열 {pos.col}</span>
+      <span class="stat">{t('editor.pos', { line: pos.line, col: pos.col })}</span>
       <span class="stat">{doc.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
-      <button class="chip" type="button" aria-pressed={wrap} onclick={toggleWrap} title="긴 줄 바꿈">줄바꿈</button>
+      <button class="chip" type="button" aria-pressed={wrap} onclick={toggleWrap} title={t('editor.wrapHint')}>{t('editor.wrap')}</button>
       <button class="btn save" type="button" disabled={!doc.dirty || doc.saving} onclick={() => editors.save(doc.path)} title="Ctrl+S">
-        {doc.saving ? '저장 중…' : doc.dirty ? '저장' : '저장됨'}
+        {doc.saving ? t('editor.saving') : doc.dirty ? t('editor.save') : t('editor.saved')}
       </button>
     </footer>
   {/if}

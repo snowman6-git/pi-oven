@@ -5,6 +5,8 @@
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
+  import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
+  import About from './About.svelte';
   import type { IconName } from '../lib/icons';
   import Icon from './Icon.svelte';
   import { serverUrl, settings, type FontSize, type StreamFx, type ToolImages } from '../lib/settings.svelte';
@@ -13,18 +15,19 @@
   let panel = $state<HTMLElement>();
 
   // One long page was hard to find things in: the settings are split by what they are about.
-  type Tab = 'view' | 'chat' | 'pins' | 'models' | 'showcase' | 'server';
-  const TABS: { id: Tab; label: string; icon: IconName }[] = [
-    { id: 'view', label: '화면', icon: 'light' },
-    { id: 'chat', label: '대화', icon: 'chat' },
-    { id: 'pins', label: 'Pin', icon: 'pin' },
-    { id: 'models', label: '모델', icon: 'code' },
-    { id: 'showcase', label: '쇼케이스', icon: 'eye' },
-    { id: 'server', label: '연결', icon: 'link' },
+  type Tab = 'view' | 'chat' | 'pins' | 'models' | 'showcase' | 'server' | 'about';
+  const TABS: { id: Tab; icon: IconName }[] = [
+    { id: 'view', icon: 'light' },
+    { id: 'chat', icon: 'chat' },
+    { id: 'pins', icon: 'pin' },
+    { id: 'models', icon: 'code' },
+    { id: 'showcase', icon: 'eye' },
+    { id: 'server', icon: 'link' },
+    { id: 'about', icon: 'info' },
   ];
   const TAB_KEY = 'pi-oven.settings-tab';
   let tab = $state<Tab>(((): Tab => {
-    try { const v = localStorage.getItem(TAB_KEY); return TABS.some((t) => t.id === v) ? (v as Tab) : 'view'; } catch { return 'view'; }
+    try { const v = localStorage.getItem(TAB_KEY); return TABS.some((x) => x.id === v) ? (v as Tab) : 'view'; } catch { return 'view'; }
   })());
   function pick(id: Tab) {
     tab = id;
@@ -33,7 +36,7 @@
   }
   /** Arrow keys move between tabs (Home/End to the ends), and focus follows. */
   function onTabKey(e: KeyboardEvent) {
-    const i = TABS.findIndex((t) => t.id === tab);
+    const i = TABS.findIndex((x) => x.id === tab);
     const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
     const next = step ? (i + step + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
     if (next < 0) return;
@@ -46,15 +49,10 @@
 
   $effect(() => dlg.showModal());
 
-  const themes = [['dark', '다크'], ['light', '라이트'], ['auto', '시스템']] as const;
-  const toolImgs: [ToolImages, string][] = [['always', '항상 보기'], ['expanded', '펼쳐서 보기']];
-  const fonts: [FontSize, string][] = [['small', '작게'], ['normal', '보통'], ['large', '크게']];
-  const fxs: { id: StreamFx; name: string; hint: string }[] = [
-    { id: 'bounce', name: '튀어오름', hint: '아래에서 살짝 튀어 오르며 나타납니다.' },
-    { id: 'fade', name: '페이드', hint: '투명에서 서서히 선명해집니다.' },
-    { id: 'ember', name: '달궈짐', hint: '주황빛으로 달궈진 채 나타나 식으면서 제 색이 됩니다.' },
-    { id: 'none', name: '없음', hint: '효과 없이 바로 표시합니다.' },
-  ];
+  const themes = ['dark', 'light', 'auto'] as const;
+  const toolImgs: ToolImages[] = ['always', 'expanded'];
+  const fonts: FontSize[] = ['small', 'normal', 'large'];
+  const fxs: StreamFx[] = ['bounce', 'fade', 'ember', 'none'];
 
   function pickFx(id: StreamFx) {
     settings.set('fx', id);
@@ -97,15 +95,15 @@
 <dialog bind:this={dlg} onclose={() => (app.settingsOpen = false)} aria-labelledby="st-title">
   <div class="box">
     <header>
-      <h2 id="st-title">설정</h2>
-      <button class="btn quiet" type="button" onclick={() => dlg.close()}>닫기</button>
+      <h2 id="st-title">{t('settings.title')}</h2>
+      <button class="btn quiet" type="button" onclick={() => dlg.close()}>{S.close}</button>
     </header>
 
-    <div class="tabs" role="tablist" aria-label="설정 분류" aria-orientation={app.narrow ? 'horizontal' : 'vertical'}>
-      {#each TABS as t (t.id)}
-        <button type="button" role="tab" id="st-tab-{t.id}" aria-controls="st-panel" aria-selected={tab === t.id} tabindex={tab === t.id ? 0 : -1}
-          class:on={tab === t.id} onclick={() => pick(t.id)} onkeydown={onTabKey}>
-          <Icon name={t.icon} size={16} />{t.label}
+    <div class="tabs" role="tablist" aria-label={t('settings.tabsLabel')} aria-orientation={app.narrow ? 'horizontal' : 'vertical'}>
+      {#each TABS as tb (tb.id)}
+        <button type="button" role="tab" id="st-tab-{tb.id}" aria-controls="st-panel" aria-selected={tab === tb.id} tabindex={tab === tb.id ? 0 : -1}
+          class:on={tab === tb.id} onclick={() => pick(tb.id)} onkeydown={onTabKey}>
+          <Icon name={tb.icon} size={16} />{t(`settings.tab.${tb.id}`)}
         </button>
       {/each}
     </div>
@@ -113,40 +111,49 @@
     <div class="panel" id="st-panel" role="tabpanel" aria-labelledby="st-tab-{tab}" bind:this={panel}>
       {#if tab === 'view'}
       <section>
-        <h3>화면 테마</h3>
-        <div class="seg" role="radiogroup" aria-label="화면 테마">
-          {#each themes as [id, label]}
-            <button type="button" role="radio" aria-checked={app.theme === id} class:on={app.theme === id} onclick={() => app.setTheme(id)}>{label}</button>
+        <h3>{t('settings.language')}</h3>
+        <div class="seg" role="radiogroup" aria-label={t('settings.language')}>
+          {#each LANGS as l (l.code)}
+            <button type="button" role="radio" lang={l.code} aria-checked={i18n.lang === l.code} class:on={i18n.lang === l.code} onclick={() => setLang(l.code)}>{l.name}</button>
+          {/each}
+        </div>
+        <p class="note">{t('settings.languageHint')}</p>
+      </section>
+      <section>
+        <h3>{S.theme}</h3>
+        <div class="seg" role="radiogroup" aria-label={S.theme}>
+          {#each themes as id}
+            <button type="button" role="radio" aria-checked={app.theme === id} class:on={app.theme === id} onclick={() => app.setTheme(id)}>{t(`settings.theme.${id}`)}</button>
           {/each}
         </div>
       </section>
       <section>
-        <h3>글꼴</h3>
-        <div class="seg" role="radiogroup" aria-label="글꼴">
-          {#if hasMaple}<button type="button" role="radio" aria-checked={settings.family === 'maple'} class:on={settings.family === 'maple'} onclick={() => settings.set('family', 'maple')} style="font-family: 'NxMaple', var(--font-ui)">메이플스토리</button>{/if}
-          <button type="button" role="radio" aria-checked={settings.family === 'system'} class:on={settings.family === 'system'} onclick={() => settings.set('family', 'system')} style="font-family: system-ui, -apple-system, 'Noto Sans KR', sans-serif">시스템</button>
+        <h3>{t('settings.font.title')}</h3>
+        <div class="seg" role="radiogroup" aria-label={t('settings.font.title')}>
+          {#if hasMaple}<button type="button" role="radio" aria-checked={settings.family === 'maple'} class:on={settings.family === 'maple'} onclick={() => settings.set('family', 'maple')} style="font-family: 'NxMaple', var(--font-ui)">{t('settings.font.maple')}</button>{/if}
+          <button type="button" role="radio" aria-checked={settings.family === 'system'} class:on={settings.family === 'system'} onclick={() => settings.set('family', 'system')} style="font-family: system-ui, -apple-system, 'Noto Sans KR', sans-serif">{t('settings.font.system')}</button>
         </div>
       </section>
       <section>
-        <h3>글자 크기</h3>
-        <div class="seg" role="radiogroup" aria-label="글자 크기">
-          {#each fonts as [id, label]}
-            <button type="button" role="radio" aria-checked={settings.font === id} class:on={settings.font === id} onclick={() => settings.set('font', id)}>{label}</button>
+        <h3>{t('settings.font.size')}</h3>
+        <div class="seg" role="radiogroup" aria-label={t('settings.font.size')}>
+          {#each fonts as id}
+            <button type="button" role="radio" aria-checked={settings.font === id} class:on={settings.font === id} onclick={() => settings.set('font', id)}>{t(`settings.font.${id}`)}</button>
           {/each}
         </div>
       </section>
       <section>
-        <h3>답변이 나타나는 효과</h3>
-        <div class="fx" role="radiogroup" aria-label="답변이 나타나는 효과">
-          {#each fxs as f (f.id)}
-            <button type="button" role="radio" aria-checked={settings.fx === f.id} class:on={settings.fx === f.id} onclick={() => pickFx(f.id)}>
-              <b>{f.name}</b><small>{f.hint}</small>
+        <h3>{t('settings.fx.title')}</h3>
+        <div class="fx" role="radiogroup" aria-label={t('settings.fx.title')}>
+          {#each fxs as f (f)}
+            <button type="button" role="radio" aria-checked={settings.fx === f} class:on={settings.fx === f} onclick={() => pickFx(f)}>
+              <b>{t(`settings.fx.${f}.name`)}</b><small>{t(`settings.fx.${f}.hint`)}</small>
             </button>
           {/each}
         </div>
         {#key replay}
           <p class="sample md" data-fx={settings.fx} aria-hidden="true">
-            {#each '지금 쓰는 답변은 이런 식으로 나타납니다.'.split(' ') as w, i}
+            {#each t('settings.fx.sample').split(' ') as w, i}
               <span class="w" style="animation-delay:{i * 90}ms">{w}</span>{' '}
             {/each}
           </p>
@@ -154,82 +161,84 @@
       </section>
       {:else if tab === 'chat'}
       <section>
-        <h3>도구 결과 이미지</h3>
-        <div class="seg" role="radiogroup" aria-label="도구 결과 이미지">
-          {#each toolImgs as [id, label]}
-            <button type="button" role="radio" aria-checked={settings.toolImages === id} class:on={settings.toolImages === id} onclick={() => settings.set('toolImages', id)}>{label}</button>
+        <h3>{t('settings.toolImg.title')}</h3>
+        <div class="seg" role="radiogroup" aria-label={t('settings.toolImg.title')}>
+          {#each toolImgs as id}
+            <button type="button" role="radio" aria-checked={settings.toolImages === id} class:on={settings.toolImages === id} onclick={() => settings.set('toolImages', id)}>{t(`settings.toolImg.${id}`)}</button>
           {/each}
         </div>
       </section>
       <section>
-        <h3>생각 블록과 알림</h3>
+        <h3>{t('settings.thinkNotify')}</h3>
         <label class="row">
           <input type="checkbox" checked={settings.thinkingOpen} onchange={(e) => settings.set('thinkingOpen', e.currentTarget.checked)} />
-          <span>생각 블록을 작성 중에 펼쳐서 보기</span>
+          <span>{t('settings.thinkingOpen')}</span>
         </label>
         <label class="row">
           <input type="checkbox" checked={app.notifyOn} onchange={toggleNotify} />
-          <span>다른 화면에 있을 때 작업 완료와 확인 요청을 알림</span>
+          <span>{t('settings.notify')}</span>
         </label>
       </section>
       {:else if tab === 'pins'}
       <section>
-        <h3>Pin 감지 규칙 (regex)</h3>
-        <p class="note">Pin 탭이 기본으로 찾는 주소·토큰 말고, 직접 찾고 싶은 값을 정규식으로 추가합니다. 괄호 <code>( )</code>가 있으면 첫 괄호 안쪽만, 없으면 맞은 부분 전체가 Pin에 올라옵니다. 찾은 값은 토큰처럼 가려서 보이고(눈 아이콘으로 펼침), 쇼케이스의 "토큰·비밀번호·API 키"를 켜면 대화에서도 가려집니다. 이 브라우저에만 저장됩니다.</p>
+        <h3>{t('settings.pins.title')}</h3>
+        <p class="note">{@html t('settings.pins.note')}</p>
         {#if pinRules.list.length}
           <ul class="rules">
             {#each pinRules.list as r (r.id)}
               <li>
                 <label class="row"><input type="checkbox" checked={r.on} onchange={(e) => pinRules.toggle(r.id, e.currentTarget.checked)} /><span><b>{r.name}</b><small class="mono">{r.pattern}</small></span></label>
-                <button class="btn quiet" type="button" aria-label="{r.name} 지우기" onclick={() => pinRules.remove(r.id)}>지우기</button>
+                <button class="btn quiet" type="button" aria-label={t('settings.pins.removeLabel', { name: r.name })} onclick={() => pinRules.remove(r.id)}>{t('settings.pins.remove')}</button>
               </li>
             {/each}
           </ul>
         {/if}
         <form class="newrule" onsubmit={(e) => { e.preventDefault(); addRule(); }}>
-          <input class="field" bind:value={ruleName} placeholder="이름 (예: 사내 키)" maxlength="40" aria-label="규칙 이름" />
-          <input class="field mono" bind:value={rulePattern} placeholder={'예: corp_[A-Za-z0-9]{20,}'} spellcheck="false" autocomplete="off" aria-label="정규식" />
-          <button class="btn" type="submit">추가</button>
+          <input class="field" bind:value={ruleName} placeholder={t('settings.pins.name')} maxlength="40" aria-label={t('settings.pins.nameLabel')} />
+          <input class="field mono" bind:value={rulePattern} placeholder={t('settings.pins.pattern')} spellcheck="false" autocomplete="off" aria-label={t('settings.pins.regex')} />
+          <button class="btn" type="submit">{t('settings.pins.add')}</button>
         </form>
         {#if ruleError}<p class="note err" role="alert">{ruleError}</p>{/if}
       </section>
       {:else if tab === 'models'}
       <section>
-        <h3>모델</h3>
-        <p class="note">다른 서버나 API의 모델을 pi에 추가합니다. 엔드포인트 주소와 키, 모델 ID를 적으면 됩니다.</p>
-        <button class="btn" type="button" onclick={() => ((app.settingsOpen = false), (app.modelDialog = true))}>모델 추가·관리…</button>
+        <h3>{t('settings.models.title')}</h3>
+        <p class="note">{t('settings.models.note')}</p>
+        <button class="btn" type="button" onclick={() => ((app.settingsOpen = false), (app.modelDialog = true))}>{t('settings.models.open')}</button>
       </section>
       {:else if tab === 'showcase'}
       <section>
-        <h3>쇼케이스 모드</h3>
-        <p class="note">화면을 공유하거나 스크린샷을 찍을 때 민감할 수 있는 것을 가립니다. 보이는 모습만 바뀌고, 저장된 내용과 복사되는 내용은 그대로입니다.</p>
+        <h3>{t('settings.showcase.title')}</h3>
+        <p class="note">{t('settings.showcase.note')}</p>
         <label class="row">
           <input type="checkbox" role="switch" aria-checked={showcase.on} checked={showcase.on} onchange={(e) => showcase.setOn(e.currentTarget.checked)} />
-          <span><b>쇼케이스 모드 켜기</b></span>
+          <span><b>{t('settings.showcase.on')}</b></span>
         </label>
-        <div class="seg" role="radiogroup" aria-label="가리는 방식" class:off={!showcase.on}>
-          <button type="button" role="radio" aria-checked={showcase.style === 'blur'} class:on={showcase.style === 'blur'} disabled={!showcase.on} onclick={() => showcase.setStyle('blur')}>흐리게</button>
-          <button type="button" role="radio" aria-checked={showcase.style === 'example'} class:on={showcase.style === 'example'} disabled={!showcase.on} onclick={() => showcase.setStyle('example')}>예시 글자로 바꾸기</button>
+        <div class="seg" role="radiogroup" aria-label={t('settings.showcase.style')} class:off={!showcase.on}>
+          <button type="button" role="radio" aria-checked={showcase.style === 'blur'} class:on={showcase.style === 'blur'} disabled={!showcase.on} onclick={() => showcase.setStyle('blur')}>{t('settings.showcase.blur')}</button>
+          <button type="button" role="radio" aria-checked={showcase.style === 'example'} class:on={showcase.style === 'example'} disabled={!showcase.on} onclick={() => showcase.setStyle('example')}>{t('settings.showcase.example')}</button>
         </div>
-        <div class="subs" class:off={!showcase.on} role="group" aria-label="가릴 항목">
+        <div class="subs" class:off={!showcase.on} role="group" aria-label={t('settings.showcase.parts')}>
           {#each PARTS as p (p.id)}
             <label class="row sub">
               <input type="checkbox" checked={showcase.parts[p.id]} disabled={!showcase.on} onchange={(e) => showcase.set(p.id, e.currentTarget.checked)} />
-              <span>{p.label}<small>{p.hint}</small></span>
+              <span>{t(`showcase.${p.id}.label`)}<small>{t(`showcase.${p.id}.hint`)}</small></span>
             </label>
           {/each}
         </div>
       </section>
       {:else if tab === 'server'}
       <section>
-        <h3>서버 주소</h3>
-        <p class="note">비워 두면 이 페이지를 연 서버를 씁니다. 데스크톱 앱처럼 다른 곳에서 열 때만 지정하세요.</p>
+        <h3>{t('settings.server.title')}</h3>
+        <p class="note">{t('settings.server.note')}</p>
         <div class="srv">
-          <input class="field mono" data-priv="hosts" bind:value={server} placeholder="http://localhost:4141" spellcheck="false" aria-label="서버 주소"
+          <input class="field mono" data-priv="hosts" bind:value={server} placeholder="http://localhost:4141" spellcheck="false" aria-label={t('settings.server.title')}
             onkeydown={(e) => e.key === 'Enter' && saveServer()} />
-          <button class="btn" type="button" onclick={saveServer}>적용</button>
+          <button class="btn" type="button" onclick={saveServer}>{t('settings.server.apply')}</button>
         </div>
       </section>
+      {:else if tab === 'about'}
+      <About />
       {/if}
     </div>
   </div>

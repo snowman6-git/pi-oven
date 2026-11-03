@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { api } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import type { DirListing } from '../lib/protocol';
@@ -47,7 +48,7 @@
       <button class="icon-btn" type="button" disabled={!listing?.parent} aria-label={S.parentFolder} title={S.parentFolder} onclick={() => listing?.parent && go(listing.parent)}>
         <Icon name="up" />
       </button>
-      <input class="field mono" bind:value={manual} aria-label="폴더 경로" spellcheck="false"
+      <input class="field mono" bind:value={manual} aria-label={t('picker.path')} spellcheck="false"
         onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void go(manual); } }} />
     </div>
 

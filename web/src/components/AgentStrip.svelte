@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { showcase } from '../lib/showcase.svelte';
 
@@ -36,14 +37,14 @@
 </script>
 
 {#if show}
-  <button class="strip" type="button" class:run={chat.running} onclick={() => chat.editors.activate(null)} aria-live="polite" title="대화로 이동">
+  <button class="strip" type="button" class:run={chat.running} onclick={() => chat.editors.activate(null)} aria-live="polite" title={t('strip.toChat')}>
     <span class="dot" aria-hidden="true"></span>
     {#if chat.running}
-      <span class="t"><b>pi 작업 중</b>{#if live}<span class="mono" data-priv="files"> {showcase.text(live)}</span>{/if}</span>
+      <span class="t"><b>{t('strip.working')}</b>{#if live}<span class="mono" data-priv="files"> {showcase.text(live)}</span>{/if}</span>
     {:else}
       <span class="t" data-priv="chat"><b>pi</b> {showcase.text(reply)}</span>
     {/if}
-    <span class="go">대화 보기</span>
+    <span class="go">{t('strip.view')}</span>
   </button>
 {/if}
 

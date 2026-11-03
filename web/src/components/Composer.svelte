@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { handleSlash, builtins } from '../lib/builtins';
   import type { Chat } from '../lib/chat.svelte';
@@ -207,12 +208,12 @@
     {#if ctxChip}
       <div class="ctxrow">
         <span class="ctx" class:auto={ctxChip.auto}>
-          <button class="main" type="button" aria-pressed={ctxChip.auto} title={ctxChip.auto ? '이 내용이 메시지와 함께 갑니다' : '이 파일을 메시지와 함께 알립니다'}
+          <button class="main" type="button" aria-pressed={ctxChip.auto} title={ctxChip.auto ? t('composer.ctxAuto') : t('composer.ctxFile')}
             onclick={() => { if (!ctxChip.auto) chat.editors.attachFile = true; }}>
-            <Icon name="file" size={13} /><span class="mono" data-priv="files">{ctxChip.label}</span>{#if !ctxChip.auto}<span class="hint">첨부</span>{/if}
+            <Icon name="file" size={13} /><span class="mono" data-priv="files">{ctxChip.label}</span>{#if !ctxChip.auto}<span class="hint">{t('composer.attach')}</span>{/if}
           </button>
           {#if ctxChip.auto}
-            <button class="x" type="button" aria-label="첨부 빼기" onclick={() => { if (chat.editors.selectionKey && chat.editors.dismissed !== chat.editors.selectionKey && chat.editors.selection?.text) chat.editors.dismissed = chat.editors.selectionKey; else chat.editors.attachFile = false; }}>×</button>
+            <button class="x" type="button" aria-label={t('composer.detach')} onclick={() => { if (chat.editors.selectionKey && chat.editors.dismissed !== chat.editors.selectionKey && chat.editors.selection?.text) chat.editors.dismissed = chat.editors.selectionKey; else chat.editors.attachFile = false; }}>×</button>
           {/if}
         </span>
       </div>
@@ -223,7 +224,7 @@
         {#each images as img, i}
           <div class="th">
             <img alt="" src={`data:${img.mimeType};base64,${img.data}`} />
-            <button type="button" aria-label="이미지 제거" onclick={() => images.splice(i, 1)}><Icon name="x" size={12} /></button>
+            <button type="button" aria-label={t('composer.removeImage')} onclick={() => images.splice(i, 1)}><Icon name="x" size={12} /></button>
           </div>
         {/each}
       </div>
@@ -231,12 +232,12 @@
 
     <div class="line">
       <div class="pop" use:dismiss={() => { if (menu === 'plus') menu = null; }}>
-        <button class="round" type="button" aria-label="첨부" aria-haspopup="menu" aria-expanded={menu === 'plus'} onclick={() => toggle('plus')}>
+        <button class="round" type="button" aria-label={t('composer.attachMenu')} aria-haspopup="menu" aria-expanded={menu === 'plus'} onclick={() => toggle('plus')}>
           <Icon name="plus" />
         </button>
         {#if menu === 'plus'}
           <div class="sheet narrow" role="menu">
-            <button role="menuitem" type="button" onclick={() => ((menu = null), fileInput.click())}><Icon name="clip" size={16} />이미지 첨부</button>
+            <button role="menuitem" type="button" onclick={() => ((menu = null), fileInput.click())}><Icon name="clip" size={16} />{t('composer.attachImage')}</button>
           </div>
         {/if}
       </div>
@@ -249,7 +250,7 @@
         {onpaste}
         rows="1"
         placeholder={chat.running ? (app.narrow ? S.composerPlaceholderRunningShort : S.composerPlaceholderRunning) : S.composerPlaceholder}
-        aria-label="메시지"
+        aria-label={t('composer.message')}
         spellcheck="false"
         enterkeyhint={'new-line' as never} /* spec value predates the tooling's enum */
       ></textarea>

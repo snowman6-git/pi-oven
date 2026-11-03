@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { settings } from '../lib/settings.svelte';
   import { escapeHtml, Reveal } from '../lib/stream-fx';
   import { S } from '../lib/strings';
@@ -26,7 +27,7 @@
 </script>
 
 <details class="think" open={live && settings.thinkingOpen}>
-  <summary>{S.thinking}{#if redacted} <em>(숨김)</em>{:else if text} <em>{text.length.toLocaleString()}자</em>{/if}</summary>
+  <summary>{S.thinking}{#if redacted} <em>{t('thinking.hidden')}</em>{:else if text} <em>{t('thinking.chars', { n: text.length.toLocaleString() })}</em>{/if}</summary>
   {#if text}<p class:live data-fx={settings.fx}>{@html html}</p>{/if}
 </details>
 

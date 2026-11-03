@@ -1,3 +1,6 @@
+#[macro_use]
+mod lang;
+mod about;
 mod api;
 mod auth;
 mod branch;
@@ -9,6 +12,7 @@ mod models;
 mod pet;
 mod runtime;
 mod sessions;
+mod update;
 mod web;
 mod ws;
 
@@ -17,7 +21,6 @@ use axum::{
     routing::{delete, get},
     Router,
 };
-use clap::Parser;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use config::{random_hex, Config};
@@ -43,7 +46,7 @@ fn cors(origins: &[String]) -> tower_http::cors::CorsLayer {
     tower_http::cors::CorsLayer::new()
         .allow_origin(allowed)
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::HeaderName::from_static("x-pi-oven-lang")])
 }
 
 #[tokio::main]
@@ -53,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
-    let mut cfg = Config::parse();
+    let mut cfg = config::parse_args();
     let (given_token, password) = match cfg.secrets() {
         Ok(v) => v,
         Err(e) => {
@@ -111,8 +114,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sessions/branch", axum::routing::post(branch::branch))
         .route("/api/sessions/rename", axum::routing::post(branch::rename))
         .route("/api/pet/stream", get(api::pet_stream))
+        .route("/api/about", get(about::about))
+        .route("/api/update", get(update::status).post(update::run))
         .fallback(web::serve)
         .layer(middleware::from_fn_with_state(app.clone(), auth::guard))
+        .layer(middleware::from_fn(lang::layer))
         .layer(cors(&cfg.allow_origins))
         .with_state(app);
 
@@ -139,28 +145,34 @@ fn lan_ip() -> Option<std::net::IpAddr> {
 fn banner(cfg: &Config, addr: SocketAddr, token: Option<&str>, generated: bool, has_password: bool) {
     let frag = token.map(|t| format!("#token={t}")).unwrap_or_default();
     let port = addr.port();
-    println!("pi-oven {} 시작", env!("CARGO_PKG_VERSION"));
+    let ko = lang::cli_korean();
+    // labels padded to one column in each language
+    let l = |k: &'static str, e: &'static str| if ko { k } else { e };
+    println!("pi-oven {} {}", env!("CARGO_PKG_VERSION"), l("시작", "started"));
     if addr.ip().is_unspecified() {
-        println!("  이 PC     http://127.0.0.1:{port}/{frag}");
+        println!("  {}http://127.0.0.1:{port}/{frag}", l("이 PC     ", "This PC   "));
         match lan_ip() {
-            Some(ip) => println!("  네트워크  http://{ip}:{port}/{frag}"),
-            None => println!("  네트워크  http://<이 PC의 IP>:{port}/{frag}"),
+            Some(ip) => println!("  {}http://{ip}:{port}/{frag}", l("네트워크  ", "Network   ")),
+            None => println!("  {}http://<{}>:{port}/{frag}", l("네트워크  ", "Network   "), l("이 PC의 IP", "this PC's IP")),
         }
     } else {
-        println!("  주소      http://{addr}/{frag}");
+        println!("  {}http://{addr}/{frag}", l("주소      ", "Address   "));
     }
     if generated {
-        println!("  토큰      자동으로 만들었습니다(루프백이 아닌 주소에 열었기 때문). 위 주소 끝의 #token=… 을 포함해서 접속하세요.");
+        println!("  {}{}", l("토큰      ", "Token     "), l(
+            "자동으로 만들었습니다(루프백이 아닌 주소에 열었기 때문). 위 주소 끝의 #token=… 을 포함해서 접속하세요.",
+            "made for you (the server is open beyond loopback). Open the address above including its #token=… part.",
+        ));
     } else if token.is_some() {
-        println!("  토큰      주소 끝의 #token=… 으로 접속하거나, 접속 화면에 입력하세요.");
+        println!("  {}{}", l("토큰      ", "Token     "), l("주소 끝의 #token=… 으로 접속하거나, 접속 화면에 입력하세요.", "open the address with #token=… or type it on the sign-in page."));
     }
     if has_password {
-        println!("  비밀번호  접속 화면에 입력하세요(--password).");
+        println!("  {}{}", l("비밀번호  ", "Password  "), l("접속 화면에 입력하세요(--password).", "type it on the sign-in page (--password)."));
     }
     if !addr.ip().is_loopback() {
-        println!("  주의      HTTP는 암호화되지 않습니다. VPN이나 HTTPS 리버스 프록시 뒤에서 쓰세요.");
+        println!("  {}{}", l("주의      ", "Note      "), l("HTTP는 암호화되지 않습니다. VPN이나 HTTPS 리버스 프록시 뒤에서 쓰세요.", "HTTP is not encrypted. Use it behind a VPN or an HTTPS reverse proxy."));
     }
     if cfg.trust_proxy {
-        println!("  프록시    X-Forwarded-For를 접속자 구분에 씁니다(--trust-proxy).");
+        println!("  {}{}", l("프록시    ", "Proxy     "), l("X-Forwarded-For를 접속자 구분에 씁니다(--trust-proxy).", "X-Forwarded-For tells clients apart (--trust-proxy)."));
     }
 }

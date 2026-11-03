@@ -32,7 +32,7 @@ fn bad(m: impl Into<String>) -> Bad {
 fn read() -> Result<Value, Bad> {
     match std::fs::read_to_string(models_path()) {
         Ok(t) if t.trim().is_empty() => Ok(json!({})),
-        Ok(t) => serde_json::from_str(&t).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("models.json을 읽을 수 없습니다: {e}"))),
+        Ok(t) => serde_json::from_str(&t).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, tr!(format!("models.json을 읽을 수 없습니다: {e}"), format!("cannot read models.json: {e}")))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
@@ -71,7 +71,7 @@ fn key_hint(key: &Value) -> Value {
         return json!({ "kind": "env", "hint": format!("${var}") }); // a variable's name is not a secret
     }
     if k.starts_with('!') {
-        return json!({ "kind": "command", "hint": "명령의 출력" });
+        return json!({ "kind": "command", "hint": tr!("명령의 출력", "command output") });
     }
     let chars: Vec<char> = k.chars().collect();
     let hint = if chars.len() <= 8 { "•".repeat(chars.len()) } else { format!("{}••••{}", chars[..3].iter().collect::<String>(), chars[chars.len() - 2..].iter().collect::<String>()) };
@@ -136,51 +136,51 @@ pub struct Upsert {
 
 fn plain(s: &str, what: &str, max: usize) -> Result<(), Bad> {
     if s.trim().is_empty() || s.chars().count() > max || s.chars().any(char::is_control) {
-        return Err(bad(format!("{what}이(가) 비었거나 올바르지 않습니다.")));
+        return Err(bad(tr!(format!("{what}이(가) 비었거나 올바르지 않습니다."), format!("{what} is empty or not valid."))));
     }
     Ok(())
 }
 
 fn check_url(u: &str) -> Result<(), Bad> {
-    let rest = u.strip_prefix("http://").or_else(|| u.strip_prefix("https://")).ok_or_else(|| bad("주소는 http:// 또는 https:// 로 시작해야 합니다."))?;
+    let rest = u.strip_prefix("http://").or_else(|| u.strip_prefix("https://")).ok_or_else(|| bad(tr!("주소는 http:// 또는 https:// 로 시작해야 합니다.", "The address must start with http:// or https://.")))?;
     if rest.is_empty() || rest.starts_with('/') || u.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(bad("주소가 올바르지 않습니다."));
+        return Err(bad(tr!("주소가 올바르지 않습니다.", "The address is not valid.")));
     }
     Ok(())
 }
 
 pub async fn upsert(State(_): State<Arc<AppState>>, Json(req): Json<Upsert>) -> Response {
     let res = (|| -> Result<(), Bad> {
-        plain(&req.provider, "제공자 이름", 64)?;
+        plain(&req.provider, tr!("제공자 이름", "The provider name"), 64)?;
         if !req.provider.chars().all(|c| c.is_alphanumeric() || " ._-".contains(c)) {
-            return Err(bad("제공자 이름에는 글자, 숫자, 공백, . _ - 만 쓸 수 있습니다."));
+            return Err(bad(tr!("제공자 이름에는 글자, 숫자, 공백, . _ - 만 쓸 수 있습니다.", "A provider name may only use letters, digits, spaces and . _ -")));
         }
         check_url(req.base_url.trim())?;
         if !APIS.contains(&req.api.as_str()) {
-            return Err(bad("지원하지 않는 API 방식입니다."));
+            return Err(bad(tr!("지원하지 않는 API 방식입니다.", "That API type is not supported.")));
         }
         if let Some(k) = &req.api_key {
             if k.chars().any(char::is_control) || k.len() > 2000 {
-                return Err(bad("API 키가 올바르지 않습니다."));
+                return Err(bad(tr!("API 키가 올바르지 않습니다.", "The API key is not valid.")));
             }
         }
         if let Some(m) = &req.model {
-            plain(&m.id, "모델 ID", 200)?;
+            plain(&m.id, tr!("모델 ID", "The model ID"), 200)?;
             if let Some(n) = &m.name {
-                plain(n, "표시 이름", 200)?;
+                plain(n, tr!("표시 이름", "The display name"), 200)?;
             }
-            for (v, what) in [(m.context_window, "컨텍스트 창"), (m.max_tokens, "최대 출력 토큰")] {
+            for (v, what) in [(m.context_window, tr!("컨텍스트 창", "The context window")), (m.max_tokens, tr!("최대 출력 토큰", "The max output tokens"))] {
                 if v.is_some_and(|v| v == 0 || v > 100_000_000) {
-                    return Err(bad(format!("{what}이(가) 올바르지 않습니다.")));
+                    return Err(bad(tr!(format!("{what}이(가) 올바르지 않습니다."), format!("{what} is not valid."))));
                 }
             }
         }
         let mut doc = read()?;
-        let root = doc.as_object_mut().ok_or_else(|| bad("models.json의 최상위가 객체가 아닙니다."))?;
+        let root = doc.as_object_mut().ok_or_else(|| bad(tr!("models.json의 최상위가 객체가 아닙니다.", "The top of models.json is not an object.")))?;
         let providers = root.entry("providers").or_insert_with(|| json!({}));
-        let providers = providers.as_object_mut().ok_or_else(|| bad("models.json의 providers가 객체가 아닙니다."))?;
+        let providers = providers.as_object_mut().ok_or_else(|| bad(tr!("models.json의 providers가 객체가 아닙니다.", "providers in models.json is not an object.")))?;
         let p = providers.entry(req.provider.clone()).or_insert_with(|| json!({}));
-        let p = p.as_object_mut().ok_or_else(|| bad("이 제공자 항목이 객체가 아닙니다."))?;
+        let p = p.as_object_mut().ok_or_else(|| bad(tr!("이 제공자 항목이 객체가 아닙니다.", "This provider entry is not an object.")))?;
         p.insert("baseUrl".into(), json!(req.base_url.trim()));
         p.insert("api".into(), json!(req.api));
         match req.api_key.as_deref() {
@@ -207,7 +207,7 @@ pub async fn upsert(State(_): State<Arc<AppState>>, Json(req): Json<Upsert>) -> 
                 entry.insert("maxTokens".into(), json!(v));
             }
             let models = p.entry("models").or_insert_with(|| json!([]));
-            let models = models.as_array_mut().ok_or_else(|| bad("이 제공자의 models가 목록이 아닙니다."))?;
+            let models = models.as_array_mut().ok_or_else(|| bad(tr!("이 제공자의 models가 목록이 아닙니다.", "This provider's models is not a list.")))?;
             // the same id replaces: fields set by hand that this form does not know (compat, cost, …) stay
             match models.iter_mut().find(|x| x["id"] == m.id.trim()) {
                 Some(old) => {
@@ -238,17 +238,17 @@ pub struct Remove {
 pub async fn remove(State(_): State<Arc<AppState>>, Query(q): Query<Remove>) -> Response {
     let res = (|| -> Result<(), Bad> {
         let mut doc = read()?;
-        let providers = doc["providers"].as_object_mut().ok_or((StatusCode::NOT_FOUND, "제공자가 없습니다.".to_string()))?;
+        let providers = doc["providers"].as_object_mut().ok_or((StatusCode::NOT_FOUND, tr!("제공자가 없습니다.", "No such provider.").to_string()))?;
         match &q.model {
             None => {
-                providers.remove(&q.provider).ok_or((StatusCode::NOT_FOUND, "제공자가 없습니다.".to_string()))?;
+                providers.remove(&q.provider).ok_or((StatusCode::NOT_FOUND, tr!("제공자가 없습니다.", "No such provider.").to_string()))?;
             }
             Some(id) => {
-                let models = providers.get_mut(&q.provider).and_then(|p| p["models"].as_array_mut()).ok_or((StatusCode::NOT_FOUND, "모델이 없습니다.".to_string()))?;
+                let models = providers.get_mut(&q.provider).and_then(|p| p["models"].as_array_mut()).ok_or((StatusCode::NOT_FOUND, tr!("모델이 없습니다.", "No such model.").to_string()))?;
                 let before = models.len();
                 models.retain(|m| m["id"] != id.as_str());
                 if models.len() == before {
-                    return Err((StatusCode::NOT_FOUND, "모델이 없습니다.".into()));
+                    return Err((StatusCode::NOT_FOUND, tr!("모델이 없습니다.", "No such model.").into()));
                 }
             }
         }
@@ -285,7 +285,7 @@ pub async fn probe(State(_): State<Arc<AppState>>, Json(req): Json<Probe>) -> Re
     }
     let q = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
     if url.chars().any(|c| c == '"' || c == '\\') || key.as_deref().is_some_and(|k| k.chars().any(|c| c.is_control())) {
-        return fail(StatusCode::BAD_REQUEST, "주소나 키에 쓸 수 없는 문자가 있습니다.");
+        return fail(StatusCode::BAD_REQUEST, tr!("주소나 키에 쓸 수 없는 문자가 있습니다.", "The address or key has a character that cannot be used."));
     }
     let mut cfg = format!("url = \"{}/models\"\n", q(&url));
     if let Some(k) = &key {
@@ -299,12 +299,12 @@ pub async fn probe(State(_): State<Arc<AppState>>, Json(req): Json<Probe>) -> Re
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|_| "curl을 실행할 수 없습니다. curl을 설치하거나 모델 ID를 직접 입력하세요.".to_string())?;
-        child.stdin.take().ok_or("curl에 연결하지 못했습니다.")?.write_all(cfg.as_bytes()).await.map_err(|e| e.to_string())?;
-        let out = tokio::time::timeout(Duration::from_secs(12), child.wait_with_output()).await.map_err(|_| "응답이 없습니다.".to_string())?.map_err(|e| e.to_string())?;
+            .map_err(|_| tr!("curl을 실행할 수 없습니다. curl을 설치하거나 모델 ID를 직접 입력하세요.", "Cannot run curl. Install curl or type the model ID yourself.").to_string())?;
+        child.stdin.take().ok_or(tr!("curl에 연결하지 못했습니다.", "Could not talk to curl.").to_string())?.write_all(cfg.as_bytes()).await.map_err(|e| e.to_string())?;
+        let out = tokio::time::timeout(Duration::from_secs(12), child.wait_with_output()).await.map_err(|_| tr!("응답이 없습니다.", "No answer.").to_string())?.map_err(|e| e.to_string())?;
         if !out.status.success() {
             let why = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("연결하지 못했습니다: {}", why.trim().trim_start_matches("curl: ")));
+            return Err(tr!(format!("연결하지 못했습니다: {}", why.trim().trim_start_matches("curl: ")), format!("Could not connect: {}", why.trim().trim_start_matches("curl: "))));
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     };
@@ -314,10 +314,10 @@ pub async fn probe(State(_): State<Arc<AppState>>, Json(req): Json<Probe>) -> Re
     };
     let (text, code) = body.rsplit_once('\n').unwrap_or((&body, ""));
     if code.trim() != "200" {
-        let hint = if code.trim() == "401" || code.trim() == "403" { " (키를 확인하세요)" } else { "" };
-        return fail(StatusCode::BAD_GATEWAY, format!("서버가 {}로 답했습니다{hint}.", code.trim()));
+        let hint = if code.trim() == "401" || code.trim() == "403" { tr!(" (키를 확인하세요)", " (check the key)") } else { "" };
+        return fail(StatusCode::BAD_GATEWAY, tr!(format!("서버가 {}로 답했습니다{hint}.", code.trim()), format!("The server answered {}{hint}.", code.trim())));
     }
-    let Ok(v) = serde_json::from_str::<Value>(text) else { return fail(StatusCode::BAD_GATEWAY, "모델 목록 형식이 아닙니다(JSON이 아님). 모델 ID를 직접 입력하세요.") };
+    let Ok(v) = serde_json::from_str::<Value>(text) else { return fail(StatusCode::BAD_GATEWAY, tr!("모델 목록 형식이 아닙니다(JSON이 아님). 모델 ID를 직접 입력하세요.", "That is not a model list (not JSON). Type the model ID yourself.")) };
     // OpenAI style {"data":[{"id":..}]}, or a bare list, or {"models":[..]}
     let list = v["data"].as_array().or_else(|| v["models"].as_array()).or_else(|| v.as_array());
     let ids: Vec<String> = list.map(|a| a.iter().filter_map(|m| m["id"].as_str().or_else(|| m["name"].as_str()).or_else(|| m.as_str()).map(str::to_owned)).take(500).collect()).unwrap_or_default();

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { S } from '../lib/strings';
   import { autofocus } from '../lib/actions';
@@ -17,13 +18,18 @@
   });
 
   const cancel = () => d && chat.respond(d.id, { cancelled: true });
+  /** The built-in permission extension asks "Allow <tool> to run?"; that one is said in the page's language. */
+  const titleOf = (title: string) => {
+    const m = /^Allow (\S+) to run\?$/.exec(title);
+    return m ? t('ext.allow', { tool: m[1] }) : title;
+  };
 </script>
 
 {#if d}
   {#key d.id}
     <dialog bind:this={dlg} oncancel={(e) => { e.preventDefault(); cancel(); }} aria-labelledby="xd-title">
       <div class="box">
-        <h2 id="xd-title">{d.title}</h2>
+        <h2 id="xd-title">{titleOf(d.title)}</h2>
 
         {#if d.method === 'confirm'}
           <p class="msg">{d.message}</p>

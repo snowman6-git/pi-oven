@@ -191,9 +191,11 @@ pub struct Manager {
     spawning: tokio::sync::Mutex<()>,
     /// What the desktop pet follows: pi's events, translated.
     pub pet: Arc<crate::pet::PetHub>,
+    /// What pi-updater last offered (its prompt is answered here, not shown in every new session).
+    pub updates: Arc<crate::update::Updates>,
 }
 
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -202,7 +204,7 @@ fn now_ms() -> u64 {
 
 impl Manager {
     pub fn new(cfg: Arc<Config>) -> Arc<Self> {
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -326,6 +328,7 @@ impl Manager {
         // stdout → replay buffer + broadcast. Split on LF only: U+2028/2029 are legal inside JSON strings.
         {
             let rt = rt.clone();
+            let updates = self.updates.clone();
             tokio::spawn(async move {
                 let mut rd = BufReader::new(stdout);
                 let mut buf = Vec::new();
@@ -341,6 +344,15 @@ impl Manager {
                                 continue;
                             }
                             let line: Arc<str> = Arc::from(String::from_utf8_lossy(&buf).as_ref());
+                            if line.starts_with(r#"{"type":"extension_ui_request""#) && line.contains(r#""method":"select""#) {
+                                if let Some((ask, offer)) = crate::update::from_prompt(&line) {
+                                    updates.offered(offer, now_ms());
+                                    let answer = serde_json::json!({ "type": "extension_ui_response", "id": ask, "cancelled": true });
+                                    let _ = rt.stdin_tx.try_send(answer.to_string());
+                                    let _ = rt.events.send(Arc::from(r#"{"type":"oven_update"}"#));
+                                    continue;
+                                }
+                            }
                             let mut replay = rt.replay.lock().unwrap();
                             replay.record(&line);
                             let _ = rt.events.send(line);

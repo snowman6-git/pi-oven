@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,22 +34,52 @@
 <body>
 <main>
   <h1><img src="logo.svg" alt="">pi-oven</h1>
-  <p id="intro">연결할 pi-oven 서버의 주소를 입력하세요. 서버는 따로 실행해 두어야 합니다.</p>
+  <p id="intro" data-t="intro"></p>
   <div id="auto" hidden role="status">
-    <div class="line"><span class="spin" aria-hidden="true"></span><span>연결하는 중</span></div>
+    <div class="line"><span class="spin" aria-hidden="true"></span><span data-t="connecting"></span></div>
     <code id="autoHost"></code>
-    <button type="button" id="cancel" class="ghost">서버 바꾸기</button>
+    <button type="button" id="cancel" class="ghost" data-t="change"></button>
   </div>
   <form id="f">
-    <input id="u" placeholder="localhost:4141" autocomplete="off" spellcheck="false" aria-label="서버 주소">
-    <input id="t" type="password" placeholder="토큰 (선택)" autocomplete="off" spellcheck="false" aria-label="토큰">
-    <button id="b" type="submit">연결</button>
+    <input id="u" placeholder="localhost:4141" autocomplete="off" spellcheck="false" data-t-aria="address">
+    <input id="t" type="password" autocomplete="off" spellcheck="false" data-t-ph="tokenPh" data-t-aria="token">
+    <button id="b" type="submit" data-t="connect"></button>
     <div class="err" id="e" role="alert"></div>
   </form>
-  <small id="foot">토큰이나 비밀번호는 서버 화면에서 입력할 수도 있습니다. 주소는 이 PC에만 저장됩니다. 다른 서버로 바꾸려면 앱을 <code>--server 주소</code>로 실행하거나 저장된 <code>server.txt</code>를 지우세요.</small>
+  <small id="foot" data-t-html="foot"></small>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
+  // This page's own text, in the system language (English when there is none for it). The web UI keeps its own choice.
+  const TEXT = {
+    ko: {
+      intro: '연결할 pi-oven 서버의 주소를 입력하세요. 서버는 따로 실행해 두어야 합니다.',
+      connecting: '연결하는 중', change: '서버 바꾸기', address: '서버 주소', token: '토큰', tokenPh: '토큰 (선택)', connect: '연결', checking: '확인하는 중…',
+      foot: '토큰이나 비밀번호는 서버 화면에서 입력할 수도 있습니다. 주소는 이 PC에만 저장됩니다. 다른 서버로 바꾸려면 앱을 <code>--server 주소</code>로 실행하거나 저장된 <code>server.txt</code>를 지우세요.',
+      footPhone: '토큰이나 비밀번호는 서버 화면에서 입력할 수도 있습니다. 주소는 이 기기에만 저장되고, 서버를 바꾸려면 연결된 뒤 뒤로 가기를 누르세요.',
+      'err.empty': '서버 주소를 입력하세요.', 'err.format': '주소 형식이 올바르지 않습니다. 예: localhost:4141', 'err.scheme': 'http:// 또는 https:// 주소만 쓸 수 있습니다.',
+      'err.unreachable': '서버에 연결하지 못했습니다. 주소와 포트, 서버가 켜져 있는지 확인하세요.',
+    },
+    en: {
+      intro: 'Enter the address of the pi-oven server to connect to. The server has to be running separately.',
+      connecting: 'Connecting', change: 'Change server', address: 'Server address', token: 'Token', tokenPh: 'Token (optional)', connect: 'Connect', checking: 'Checking…',
+      foot: 'You can also enter the token or password on the server page. The address is saved on this PC only. To use another server, start the app with <code>--server address</code> or delete the saved <code>server.txt</code>.',
+      footPhone: 'You can also enter the token or password on the server page. The address is saved on this device only; to change the server, press back once connected.',
+      'err.empty': 'Enter the server address.', 'err.format': 'That is not an address. For example: localhost:4141', 'err.scheme': 'Only http:// or https:// addresses can be used.',
+      'err.unreachable': 'Could not connect to the server. Check the address, the port and that the server is running.',
+    },
+  };
+  const lang = (() => {
+    try { const v = localStorage.getItem('pi-oven.lang'); if (v && TEXT[v]) return v; } catch { /* no storage */ }
+    for (const l of navigator.languages || [navigator.language]) { const b = String(l).toLowerCase().split('-')[0]; if (TEXT[b]) return b; }
+    return 'en';
+  })();
+  const T = (k) => TEXT[lang][k] ?? TEXT.en[k] ?? k;
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = T(el.dataset.t);
+  for (const el of document.querySelectorAll('[data-t-html]')) el.innerHTML = T(el.dataset.tHtml);
+  for (const el of document.querySelectorAll('[data-t-ph]')) el.placeholder = T(el.dataset.tPh);
+  for (const el of document.querySelectorAll('[data-t-aria]')) el.setAttribute('aria-label', T(el.dataset.tAria));
   const invoke = window.__TAURI__.core.invoke;
   setTimeout(() => $('u').focus(), 300);
   let cancelled = false;
@@ -74,18 +104,18 @@
   }
   // The footer names the way back to this page, which differs between a phone and a computer.
   invoke('auto_connect').then((phone) => {
-    if (phone) $('foot').textContent = '토큰이나 비밀번호는 서버 화면에서 입력할 수도 있습니다. 주소는 이 기기에만 저장되고, 서버를 바꾸려면 연결된 뒤 뒤로 가기를 누르세요.';
+    if (phone) $('foot').textContent = T('footPhone');
   });
   $('cancel').addEventListener('click', () => { cancelled = true; show('form'); });
   $('f').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const err = $('e'); err.textContent = '';
     let url = $('u').value.trim();
-    if (!url) { err.textContent = '서버 주소를 입력하세요.'; return; }
+    if (!url) { err.textContent = T('err.empty'); return; }
     if (!/^[a-z]+:\/\//i.test(url)) url = 'http://' + url;
     const tok = $('t').value.trim();
     if (tok) url = url.replace(/#.*$/, '') + '#token=' + encodeURIComponent(tok);
-    $('b').disabled = true; $('b').textContent = '확인하는 중…';
+    $('b').disabled = true; $('b').textContent = T('checking');
     try {
       // Reachability only: an opaque answer is enough to know that something is listening.
       const c = new AbortController(); const timer = setTimeout(() => c.abort(), 6000);
@@ -93,8 +123,8 @@
       clearTimeout(timer);
       await invoke('connect', { url });
     } catch (e) {
-      err.textContent = typeof e === 'string' ? e : '서버에 연결하지 못했습니다. 주소와 포트, 서버가 켜져 있는지 확인하세요.';
-      $('b').disabled = false; $('b').textContent = '연결'; show('form');
+      err.textContent = typeof e === 'string' ? T(e) : T('err.unreachable');
+      $('b').disabled = false; $('b').textContent = T('connect'); show('form');
     }
   });
 </script>

@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n';
 // Add-on for `@juicesharp/rpiv-todo`: the model keeps a task list with its `todo` tool, and that package draws it
 // in the terminal. Here the list is read back out of the conversation (every call's `details` holds the whole
 // list) and, for calls that never show up as a tool result, from the entries the package saves.
@@ -88,9 +89,9 @@ export function unfinished(t: Task, tasks: Task[]): number[] {
 
 /** One line for the folded tray: what is happening, in words. */
 export function headline(s: Summary): string {
-  if (s.total === 0) return '할 일이 없습니다';
-  if (s.allDone) return '모두 끝났어요';
+  if (s.total === 0) return t('todo.none');
+  if (s.allDone) return t('todo.allDone');
   const c = s.current;
-  if (!c) return '막힌 일만 남았어요';
-  return c.status === 'in_progress' ? c.activeForm || c.subject : `다음: ${c.subject}`;
+  if (!c) return t('todo.blocked');
+  return c.status === 'in_progress' ? c.activeForm || c.subject : t('todo.next', { task: c.subject });
 }

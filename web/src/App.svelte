@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './lib/i18n.svelte';
   import { onMount } from 'svelte';
   import { app } from './lib/app.svelte';
   import { menu } from './lib/contextmenu.svelte';
@@ -211,10 +212,10 @@
           {#if chat.editors.docs.length}<div class="g-pane">{#await import('./components/EditorPane.svelte') then m}<m.default {chat} {splitOn} />{/await}</div>{/if}
           {#if splitOn}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-            <div class="g-grip" role="separator" aria-orientation="vertical" aria-label="대화와 편집기 폭" aria-valuenow={Math.round(chat.editors.splitFrac * 100)} aria-valuemin="30" aria-valuemax="70" tabindex="0"
+            <div class="g-grip" role="separator" aria-orientation="vertical" aria-label={t('app.splitGrip')} aria-valuenow={Math.round(chat.editors.splitFrac * 100)} aria-valuemin="30" aria-valuemax="70" tabindex="0"
               onpointerdown={(e) => gripSplit(e, chat)} onkeydown={(e) => gripSplitKey(e, chat)} ondblclick={() => chat.editors.setSplitFrac(0.5, true)}></div>
           {/if}
-          {#if dropping}<div class="dropzone" aria-hidden="true"><span>여기에 놓으면 편집기로 엽니다</span></div>{/if}
+          {#if dropping}<div class="dropzone" aria-hidden="true"><span>{t('app.drop')}</span></div>{/if}
           <div class="g-bottom" class:compact={!splitOn && chat.editors.active !== null}>
             {#if !splitOn && chat.editors.active !== null}<AgentStrip {chat} />{/if}
             <Composer {chat} />
@@ -226,7 +227,7 @@
         {/key}
       {:else}
         <header class="bare">
-          <button class="icon-btn menu" type="button" aria-label="세션 목록" onclick={() => (app.sidebarOpen = true)}><Icon name="menu" /></button>
+          <button class="icon-btn menu" type="button" aria-label={S.sessionList} onclick={() => (app.sidebarOpen = true)}><Icon name="menu" /></button>
         </header>
         <div class="empty">
           <h1>{S.emptyTitle}</h1>
@@ -237,7 +238,7 @@
       {#if app.error}
         <div class="error" role="alert">
           <span>{app.error}</span>
-          <button class="icon-btn" type="button" aria-label="닫기" onclick={() => (app.error = null)}><Icon name="x" size={16} /></button>
+          <button class="icon-btn" type="button" aria-label={S.close} onclick={() => (app.error = null)}><Icon name="x" size={16} /></button>
         </div>
       {/if}
     </section>
@@ -250,7 +251,7 @@
       <div class="insp" class:drawer={app.narrow} class:wide={app.inspectorTab !== 'info'}>
         {#if !app.narrow}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-          <div class="grip" role="separator" aria-orientation="vertical" aria-label="패널 너비" aria-valuenow={app.inspectorW} aria-valuemin="280" aria-valuemax="760" tabindex="0"
+          <div class="grip" role="separator" aria-orientation="vertical" aria-label={t('app.panelGrip')} aria-valuenow={app.inspectorW} aria-valuemin="280" aria-valuemax="760" tabindex="0"
             onpointerdown={grab} onkeydown={gripKey} ondblclick={() => app.setInspectorWidth(340, true)}></div>
         {/if}
         <Inspector {chat} />

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t, type Key } from '../lib/i18n.svelte';
   import { api, type GitFile, type GitOverview } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
@@ -25,7 +27,7 @@
   const ignored = $derived(git?.files.filter((f) => f.status === '!') ?? []);
   const staged = $derived(changes.filter((f) => f.staged));
   const allStaged = $derived(changes.length > 0 && changes.every((f) => f.staged && !f.unstaged));
-  const statusName: Record<string, string> = { M: '수정', A: '추가', D: '삭제', R: '이름 변경', '?': '새 파일', U: '충돌' };
+  const statusName = (c: string) => (['M', 'A', 'D', 'R', '?', 'U'].includes(c) ? t(`git.status.${c === '?' ? 'Q' : c}` as Key) : c);
 
   async function load() {
     if (loading) return;
@@ -75,7 +77,7 @@
       message = '';
       sel = null;
       diff = null;
-      app.flash(`커밋했습니다 (${r.hash})`);
+      app.flash(t('git.committed', { hash: r.hash }));
     } catch (e) {
       problem = (e as Error).message;
     } finally {
@@ -105,31 +107,31 @@
   {#if error}<p class="err" role="alert">{error}</p>{/if}
 
   {#if git && !git.repo}
-    <p class="note">이 폴더는 Git 저장소가 아닙니다.</p>
+    <p class="note">{t('git.notRepo')}</p>
   {:else if git}
     <div class="bar">
       <p class="branch">{#if git.branch}<code class="mono">{git.branch}</code>{/if}</p>
       <div class="acts">
-        <button class="icon-btn sm" type="button" title="새로 고침" aria-label="새로 고침" disabled={loading} onclick={load}><Icon name="refresh" size={15} /></button>
+        <button class="icon-btn sm" type="button" title={S.refresh} aria-label={S.refresh} disabled={loading} onclick={load}><Icon name="refresh" size={15} /></button>
       </div>
     </div>
 
     {#if changes.length === 0}
-      <p class="note">바뀐 파일이 없습니다.</p>
+      <p class="note">{t('git.clean')}</p>
     {:else}
       <label class="all"><input type="checkbox" checked={allStaged} use:indeterminate={staged.length > 0 && !allStaged} disabled={busy}
-        onchange={() => stage(changes.map((f) => f.path), !allStaged)} /> 전체 선택 <span>{staged.length}/{changes.length}</span></label>
+        onchange={() => stage(changes.map((f) => f.path), !allStaged)} /> {t('git.selectAll')} <span>{staged.length}/{changes.length}</span></label>
       <ul>
         {#each changes as f (f.path)}
           {@const open = sel === f.path}
           <li class:open>
             <div class="row">
-              <input type="checkbox" aria-label="{f.path} 스테이지" checked={f.staged && !f.unstaged} use:indeterminate={f.staged && f.unstaged} disabled={busy}
+              <input type="checkbox" aria-label={t('git.stage', { path: f.path })} checked={f.staged && !f.unstaged} use:indeterminate={f.staged && f.unstaged} disabled={busy}
                 onchange={() => stage([f.path], !(f.staged && !f.unstaged))} />
               <button class="p" type="button" aria-expanded={open} onclick={() => pick(f)} title={f.path}>
                 <span class="path mono">{#if !f.path.endsWith('/')}<span class="fic"><FileIcon name={name(f.path)} size={14} /></span>{/if}<span class="nm" data-priv="files">{name(f.path)}</span>{#if dir(f.path)} <span class="d" data-priv="files">{dir(f.path)}</span>{/if}</span>
                 <span class="meta">
-                  <span class="st st-{f.status === '?' ? 'n' : f.status}">{statusName[f.status] ?? f.status}</span>
+                  <span class="st st-{f.status === '?' ? 'n' : f.status}">{statusName(f.status)}</span>
                   {#if f.added != null}<b class="add">+{f.added}</b> <b class="del">−{f.removed ?? 0}</b>{/if}
                 </span>
               </button>
@@ -138,30 +140,30 @@
               <div class="body">
                 {#if diff && diff.path === f.path}
                   {#if diff.error}<p class="err">{diff.error}</p>
-                  {:else if (diff.text ?? '').trim() === ''}<p class="note">보여줄 내용이 없습니다.</p>
+                  {:else if (diff.text ?? '').trim() === ''}<p class="note">{t('git.nothing')}</p>
                   {:else}<UnifiedDiff text={diff.text ?? ''} />{/if}
-                {:else}<p class="note">불러오는 중…</p>{/if}
+                {:else}<p class="note">{S.loading}</p>{/if}
               </div>
             {/if}
           </li>
         {/each}
       </ul>
-      {#if git.truncated}<p class="note">파일이 많아 일부만 표시합니다.</p>{/if}
+      {#if git.truncated}<p class="note">{t('git.truncated')}</p>{/if}
     {/if}
 
     <form class="commit" onsubmit={(e) => { e.preventDefault(); void commit(); }}>
-      <textarea class="field" rows="3" placeholder="커밋 메시지" aria-label="커밋 메시지" bind:value={message}
+      <textarea class="field" rows="3" placeholder={t('git.message')} aria-label={t('git.message')} bind:value={message}
         onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); void commit(); } }}></textarea>
       <button class="btn primary" type="submit" disabled={busy || !message.trim() || staged.length === 0}
-        title={staged.length === 0 ? '커밋할 파일을 먼저 체크하세요' : 'Ctrl+Enter'}>
-        {staged.length ? `${staged.length}개 파일 커밋` : '커밋'}
+        title={staged.length === 0 ? t('git.checkFirst') : 'Ctrl+Enter'}>
+        {staged.length ? t('git.commitN', { n: staged.length }) : t('git.commit')}
       </button>
       {#if problem}<pre class="err mono" role="alert">{problem}</pre>{/if}
     </form>
 
     {#if ignored.length}
       <button class="fold" type="button" aria-expanded={showIgnored} onclick={() => (showIgnored = !showIgnored)}>
-        <span class:up={showIgnored}><Icon name="right" size={13} /></span> 무시됨 <span class="cnt">{ignored.length}</span>
+        <span class:up={showIgnored}><Icon name="right" size={13} /></span> {t('git.ignored')} <span class="cnt">{ignored.length}</span>
       </button>
       {#if showIgnored}
         <ul class="ign">
@@ -171,7 +173,7 @@
     {/if}
 
     {#if git.commits.length}
-      <h4>최근 커밋</h4>
+      <h4>{t('git.recent')}</h4>
       <ul class="log">
         {#each git.commits as c (c.hash)}
           <li><code class="mono">{c.hash}</code><span class="subj" title={c.subject}>{c.subject}</span><small>{relativeTime(c.when * 1000)}</small></li>
@@ -179,7 +181,7 @@
       </ul>
     {/if}
   {:else if !error}
-    <p class="note">불러오는 중…</p>
+    <p class="note">{S.loading}</p>
   {/if}
 </div>
 

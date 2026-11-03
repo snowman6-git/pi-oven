@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { runClock } from '../lib/util';
 
@@ -15,9 +16,9 @@
   });
 
   const label = $derived(
-    text ? text : chat.compacting ? '컨텍스트 압축 중'
-      : chat.retry ? `다시 시도하는 중 (${chat.retry})`
-        : '대기 중',
+    text ? text : chat.compacting ? t('wait.compacting')
+      : chat.retry ? t('wait.retry', { n: chat.retry })
+        : t('wait.waiting'),
   );
   const secs = $derived(chat.waitSince ? now - chat.waitSince : 0);
 </script>

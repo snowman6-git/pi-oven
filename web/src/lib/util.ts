@@ -1,3 +1,4 @@
+import { locale, t } from './i18n';
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g;
 
@@ -5,19 +6,19 @@ export const stripAnsi = (s: string) => s.replace(ANSI, '');
 
 export function clock(ts?: number): string {
   if (!ts) return '';
-  return new Date(ts).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export function relativeTime(ms: number): string {
   const d = Date.now() - ms;
   const m = Math.round(d / 60000);
-  if (m < 1) return '방금';
-  if (m < 60) return `${m}분 전`;
+  if (m < 1) return t('time.now');
+  if (m < 60) return t('time.min', { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}시간 전`;
+  if (h < 24) return t('time.hour', { n: h });
   const days = Math.round(h / 24);
-  if (days < 7) return `${days}일 전`;
-  return new Date(ms).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+  if (days < 7) return t('time.day', { n: days });
+  return new Date(ms).toLocaleDateString(locale(), { month: 'numeric', day: 'numeric' });
 }
 
 export function duration(ms?: number): string {

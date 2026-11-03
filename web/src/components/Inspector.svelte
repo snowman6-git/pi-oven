@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { app } from '../lib/app.svelte';
   import { S } from '../lib/strings';
@@ -19,35 +20,35 @@
   const tab = $derived(app.inspectorTab);
   const changed = $derived(sessionChanges(chat.items).length);
   const tabs = $derived([
-    { id: 'info', label: '정보', n: 0 },
-    { id: 'files', label: '파일', n: 0 },
-    { id: 'diff', label: 'Diff', n: changed },
-    { id: 'git', label: 'Git', n: 0 },
-    { id: 'point', label: 'Pin', n: 0 },
+    { id: 'info', n: 0 },
+    { id: 'files', n: 0 },
+    { id: 'diff', n: changed },
+    { id: 'git', n: 0 },
+    { id: 'point', n: 0 },
   ] as const);
 
   // Arrow keys move between tabs, like any tab list.
   function onTabKey(e: KeyboardEvent) {
-    const i = tabs.findIndex((t) => t.id === tab);
+    const i = tabs.findIndex((x) => x.id === tab);
     const next = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : -1;
     if (next < 0) return;
     e.preventDefault();
-    const t = tabs[(next + tabs.length) % tabs.length];
-    app.setInspectorTab(t.id);
+    const nt = tabs[(next + tabs.length) % tabs.length];
+    app.setInspectorTab(nt.id);
     queueMicrotask(() => (e.currentTarget as HTMLElement).querySelector<HTMLElement>('[aria-selected="true"]')?.focus());
   }
 </script>
 
 <aside aria-label={S.inspector}>
-  <div class="tabs" role="tablist" tabindex="-1" aria-label="패널 섹션" onkeydown={onTabKey}>
-    {#each tabs as t (t.id)}
-      <button role="tab" type="button" id="itab-{t.id}" aria-selected={tab === t.id} aria-controls="ipane" tabindex={tab === t.id ? 0 : -1} onclick={() => app.setInspectorTab(t.id)}>
-        {t.label}{#if t.n}<span class="n">{t.n}</span>{/if}
+  <div class="tabs" role="tablist" tabindex="-1" aria-label={t('inspector.sections')} onkeydown={onTabKey}>
+    {#each tabs as tb (tb.id)}
+      <button role="tab" type="button" id="itab-{tb.id}" aria-selected={tab === tb.id} aria-controls="ipane" tabindex={tab === tb.id ? 0 : -1} onclick={() => app.setInspectorTab(tb.id)}>
+        {t(`inspector.tab.${tb.id}`)}{#if tb.n}<span class="n">{tb.n}</span>{/if}
       </button>
     {/each}
     <span class="grow"></span>
     {#if app.narrow}
-      <button class="icon-btn close" type="button" aria-label="정보 패널 닫기" onclick={() => (app.inspectorDrawer = false)}><Icon name="x" size={18} /></button>
+      <button class="icon-btn close" type="button" aria-label={t('inspector.close')} onclick={() => (app.inspectorDrawer = false)}><Icon name="x" size={18} /></button>
     {/if}
   </div>
 
@@ -70,20 +71,20 @@
       <p class="big">{Math.round(pct)}%</p>
       <p class="sub">{compactNumber(ctx.tokens ?? 0)} / {compactNumber(ctx.contextWindow)} {S.tokens}</p>
     {:else}
-      <p class="sub">{ctx ? '압축 직후라 아직 계산되지 않았습니다.' : '모델 정보가 없습니다.'}</p>
+      <p class="sub">{ctx ? t('inspector.afterCompact') : t('inspector.noModel')}</p>
     {/if}
   </section>
 
   {#if chat.stats}
     <section>
-      <h3>사용량</h3>
+      <h3>{t('inspector.usage')}</h3>
       <dl>
-        <dt>{S.tokens} 입력</dt><dd>{chat.stats.tokens.input.toLocaleString()}</dd>
-        <dt>{S.tokens} 출력</dt><dd>{chat.stats.tokens.output.toLocaleString()}</dd>
-        <dt>캐시 읽기</dt><dd>{chat.stats.tokens.cacheRead.toLocaleString()}</dd>
+        <dt>{t('inspector.tokIn')}</dt><dd>{chat.stats.tokens.input.toLocaleString()}</dd>
+        <dt>{t('inspector.tokOut')}</dt><dd>{chat.stats.tokens.output.toLocaleString()}</dd>
+        <dt>{t('inspector.cacheRead')}</dt><dd>{chat.stats.tokens.cacheRead.toLocaleString()}</dd>
         <dt>{S.cost}</dt><dd>${chat.stats.cost.toFixed(chat.stats.cost < 1 ? 3 : 2)}</dd>
-        <dt>요청 / 응답</dt><dd>{chat.stats.userMessages} / {chat.stats.assistantMessages}</dd>
-        <dt>도구 호출</dt><dd>{chat.stats.toolCalls}</dd>
+        <dt>{t('inspector.reqRes')}</dt><dd>{chat.stats.userMessages} / {chat.stats.assistantMessages}</dd>
+        <dt>{t('inspector.toolCalls')}</dt><dd>{chat.stats.toolCalls}</dd>
       </dl>
     </section>
   {/if}
@@ -101,8 +102,8 @@
   {/if}
 
   <section>
-    <h3>세션</h3>
-    <p class="sub mono wrap" data-priv="paths">{chat.sessionFile ?? '아직 저장되지 않았습니다.'}</p>
+    <h3>{t('inspector.session')}</h3>
+    <p class="sub mono wrap" data-priv="paths">{chat.sessionFile ?? t('inspector.unsaved')}</p>
     {#if chat.runtime.pid}<p class="sub">pid {chat.runtime.pid}</p>{/if}
   </section>
   {/if}

@@ -3,12 +3,15 @@
 // this holds what the disk had, the revision it was at, and what to do when the two disagree.
 
 import { api, HttpError, type FileText } from './api';
+import { t } from './i18n';
 
 export interface Doc {
   path: string;
   name: string;
   loading: boolean;
   error: string | null;
+  /** The last read found no file (404). */
+  missing?: boolean;
   /** What the disk held when last read or saved; the editor starts from this. */
   base: string;
   rev: string | null;
@@ -155,20 +158,20 @@ export class Editors {
     this.attachFile = false;
     if (!c?.auto || !this.inView) return '';
     // a selection that was taken off the message does not come back just because the file was asked for
-    if (!s || s.path !== this.inView || !s.text || this.dismissed === this.selectionKey) return `\n\n[편집기에서 열어 둔 파일: ${this.inView}]`;
+    if (!s || s.path !== this.inView || !s.text || this.dismissed === this.selectionKey) return `\n\n${t('editor.ctxFile', { path: this.inView ?? '' })}`;
     this.dismissed = this.selectionKey;
     const body = s.text.replace(/\n$/, ''); // a selection that runs to the start of the next line carries its last line break
-    const cut = body.length > 30_000 ? body.slice(0, 30_000) + '\n…(이하 생략)' : body;
+    const cut = body.length > 30_000 ? body.slice(0, 30_000) + '\n' + t('editor.cut') : body;
     const lang = s.path.includes('.') ? s.path.slice(s.path.lastIndexOf('.') + 1) : '';
     const fence = '`'.repeat(Math.max(3, ...[...cut.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-    return `\n\n[편집기에서 선택: ${c.label}]\n${fence}${lang}\n${cut}\n${fence}`;
+    return `\n\n${t('editor.ctxSel', { label: c.label })}\n${fence}${lang}\n${cut}\n${fence}`;
   }
 
   async close(path: string, ask = true) {
     const doc = this.get(path);
     if (!doc) return true;
     if (ask && doc.dirty) {
-      const ok = await this.host.ask({ title: '저장하지 않은 변경이 있습니다', body: `${doc.name}을(를) 닫으면 변경한 내용이 사라집니다.`, confirm: '버리고 닫기', danger: true });
+      const ok = await this.host.ask({ title: t('editor.unsavedTitle'), body: t('editor.unsavedBody', { name: doc.name }), confirm: t('editor.discard'), danger: true });
       if (!ok) return false;
     }
     const i = this.docs.findIndex((d) => d.path === path);
@@ -216,11 +219,12 @@ export class Editors {
       doc.version++;
     } catch (e) {
       const st = e instanceof HttpError ? e.status : 0;
-      doc.error = st === 415 ? '텍스트(UTF-8) 파일이 아니라서 편집할 수 없습니다.'
-        : st === 413 ? '파일이 너무 커서(2MB 넘음) 열 수 없습니다.'
-        : st === 404 ? '파일이 없습니다.'
-        : st === 403 ? '이 파일은 열 수 없습니다.'
-        : '파일을 읽지 못했습니다.';
+      doc.error = st === 415 ? t('editor.err.e415')
+        : st === 413 ? t('editor.err.e413')
+        : st === 404 ? t('editor.err.e404')
+        : st === 403 ? t('editor.err.e403')
+        : t('editor.err.read');
+      doc.missing = st === 404;
     } finally {
       doc.loading = false;
     }
@@ -248,7 +252,7 @@ export class Editors {
       this.onSaved?.(path, text);
     } catch (e) {
       if (e instanceof HttpError && e.status === 409) doc.conflict = e.body?.rev === null ? 'deleted' : 'changed';
-      else this.host.flash(`저장하지 못했습니다${e instanceof HttpError ? ` (${e.status})` : ''}`);
+      else this.host.flash(t('editor.saveFailed', { code: e instanceof HttpError ? ` (${e.status})` : '' }));
     } finally {
       doc.saving = false;
     }
@@ -307,7 +311,7 @@ export class Editors {
         return true;
       }
       if (d.dirty) d.conflict = 'changed';
-      else { await this.reload(d.path); this.host.flash(`${d.name}: 디스크에서 바뀐 내용을 불러왔습니다`); }
+      else { await this.reload(d.path); this.host.flash(t('editor.reloaded', { name: d.name })); }
       return true;
     }
     d.base = f.content;
@@ -315,7 +319,7 @@ export class Editors {
     d.eol = f.eol;
     d.bom = f.bom;
     d.conflict = null;
-    this.host.flash(`${d.name}: ${r.lines}줄 바뀐 내용을 ${d.dirty ? '합쳤습니다' : '반영했습니다'}`);
+    this.host.flash(t(d.dirty ? 'editor.merged' : 'editor.applied', { name: d.name, n: r.lines }));
     return true;
   }
 
@@ -338,7 +342,7 @@ export class Editors {
       void this.#load(p).then(() => {
         // a file that has gone since is not worth a tab
         const d = this.get(p);
-        if (d?.error === '파일이 없습니다.') void this.close(p, false);
+        if (d?.missing) void this.close(p, false);
       });
     }
     this.active = saved.active && (saved.paths ?? []).includes(saved.active) ? saved.active : null;

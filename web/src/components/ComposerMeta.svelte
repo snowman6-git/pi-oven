@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import type { Chat, Permission } from '../lib/chat.svelte';
   import { dismiss, autofocus } from '../lib/actions';
@@ -28,11 +29,8 @@
   const ctx = $derived(chat.stats?.contextUsage);
   const pct = $derived(chat.contextPercent);
 
-  const perms: { id: Permission; label: string; hint: string }[] = [
-    { id: 'auto', label: '자동', hint: '도구를 묻지 않고 바로 실행합니다.' },
-    { id: 'manual', label: '수동', hint: '명령 실행과 파일 수정 전에 허락을 구합니다.' },
-  ];
-  const permLabel = $derived(perms.find((p) => p.id === chat.permission)!.label);
+  const perms: { id: Permission }[] = [{ id: 'auto' }, { id: 'manual' }];
+  const permLabel = $derived(t(`meta.perm.${chat.permission}.label`));
 </script>
 
 <div class="meta">
@@ -46,7 +44,7 @@
           {#each perms as p (p.id)}
             <button role="menuitemradio" aria-checked={chat.permission === p.id} type="button" class:on={chat.permission === p.id}
               onclick={() => ((menu = null), chat.setPermission(p.id))}>
-              <span class="optlabel"><b>{p.label}</b><small>{p.hint}</small></span>
+              <span class="optlabel"><b>{t(`meta.perm.${p.id}.label`)}</b><small>{t(`meta.perm.${p.id}.hint`)}</small></span>
               {#if chat.permission === p.id}<Icon name="check" size={16} />{/if}
             </button>
           {/each}
@@ -64,7 +62,7 @@
     {#if menu === 'model'}
       <div class="sheet wide">
         {#if chat.models.length > 7}
-          <input class="field" placeholder="모델 검색" bind:value={filter} use:autofocus />
+          <input class="field" placeholder={t('meta.search')} bind:value={filter} use:autofocus />
         {/if}
         <ul role="listbox" aria-label={S.model}>
           {#each models as m (m.provider + m.id)}
@@ -74,10 +72,10 @@
               </button>
             </li>
           {:else}
-            <li class="none">일치하는 모델이 없습니다.</li>
+            <li class="none">{t('meta.none')}</li>
           {/each}
         </ul>
-        <button class="addmodel" type="button" onclick={() => ((menu = null), (app.modelDialog = true))}><Icon name="plus" size={14} />모델 추가…</button>
+        <button class="addmodel" type="button" onclick={() => ((menu = null), (app.modelDialog = true))}><Icon name="plus" size={14} />{t('meta.add')}</button>
       </div>
     {/if}
   </div>
@@ -112,7 +110,7 @@
           <span class="pctbig">{Math.round(pct)}%</span>
           <small>{compactNumber(ctx.tokens ?? 0)} / {compactNumber(ctx.contextWindow)} {S.tokens}</small>
         {:else}
-          <small>{ctx ? '압축 직후라 아직 계산되지 않았습니다.' : '모델 정보가 없습니다.'}</small>
+          <small>{ctx ? t('inspector.afterCompact') : t('inspector.noModel')}</small>
         {/if}
         <button class="btn" type="button" disabled={chat.running || chat.compacting} onclick={() => ((menu = null), chat.compact())}>{S.compact}</button>
       </div>

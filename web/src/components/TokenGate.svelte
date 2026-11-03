@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { S } from '../lib/strings';
   import Icon from './Icon.svelte';
@@ -15,7 +16,7 @@
     <h1><img src="/logo.svg" alt="" width="44" height="44" />pi-oven</h1>
     <h2>{S.tokenTitle}</h2>
     <p>{S.tokenHelp}</p>
-    <input class="field mono" type="password" autocomplete="off" bind:value={token} aria-label="토큰 또는 비밀번호" placeholder="토큰 또는 비밀번호" aria-invalid={app.error === 'wrong'} />
+    <input class="field mono" type="password" autocomplete="off" bind:value={token} aria-label={t('gate.field')} placeholder={t('gate.field')} aria-invalid={app.error === 'wrong'} />
     {#if app.error === 'wrong'}<p class="err" role="alert">{S.tokenWrong}</p>{/if}
     {#if app.error === 'locked'}<p class="err" role="alert">{S.tokenLocked}</p>{/if}
     <button class="btn primary" type="submit" disabled={!token.trim()}>{S.tokenSubmit}</button>

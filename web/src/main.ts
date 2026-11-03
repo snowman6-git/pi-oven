@@ -3,6 +3,7 @@ import './app.css';
 import './lib/maple';
 import { mount } from 'svelte';
 import { settings } from './lib/settings.svelte';
+import './lib/i18n.svelte';
 import App from './App.svelte';
 
 settings.apply();

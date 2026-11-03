@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t as tr } from '../lib/i18n.svelte';
   import { api, type SessionTree } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
@@ -39,7 +41,7 @@
   });
 
   const clip = (s: string, n = 90) => (s.length > n ? s.slice(0, n) + '…' : s);
-  const title = (t: Turn) => clip((t.user?.text || t.reply || '(시작)').replace(/\s+/g, ' '));
+  const title = (t: Turn) => clip((t.user?.text || t.reply || tr('tree.start')).replace(/\s+/g, ' '));
 
   async function branch(t: Turn, mode: 'here' | 'rewrite') {
     if (busy) return;
@@ -62,22 +64,22 @@
   <div class="box">
     <header>
       <div class="hd">
-        <h2 id="tree-title">세션 트리</h2>
+        <h2 id="tree-title">{tr('tree.title')}</h2>
         <p class="sub" data-priv="titles">{target.title}</p>
       </div>
-      <button class="btn quiet" type="button" onclick={() => dlg.close()}>닫기</button>
+      <button class="btn quiet" type="button" onclick={() => dlg.close()}>{S.close}</button>
     </header>
 
     {#if error}<p class="err" role="alert">{error}</p>{/if}
-    {#if !data && !error}<p class="empty">불러오는 중…</p>{/if}
+    {#if !data && !error}<p class="empty">{S.loading}</p>{/if}
 
     {#if tree}
       {#if tree.rows.length === 0}
-        <p class="empty">아직 대화가 없습니다.</p>
+        <p class="empty">{tr('tree.empty')}</p>
       {:else}
         <p class="note">
-          {#if branches > 1}분기가 {branches - 1}번 있습니다. 진한 점이 지금 이어지는 흐름이에요.
-          {:else}분기 없이 한 줄로 이어진 대화입니다. 메시지를 골라 그 시점에서 새 흐름을 시작할 수 있어요.{/if}
+          {#if branches > 1}{tr('tree.branches', { n: branches - 1 })}
+          {:else}{tr('tree.linear')}{/if}
         </p>
         <ul>
           {#each tree.rows as { turn: t, depth } (t.id)}
@@ -88,10 +90,10 @@
                 <span class="main">
                   <span class="name" data-priv="chat">{showcase.text(title(t))}</span>
                   <span class="meta">
-                    {#if t.current}<em>현재</em>{/if}
+                    {#if t.current}<em>{tr('tree.current')}</em>{/if}
                     {#if t.label}<em class="label">{t.label}</em>{/if}
-                    {#if t.toolCalls}도구 {t.toolCalls}회{/if}
-                    {#if t.errors}<span class="bad">오류 {t.errors}</span>{/if}
+                    {#if t.toolCalls}{tr('tree.tools', { n: t.toolCalls })}{/if}
+                    {#if t.errors}<span class="bad">{tr('tree.errors', { n: t.errors })}</span>{/if}
                     {#if t.user?.ts}{relativeTime(Date.parse(t.user.ts))}{/if}
                   </span>
                 </span>
@@ -102,10 +104,10 @@
                   {#if t.reply}<p class="a" data-priv="chat">{showcase.text(clip(t.reply, 400))}</p>{/if}
                   <div class="acts">
                     {#if t.user}
-                      <button class="btn primary" type="button" disabled={busy} onclick={() => branch(t, 'rewrite')}>이 메시지부터 다시 쓰기</button>
+                      <button class="btn primary" type="button" disabled={busy} onclick={() => branch(t, 'rewrite')}>{tr('tree.rewrite')}</button>
                     {/if}
                     {#if !t.current}
-                      <button class="btn" type="button" disabled={busy} onclick={() => branch(t, 'here')}>여기까지로 새 세션 열기</button>
+                      <button class="btn" type="button" disabled={busy} onclick={() => branch(t, 'here')}>{tr('tree.here')}</button>
                     {/if}
                   </div>
                 </div>
@@ -113,7 +115,7 @@
             </li>
           {/each}
         </ul>
-        <p class="foot"><Icon name="fork" size={14} /> 원본 세션은 그대로 두고, 고른 지점까지의 대화만 새 세션 파일로 복사해 엽니다.</p>
+        <p class="foot"><Icon name="fork" size={14} /> {tr('tree.foot')}</p>
       {/if}
     {/if}
   </div>

@@ -9,6 +9,8 @@
 [![Release](https://img.shields.io/github/v/release/snowman6-git/pi-oven?color=ff8a3d)](https://github.com/snowman6-git/pi-oven/releases)
 [![License](https://img.shields.io/github/license/snowman6-git/pi-oven?color=ff8a3d)](LICENSE)
 
+**한국어** · [English](README.en.md)
+
 [시작하기](#시작하기) · [기능](#기능) · [실행 인자](#실행-인자) · [사용법 문서](docs/USAGE.md)
 
 </div>
@@ -78,11 +80,13 @@ cargo build --release
 - **여러 기기 동시 사용**: 한 세션을 PC와 폰에서 같이 열면 스트리밍, 도구 실행, 대기열이 양쪽에 그대로 보입니다. 새로고침이나 늦게 연 기기도 진행 중인 작업을 이어서 받습니다.
 - **대화**: 스트리밍, 도구 호출과 경과 시간, 이미지 첨부와 도구 결과 이미지 미리보기, 작업 중 방향 전환·이어서 보내기·즉시 보내기, tok/s와 TTFT
 - **권한**: 자동 또는 수동(쓰기·실행 도구는 화면에서 승인). 고른 모드는 서버에 저장되어 모든 기기와 새 세션에 적용됩니다.
-- **세션**: 폴더별 목록, 이름 바꾸기, 세션 트리에서 분기·다시 생성(원본 세션은 그대로)
+- **세션**: 폴더별 목록, 이름 바꾸기, 세션 트리에서 분기·다시 생성(원본 세션은 그대로). 서버가 다시 켜지면 열려 있던 세션을 자동으로 다시 열고, 끝난 세션은 "다시 열기"로 이어 씀
 - **작업 폴더**: 파일 탐색기와 편집기(CodeMirror, 디스크 변경 감지), Diff, Git 스테이지·커밋
 - **Pin**: 대화에 나온 주소·토큰을 모아 두고, 직접 정규식 규칙을 추가
 - **모델 추가**: 엔드포인트와 키를 pi의 `models.json`에 저장(저장 전 백업)
 - **쇼케이스 모드**: 화면 공유용으로 경로·주소·토큰·파일 이름 등을 흐리거나 예시 글자로 바꿈
+- **언어**: 한국어·English. 브라우저 언어를 따르고 설정이나 목록 아래 지구 버튼으로 바꿈. 서버 오류 문구도 화면 언어를 따르고, 터미널 안내와 `--help`는 시스템 로캘(`LANG`)을 따름. 언어 파일 하나(`web/src/locales/<code>.json`)를 추가하면 새 언어가 생깁니다([방법](web/src/locales/README.md))
+- **정보**: 설정의 정보 탭에서 pi 버전, 설치된 패키지와 버전, MCP 서버(이름·연결 방식·도구 수)를 한눈에. MCP의 명령·주소·키는 보내지 않음
 
 ### 함께 쓰면 켜지는 pi 패키지
 
@@ -92,6 +96,7 @@ cargo build --release
 |---|---|
 | [`pi-background-tasks`](https://www.npmjs.com/package/pi-background-tasks) | 백그라운드 작업 칩과 실행 시간, 완료 알림, 작업 목록 |
 | [`@juicesharp/rpiv-todo`](https://www.npmjs.com/package/@juicesharp/rpiv-todo) | 입력창 위의 할 일 트레이 |
+| [`pi-updater`](https://www.npmjs.com/package/pi-updater) | 새 세션마다 뜨던 업데이트 창 대신 목록 아래의 "업데이트 가능" 카드, 눌러서 서버에서 `pi update` 실행 |
 
 ## 실행 인자
 

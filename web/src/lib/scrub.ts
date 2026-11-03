@@ -2,6 +2,7 @@
 // switched on its own. It only changes what is drawn; nothing stored or sent is touched.
 
 import { findSecrets, mask, type CompiledRule } from './points.ts';
+import { t as tr } from './i18n';
 
 export interface ScrubOpts {
   /** The project folders (full paths) and the home folder, as this machine knows them. */
@@ -39,7 +40,7 @@ export function scrub(text: string, o: ScrubOpts): string {
   if (o.paths) {
     // the longest folder first, so a folder inside another is not half replaced
     for (const dir of [...new Set(o.cwds)].filter((d) => d.length > 1).sort((a, b) => b.length - a.length)) {
-      t = t.replace(new RegExp(escape(dir.replace(/\/+$/, '')) + '(?![\\w.-])', 'g'), '<프로젝트>');
+      t = t.replace(new RegExp(escape(dir.replace(/\/+$/, '')) + '(?![\\w.-])', 'g'), tr('scrub.project'));
     }
   }
   if (o.user) {

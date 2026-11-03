@@ -71,7 +71,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (mode !== "manual" || READ_ONLY.has(event.toolName)) return undefined;
 		if (!ctx.hasUI) return { block: true, reason: "Manual permission mode needs a UI to confirm" };
-		const ok = await ctx.ui.confirm(`${event.toolName} 실행을 허용할까요?`, describe(event.toolName, event.input as Record<string, unknown>));
+		// pi-oven's page words this title in its own language (it knows this exact shape)
+		const ok = await ctx.ui.confirm(`Allow ${event.toolName} to run?`, describe(event.toolName, event.input as Record<string, unknown>));
 		return ok ? undefined : { block: true, reason: "The user declined this tool call" };
 	});
 }

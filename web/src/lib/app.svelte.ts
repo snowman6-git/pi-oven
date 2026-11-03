@@ -1,8 +1,10 @@
-import { api, auth, AuthError, type Branched } from './api';
+import { api, auth, AuthError, type Branched, type UpdateOffer, type UpdateTarget } from './api';
 import { Chat } from './chat.svelte';
 import { copyText } from './clipboard';
 import { alertPerson, notifyEnabled, setNotifyEnabled } from './notify';
 import type { RuntimeInfo, SessionSummary } from './protocol';
+import { t } from './i18n';
+import { S } from './strings';
 
 type Theme = 'auto' | 'light' | 'dark';
 export type InspectorTab = 'info' | 'files' | 'diff' | 'git' | 'point';
@@ -51,6 +53,8 @@ class App {
   inspectorOpen = $state(load('pi-oven.inspector', true));
   notifyOn = $state(notifyEnabled());
   theme = $state<Theme>(load('pi-oven.theme', 'dark'));
+  /** Updates for pi and its packages (pi-updater's prompt, answered by the server), shown in the session list. */
+  updates = $state<{ offer: UpdateOffer | null; running: boolean; result: { ok: boolean; output: string } | null }>({ offer: null, running: false, result: null });
 
   get current(): Chat | undefined {
     return this.chats.find((c) => c.runtime.id === this.currentId);
@@ -78,6 +82,12 @@ class App {
     }
     const [runtimes] = await Promise.all([api.runtimes(), this.refreshSessions()]);
     for (const r of runtimes) this.#attach(r);
+    void this.refreshUpdates();
+    if (!this.#watchingUpdates) {
+      // another device's new session may have brought news; look again when this page comes back
+      this.#watchingUpdates = true;
+      document.addEventListener('visibilitychange', () => { if (!document.hidden && this.status === 'ready') void this.refreshUpdates(); });
+    }
     const wanted = new URLSearchParams(location.search).get('r');
     this.select(this.chats.find((c) => c.runtime.id === wanted)?.runtime.id ?? this.chats[0]?.runtime.id ?? null);
   }
@@ -106,6 +116,7 @@ class App {
     return {
       changed: () => void this.refreshSessionsSoon(),
       gone: (c: Chat) => void this.reopenChat(c, true),
+      updates: () => void this.refreshUpdates(),
       notify: (c: Chat, kind: 'done' | 'ask') => this.#attention(c, kind),
       flash: (t: string) => this.flash(t),
       ask: (o: Parameters<App['ask']>[0]) => this.ask(o),
@@ -148,12 +159,12 @@ class App {
   async deleteSessions(list: SessionSummary[]) {
     const doomed = list.filter((s) => this.canDelete(s));
     if (!doomed.length) return;
-    const titles = doomed.map((s) => s.name || s.preview || '제목 없는 세션');
+    const titles = doomed.map((s) => s.name || s.preview || S.untitled);
     const ok = await this.ask({
-      title: doomed.length === 1 ? '이 세션을 삭제할까요?' : `세션 ${doomed.length}개를 삭제할까요?`,
-      body: '세션 기록 파일이 지워지며 되돌릴 수 없습니다.',
+      title: doomed.length === 1 ? t('appmsg.delOne') : t('appmsg.delMany', { n: doomed.length }),
+      body: t('appmsg.delBody'),
       items: titles,
-      confirm: doomed.length === 1 ? '삭제' : `${doomed.length}개 삭제`,
+      confirm: doomed.length === 1 ? t('appmsg.del') : t('appmsg.delN', { n: doomed.length }),
       danger: true,
     });
     if (!ok) return;
@@ -163,8 +174,8 @@ class App {
     this.sessions = this.sessions.filter((s) => !gone.has(s.path));
     this.picked = this.picked.filter((p) => !gone.has(p));
     const failed = doomed.length - gone.size;
-    if (failed) this.error = `${failed}개를 삭제하지 못했습니다.`;
-    this.flash(failed ? `${gone.size}개 삭제, ${failed}개 실패` : `${gone.size}개 세션을 삭제했습니다`);
+    if (failed) this.error = t('appmsg.delFailedN', { n: failed });
+    this.flash(failed ? t('appmsg.delPartial', { ok: gone.size, failed }) : t('appmsg.deleted', { n: gone.size }));
     if (this.selecting && (failed === 0 || this.picked.length === 0)) this.stopSelect();
   }
 
@@ -174,8 +185,8 @@ class App {
     this.#flashTimer = setTimeout(() => (this.flashText = null), 1800);
   }
 
-  async copy(text: string, what = '복사했습니다') {
-    this.flash((await copyText(text)) ? what : '복사하지 못했습니다');
+  async copy(text: string, what?: string) {
+    this.flash((await copyText(text)) ? what ?? t('appmsg.copied') : t('appmsg.copyFailed'));
   }
 
   /** Looking right at it? Then nothing to announce. */
@@ -224,6 +235,52 @@ class App {
     } catch (e) { this.#fail(e); }
   }
 
+  #watchingUpdates = false;
+
+  async refreshUpdates() {
+    try {
+      const s = await api.updates();
+      this.updates.offer = s.offer;
+      this.updates.running = s.running;
+    } catch { /* an older server has no /api/update */ }
+  }
+
+  /** Runs `pi update` on the server. Open sessions keep the old pi until they are restarted. */
+  async runUpdate(target: UpdateTarget) {
+    if (this.updates.running) return;
+    this.updates.running = true;
+    this.updates.result = null;
+    try {
+      const r = await api.runUpdate(target);
+      this.updates.result = { ok: r.ok, output: r.output };
+    } catch (e) {
+      this.updates.result = { ok: false, output: e instanceof Error ? e.message : String(e) };
+    } finally {
+      this.updates.running = false;
+      await this.refreshUpdates();
+    }
+  }
+
+  /** After an update: start pi again in every open session that is not working right now. */
+  async restartIdle() {
+    const idle = this.chats.filter((c) => !c.running && c.link !== 'exited');
+    let failed = 0;
+    for (const chat of idle) {
+      try {
+        const wasCurrent = this.currentId === chat.runtime.id;
+        const rt = await api.restartRuntime(chat.runtime.id, chat.sessionFile);
+        const at = this.chats.indexOf(chat);
+        chat.dispose();
+        const fresh = new Chat(rt, this.#host());
+        at >= 0 ? this.chats.splice(at, 1, fresh) : this.chats.push(fresh);
+        if (wasCurrent) this.select(rt.id);
+      } catch { failed++; }
+    }
+    const busy = this.chats.length - idle.length;
+    this.updates.result = null;
+    this.flash(failed ? t('appmsg.restartFailed', { n: failed }) : busy ? t('appmsg.restartBusy', { n: busy }) : t('appmsg.restarted'));
+  }
+
   /** A session whose pi has ended (or that a restarted server no longer knows): start pi again on the same session
       file, in the same place in the list. A session never saved has no file: its folder is opened fresh. */
   async reopenChat(chat: Chat, quiet = false) {
@@ -238,10 +295,10 @@ class App {
       if (existing) this.chats.splice(at, 1);
       else this.chats.splice(at, 1, new Chat(rt, this.#host()));
       if (wasCurrent) this.select(rt.id);
-      if (!quiet) this.flash('세션을 다시 열었습니다');
+      if (!quiet) this.flash(t('appmsg.reopened'));
     } catch (e) {
       if (quiet) return; // the button stays there to try again
-      this.flash(`다시 열지 못했습니다: ${e instanceof Error ? e.message : e}`);
+      this.flash(t('appmsg.reopenFailed', { err: e instanceof Error ? e.message : String(e) }));
     }
   }
 
@@ -274,7 +331,7 @@ class App {
 
   async closeChat(chat: Chat) {
     if (chat.editors.dirtyCount > 0) {
-      const ok = await this.ask({ title: '저장하지 않은 파일이 있습니다', body: '세션을 닫으면 편집 중이던 변경 내용이 사라집니다.', items: chat.editors.docs.filter((d) => d.dirty).map((d) => d.path), confirm: '버리고 닫기', danger: true });
+      const ok = await this.ask({ title: t('appmsg.unsavedTitle'), body: t('appmsg.unsavedBody'), items: chat.editors.docs.filter((d) => d.dirty).map((d) => d.path), confirm: t('editor.discard'), danger: true });
       if (!ok) return;
     }
     chat.dispose();
@@ -365,7 +422,7 @@ class App {
 
   #fail(e: unknown) {
     if (e instanceof AuthError) this.status = 'auth';
-    else this.error = (e as Error).message === 'network' ? '서버에 연결하지 못했습니다.' : (e as Error).message;
+    else this.error = (e as Error).message === 'network' ? t('appmsg.network') : (e as Error).message;
   }
 }
 

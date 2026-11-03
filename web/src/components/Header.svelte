@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
   import type { Chat } from '../lib/chat.svelte';
@@ -27,7 +28,7 @@
 </script>
 
 <header>
-  <button class="icon-btn menu" type="button" aria-label="세션 목록" onclick={() => (app.sidebarOpen = true)}>
+  <button class="icon-btn menu" type="button" aria-label={S.sessionList} onclick={() => (app.sidebarOpen = true)}>
     <Icon name="menu" />
   </button>
 
@@ -43,7 +44,7 @@
 
   <div class="tools">
     <div class="pop" use:dismiss={() => { if (menu === 'more') menu = null; }}>
-      <button class="icon-btn" type="button" aria-label="더 보기" aria-haspopup="menu" aria-expanded={menu === 'more'} onclick={() => (menu = menu === 'more' ? null : 'more')}>
+      <button class="icon-btn" type="button" aria-label={S.more} aria-haspopup="menu" aria-expanded={menu === 'more'} onclick={() => (menu = menu === 'more' ? null : 'more')}>
         <Icon name="more" />
       </button>
       {#if menu === 'more'}
@@ -52,8 +53,8 @@
           <button role="menuitem" type="button" disabled={chat.running || chat.compacting} onclick={() => ((menu = null), chat.compact())}>{S.compact}</button>
           <button role="menuitem" type="button" disabled={chat.running} onclick={() => ((menu = null), chat.newSession())}>{S.newSession}</button>
           <hr />
-          <button role="menuitem" type="button" disabled={!chat.sessionFile} onclick={() => ((menu = null), chat.sessionFile && (app.treeTarget = { path: chat.sessionFile, cwd: chat.runtime.cwd, title }))}>세션 트리</button>
-          <button role="menuitem" type="button" onclick={() => ((menu = null), app.openInspector('diff'))}>변경 파일</button>
+          <button role="menuitem" type="button" disabled={!chat.sessionFile} onclick={() => ((menu = null), chat.sessionFile && (app.treeTarget = { path: chat.sessionFile, cwd: chat.runtime.cwd, title }))}>{t('header.tree')}</button>
+          <button role="menuitem" type="button" onclick={() => ((menu = null), app.openInspector('diff'))}>{t('header.changed')}</button>
           <hr />
           <button role="menuitem" type="button" onclick={() => ((menu = null), app.closeChat(chat))}>{S.closeSession}</button>
         </div>

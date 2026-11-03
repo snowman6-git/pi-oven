@@ -3,11 +3,12 @@
 // bookkeeping stays valid, and the layout keeps roughly the same shape.
 
 import type { Part } from './showcase.svelte';
+import { t as tr } from './i18n';
 
 const SAMPLE: Record<Part, string> = {
   paths: '~/example-project',
   user: 'user',
-  titles: '예시 세션',
+  titles: '',
   files: 'example.ts',
   secrets: '••••••••',
   hosts: 'example.local',
@@ -15,7 +16,7 @@ const SAMPLE: Record<Part, string> = {
 };
 
 /** Words of an example text, so that a masked message still looks like a paragraph. */
-const WORDS = ['예시', 'example', '샘플', 'showcase', '텍스트', 'sample'];
+const words = () => [...tr('showcase.sampleWords').split(' '), 'showcase'];
 
 const masked = new Map<Text, { orig: string; shown: string }>();
 let observer: MutationObserver | null = null;
@@ -24,7 +25,8 @@ let kinds: Part[] = [];
 
 function wordy(s: string): string {
   let i = 0;
-  return s.replace(/\S+/g, () => WORDS[i++ % WORDS.length]);
+  const w = words();
+  return s.replace(/\S+/g, () => w[i++ % w.length]);
 }
 
 function textNodes(el: Element): Text[] {
@@ -55,7 +57,7 @@ function pass() {
       if (prev && t.data === prev.shown) { first = first && !prev.shown; continue; }
       const orig = t.data;
       if (!orig.trim()) continue;
-      const shown = kind === 'chat' ? wordy(orig) : first ? (kind === 'paths' && !orig.includes('/') ? 'example-project' : SAMPLE[kind]) : '';
+      const shown = kind === 'chat' ? wordy(orig) : first ? (kind === 'paths' && !orig.includes('/') ? 'example-project' : kind === 'titles' ? tr('showcase.sampleTitle') : SAMPLE[kind]) : '';
       first = false;
       masked.set(t, { orig, shown });
       t.data = shown;

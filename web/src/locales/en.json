@@ -1,0 +1,816 @@
+{
+  "_meta": {
+    "name": "English",
+    "locale": "en-US"
+  },
+  "common": {
+    "appName": "pi-oven",
+    "newSession": "New session",
+    "openFolder": "Open folder",
+    "searchSessions": "Search sessions",
+    "noSessions": "No sessions yet. Open a folder to start your first task.",
+    "noMatch": "No matching sessions.",
+    "running": "Working",
+    "untitled": "Untitled session",
+    "composerPlaceholder": "Type a message  ( / commands )",
+    "composerPlaceholderRunning": "Working  Enter to steer, Alt+Enter to follow up",
+    "composerPlaceholderRunningShort": "Working  add an instruction",
+    "send": "Send",
+    "steer": "Steer",
+    "followUp": "Send as follow-up",
+    "sendNow": "Send now",
+    "sendNowHint": "Stops the current work and sends right away",
+    "stop": "Stop",
+    "thinking": "Thinking",
+    "copy": "Copy",
+    "copied": "Copied",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "jumpToLatest": "Jump to latest",
+    "connecting": "Connecting…",
+    "reconnecting": "Connection lost. Reconnecting…",
+    "exited": "The pi process has exited.",
+    "reopen": "Reopen",
+    "update": "Update",
+    "updateAvailable": "Update available",
+    "updateAsk": "Update pi?",
+    "updateAskBody": "This runs pi update on the server machine. Open sessions use the new version after a restart.",
+    "updating": "Updating",
+    "updateFailed": "Update failed",
+    "updateOutput": "Show output",
+    "updated": "Updated",
+    "updatedRestart": "Restart open sessions to apply it",
+    "updatedNew": "New sessions use it from now on",
+    "restartSessions": "Restart sessions",
+    "restart": "Reopen session",
+    "chooseFolder": "Choose a folder to work in",
+    "chooseFolderHelp": "pi reads files and runs commands in this folder.",
+    "startHere": "Start here",
+    "parentFolder": "Parent folder",
+    "showHidden": "Show hidden folders",
+    "noSubfolders": "No subfolders.",
+    "model": "Model",
+    "thinkingLevel": "Thinking level",
+    "context": "Context",
+    "cost": "Cost",
+    "tokens": "Tokens",
+    "queue": "Queued messages",
+    "extensions": "Extension status",
+    "compact": "Compact context",
+    "rename": "Rename",
+    "closeSession": "Close session",
+    "deleteSession": "Delete session",
+    "fork": "Branch from here",
+    "tokenTitle": "A token or password is needed",
+    "tokenHelp": "Enter the value after #token= in the address the server printed at start (the token), or the password set with --password.",
+    "tokenWrong": "That did not match. Check it and try again. Too many wrong tries lock you out for a while.",
+    "tokenLocked": "Too many tries. Try again in a little while.",
+    "tokenSubmit": "Connect",
+    "tokenBack": "Change server",
+    "retry": "Try again",
+    "serverUnreachable": "No server answered at that address, so nothing was changed. Check the address and port.",
+    "serverThisPage": "The server that opened this page",
+    "serverChange": "Connect",
+    "serverReset": "Go back to the server that opened this page",
+    "serverDown": "Cannot reach the server. Check that the pi-oven server is running.",
+    "emptyTitle": "Where do you want to work?",
+    "emptyBody": "Pick a folder and pi starts a new session there. You can also continue an earlier session from the list on the left.",
+    "theme": "Theme",
+    "inspector": "Info panel",
+    "retrying": "Retrying",
+    "compacting": "Compacting context…",
+    "aborted": "Stopped",
+    "confirm": "OK",
+    "cancel": "Cancel",
+    "submit": "Submit",
+    "slashCommands": "Commands",
+    "close": "Close",
+    "sessionList": "Session list",
+    "more": "More",
+    "refresh": "Refresh",
+    "loading": "Loading…"
+  },
+  "settings": {
+    "tab": {
+      "view": "Display",
+      "chat": "Chat",
+      "pins": "Pins",
+      "models": "Models",
+      "showcase": "Showcase",
+      "server": "Connection",
+      "about": "About"
+    },
+    "theme": {
+      "dark": "Dark",
+      "light": "Light",
+      "auto": "System"
+    },
+    "toolImg": {
+      "always": "Always show",
+      "expanded": "Show when expanded",
+      "title": "Images in tool results"
+    },
+    "font": {
+      "small": "Small",
+      "normal": "Normal",
+      "large": "Large",
+      "title": "Typeface",
+      "maple": "MapleStory",
+      "system": "System",
+      "size": "Text size"
+    },
+    "fx": {
+      "bounce": {
+        "name": "Bounce",
+        "hint": "Pops up gently from below."
+      },
+      "fade": {
+        "name": "Fade",
+        "hint": "Fades in from clear."
+      },
+      "ember": {
+        "name": "Ember",
+        "hint": "Appears glowing orange and cools to its own colour."
+      },
+      "none": {
+        "name": "None",
+        "hint": "Shows at once, no effect."
+      },
+      "title": "How answers appear",
+      "sample": "An answer being written appears like this."
+    },
+    "title": "Settings",
+    "tabsLabel": "Settings sections",
+    "language": "Language",
+    "languageHint": "Language files live in web/src/locales. See the README there to add a language.",
+    "thinkNotify": "Thinking and notifications",
+    "thinkingOpen": "Show thinking expanded while it is written",
+    "notify": "Notify me of finished work and questions when I am elsewhere",
+    "pins": {
+      "title": "Pin rules (regex)",
+      "note": "Besides the addresses and tokens the Pin tab finds on its own, add values you want found as regular expressions. With a group <code>( )</code> only the first group is pinned, otherwise the whole match. Found values are hidden like tokens (the eye icon shows them), and with Showcase \"Tokens, passwords, API keys\" on they are hidden in the chat too. Saved in this browser only.",
+      "remove": "Remove",
+      "removeLabel": "Remove {name}",
+      "name": "Name (e.g. company key)",
+      "nameLabel": "Rule name",
+      "pattern": "e.g. corp_[A-Za-z0-9]{20,}",
+      "regex": "Regular expression",
+      "add": "Add"
+    },
+    "models": {
+      "title": "Models",
+      "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs.",
+      "open": "Add and manage models…"
+    },
+    "showcase": {
+      "title": "Showcase mode",
+      "note": "Hides things that may be sensitive when you share your screen or take screenshots. Only what is shown changes; what is saved or copied stays the same.",
+      "on": "Turn on showcase mode",
+      "style": "How to hide",
+      "blur": "Blur",
+      "example": "Replace with sample text",
+      "parts": "What to hide"
+    },
+    "server": {
+      "title": "Server address",
+      "note": "Leave empty to use the server that opened this page. Set it only when opening from elsewhere, like the desktop app.",
+      "apply": "Apply"
+    }
+  },
+  "showcase": {
+    "paths": {
+      "label": "Project folder paths",
+      "hint": "Blurs folder names and paths (list, header, info panel) and turns paths in the chat and output into <project>."
+    },
+    "user": {
+      "label": "User name and home folder",
+      "hint": "Turns parts like /home/name or C:\\Users\\name into ~ or user."
+    },
+    "titles": {
+      "label": "Session titles and first messages",
+      "hint": "Blurs session titles in the list and header, and message previews in the tree."
+    },
+    "secrets": {
+      "label": "Tokens, passwords, API keys",
+      "hint": "Hides tokens and keys found in the chat and token= values in addresses, and the values in the Pin tab."
+    },
+    "hosts": {
+      "label": "Server addresses and IPs",
+      "hint": "Turns hosts into server and IPs into •.•.•.•, and blurs addresses in Settings and Models."
+    },
+    "files": {
+      "label": "File names",
+      "hint": "Blurs file names in the explorer, editor tabs and the Git and Diff lists."
+    },
+    "chat": {
+      "label": "Chat text",
+      "hint": "Blurs all message and answer text (the strongest setting)."
+    },
+    "sampleTitle": "Example session",
+    "sampleWords": "example sample text"
+  },
+  "about": {
+    "failed": "Could not load the details.",
+    "loading": "Loading…",
+    "newVersion": "{v} available",
+    "packages": "Packages",
+    "updatable": "Update available",
+    "noPackages": "No pi packages installed.",
+    "mcp": "MCP servers",
+    "tools": {
+      "one": "{n} tool",
+      "other": "{n} tools"
+    },
+    "prompts": {
+      "one": "{n} prompt",
+      "other": "{n} prompts"
+    },
+    "disabled": "off",
+    "projectOnly": "project config",
+    "mcpNote": "Tool counts are from the last time pi-mcp-adapter connected. Commands, addresses and keys are not shown.",
+    "noMcp": "No MCP servers configured."
+  },
+  "sidebar": {
+    "unselect": "Deselect",
+    "select": "Select",
+    "selectFolder": "Select all sessions in {folder}",
+    "selectAll": "Select all sessions",
+    "deletePicked": {
+      "one": "Delete {n} selected…",
+      "other": "Delete {n} selected…"
+    },
+    "endSelect": "Leave selection mode",
+    "open": "Open",
+    "newIn": "New session in {folder}",
+    "tree": "Show session tree",
+    "copyFolder": "Copy folder path",
+    "copyFile": "Copy session file path",
+    "selectToDelete": "Select several to delete…",
+    "unselectFolder": "Deselect {folder}",
+    "deleteInFolder": "Delete several sessions in this folder…",
+    "renameOpen": "It is open right now, so it cannot be changed",
+    "renameFailed": "Could not rename",
+    "packagesN": {
+      "one": "{n} package",
+      "other": "{n} packages"
+    },
+    "unfold": "Expand sidebar",
+    "openChats": "Open sessions",
+    "session": "Session",
+    "settings": "Settings",
+    "settingsShowcase": "Settings (showcase mode on)",
+    "fold": "Collapse sidebar",
+    "closeList": "Close list",
+    "sessions": "Sessions",
+    "sessionName": "Session name",
+    "lockedHint": "Close an open session before deleting it",
+    "opened": "Open",
+    "selbar": "Delete selected sessions",
+    "pickedN": {
+      "other": "{n} selected"
+    },
+    "selectAllShort": "Select all",
+    "delete": "Delete",
+    "endSelectEsc": "Leave selection mode (Esc)",
+    "showcaseOn": "Showcase mode is on. Click to open Settings.",
+    "showcase": "Showcase",
+    "language": "Language: {name}"
+  },
+  "header": {
+    "tree": "Session tree",
+    "changed": "Changed files"
+  },
+  "gate": {
+    "field": "Token or password"
+  },
+  "confirm": {
+    "more": {
+      "other": "and {n} more"
+    }
+  },
+  "app": {
+    "splitGrip": "Chat and editor width",
+    "drop": "Drop here to open in the editor",
+    "panelGrip": "Panel width"
+  },
+  "strip": {
+    "toChat": "Go to chat",
+    "working": "pi is working",
+    "view": "View chat"
+  },
+  "wait": {
+    "compacting": "Compacting context",
+    "retry": "Retrying ({n})",
+    "waiting": "Waiting"
+  },
+  "picker": {
+    "path": "Folder path"
+  },
+  "turn": {
+    "viewOutput": "View output",
+    "copyCommand": "Copy command",
+    "copySelection": "Copy selected text",
+    "copyLink": "Copy link address",
+    "openLink": "Open link in new tab",
+    "copyCode": "Copy code",
+    "copyMessage": "Copy message",
+    "unpin": "Unpin",
+    "pin": "Pin",
+    "toComposer": "Put in the message box",
+    "regenFrom": "Regenerate from this message",
+    "rewind": "Remove from here",
+    "copyAnswer": "Copy answer",
+    "regen": "Regenerate",
+    "copyOutput": "Copy output",
+    "rewindAsk": "Remove from here?",
+    "rewindBody": "You continue in a new session without this message and what came after. The original session stays as it was.",
+    "rewindConfirm": "Remove",
+    "task": {
+      "completed": "Done",
+      "killed": "Stopped",
+      "failed": "Failed",
+      "exitCode": " (exit code {n})"
+    },
+    "pinned": "Pinned",
+    "unpinned": "Unpinned",
+    "tokens": "{out} output tokens ({in} input)",
+    "msgActions": "Message actions",
+    "noRegenImages": "Messages with images cannot be regenerated",
+    "answerActions": "Answer actions"
+  },
+  "files": {
+    "noFolder": "The folder does not exist.",
+    "readFailed": "Could not read the folder.",
+    "noSlash": "Names cannot contain /",
+    "exists": "That name already exists",
+    "forbidden": "Cannot create it here",
+    "failed": "Could not do that",
+    "delDirAsk": "Delete the folder?",
+    "delFileAsk": "Delete the file?",
+    "delDirBody": "Everything in the folder is deleted for good. This cannot be undone.",
+    "delFileBody": "It is deleted for good. This cannot be undone.",
+    "delete": "Delete",
+    "delFailed": "Could not delete",
+    "openEditor": "Open in editor",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "newFileMenu": "New file…",
+    "newDirMenu": "New folder…",
+    "deleteMenu": "Delete…",
+    "copyPath": "Copy path",
+    "copyFullPath": "Copy full path",
+    "newFile": "New file",
+    "newDir": "New folder",
+    "tree": "Files",
+    "empty": "This folder is empty. Use + above to make a file.",
+    "blocked": "This link points outside the folder, so it cannot be opened",
+    "link": "Link",
+    "isOpen": "Open",
+    "truncated": "Too many entries; showing some of them.",
+    "newName": "New name",
+    "newDirName": "New folder name",
+    "newFileName": "New file name",
+    "dirName": "Folder name",
+    "fileName": "File name",
+    "hint": "Drag a file to the middle or click it to edit. Drag it to the message box to insert its path."
+  },
+  "git": {
+    "status": {
+      "M": "Modified",
+      "A": "Added",
+      "D": "Deleted",
+      "R": "Renamed",
+      "Q": "New",
+      "U": "Conflict"
+    },
+    "committed": "Committed ({hash})",
+    "notRepo": "This folder is not a Git repository.",
+    "clean": "No changed files.",
+    "selectAll": "Select all",
+    "stage": "Stage {path}",
+    "nothing": "Nothing to show.",
+    "truncated": "Too many files; showing some of them.",
+    "message": "Commit message",
+    "checkFirst": "Check the files to commit first",
+    "commitN": {
+      "one": "Commit {n} file",
+      "other": "Commit {n} files"
+    },
+    "commit": "Commit",
+    "ignored": "Ignored",
+    "recent": "Recent commits"
+  },
+  "diff": {
+    "summary": {
+      "one": "{n} file, {edits} edits",
+      "other": "{n} files, {edits} edits"
+    },
+    "empty": "Files pi changes show up here.",
+    "followHint": "Expands a file by itself when it is changed again",
+    "follow": "Follow",
+    "editing": "being edited…",
+    "nth": "#{n} {kind}",
+    "write": "write",
+    "edit": "edit",
+    "noDiff": "No diff was recorded.",
+    "rewritten": "The whole file was rewritten.",
+    "bashNote": "Files changed by <code class=\"mono\">bash</code> are not here. See the Git tab."
+  },
+  "point": {
+    "notFound": "Could not find this message in the chat",
+    "memo": "Note",
+    "pinnedTitle": "Pinned",
+    "pinnedNote": "Pin addresses, tokens or chat messages (the pin button under a message) you look at often and they stay here. Saved in this browser only.",
+    "me": "Me",
+    "inChat": "Show in chat",
+    "unpin": "Unpin",
+    "expand": "Expand",
+    "hide": "Hide",
+    "show": "Show",
+    "open": "Open",
+    "openAs": "Opens as {url}",
+    "name": "Name",
+    "valuePh": "Address or value",
+    "value": "Value",
+    "pin": "Pin",
+    "urls": "Addresses found in the chat",
+    "noUrls": "None yet. Addresses a server prints are picked up by themselves.",
+    "local": "An address on this PC, so it opens as {host}",
+    "seen": {
+      "one": "Seen once",
+      "other": "Seen {n} times"
+    },
+    "secrets": "Values that look like tokens",
+    "noSecrets": "Nothing found. Looks for values named like token, secret or key, and common key formats."
+  },
+  "tree": {
+    "start": "(start)",
+    "title": "Session tree",
+    "empty": "No conversation yet.",
+    "branches": {
+      "one": "There is {n} branch. The solid dots are the flow you are on.",
+      "other": "There are {n} branches. The solid dots are the flow you are on."
+    },
+    "linear": "A single line with no branches. Pick a message to start a new flow from there.",
+    "current": "current",
+    "tools": {
+      "one": "{n} tool call",
+      "other": "{n} tool calls"
+    },
+    "errors": {
+      "one": "{n} error",
+      "other": "{n} errors"
+    },
+    "rewrite": "Rewrite from this message",
+    "here": "Open a new session up to here",
+    "foot": "The original session stays as it is; the conversation up to the point you pick is copied to a new session file and opened."
+  },
+  "inspector": {
+    "tab": {
+      "info": "Info",
+      "files": "Files",
+      "diff": "Diff",
+      "git": "Git",
+      "point": "Pin"
+    },
+    "sections": "Panel sections",
+    "close": "Close info panel",
+    "afterCompact": "Not counted yet, right after compaction.",
+    "noModel": "No model information.",
+    "usage": "Usage",
+    "tokIn": "Input tokens",
+    "tokOut": "Output tokens",
+    "cacheRead": "Cache reads",
+    "reqRes": "Requests / replies",
+    "toolCalls": "Tool calls",
+    "session": "Session",
+    "unsaved": "Not saved yet."
+  },
+  "editor": {
+    "label": "File editor",
+    "changedOnDisk": "The file changed on disk. pi or another program may have edited it.",
+    "loadDisk": "Load from disk",
+    "overwrite": "Overwrite with mine",
+    "deleted": "This file was deleted on disk. Saving creates it again.",
+    "recreate": "Create again and save",
+    "closeTab": "Close tab",
+    "pos": "Ln {line}, Col {col}",
+    "wrapHint": "Wrap long lines",
+    "wrap": "Wrap",
+    "saving": "Saving…",
+    "save": "Save",
+    "saved": "Saved",
+    "ctxFile": "[File open in the editor: {path}]",
+    "cut": "…(rest omitted)",
+    "ctxSel": "[Selected in the editor: {label}]",
+    "unsavedTitle": "There are unsaved changes",
+    "unsavedBody": "Closing {name} loses your changes.",
+    "discard": "Discard and close",
+    "err": {
+      "e415": "Not a text (UTF-8) file, so it cannot be edited.",
+      "e413": "The file is too large to open (over 2 MB).",
+      "e404": "The file does not exist.",
+      "e403": "This file cannot be opened.",
+      "read": "Could not read the file."
+    },
+    "saveFailed": "Could not save{code}",
+    "reloaded": "{name}: loaded the changes from disk",
+    "merged": {
+      "one": "{name}: merged {n} changed line",
+      "other": "{name}: merged {n} changed lines"
+    },
+    "applied": {
+      "one": "{name}: applied {n} changed line",
+      "other": "{name}: applied {n} changed lines"
+    }
+  },
+  "bg": {
+    "status": {
+      "running": "Running",
+      "completed": "Done",
+      "failed": "Failed",
+      "killed": "Stopped"
+    },
+    "exitCode": "exit code {n}",
+    "title": "Background tasks",
+    "clearHint": "Clears the finished and failed entries you have seen",
+    "clear": "Clear finished",
+    "empty": "No background tasks were started in this session. When pi starts a long command with <code class=\"mono\">bg_run</code> it shows up here.",
+    "agent": "agent",
+    "noOutputYet": "No output yet…",
+    "noOutput": "No output.",
+    "tail": "Showing the end (of {total}B)"
+  },
+  "tool": {
+    "tasksN": {
+      "one": "{n} task",
+      "other": "{n} tasks"
+    },
+    "copyPath": "Copy path / summary",
+    "copyArgs": "Copy arguments (JSON)",
+    "copyDiff": "Copy changes (diff)",
+    "status": {
+      "running": "Running",
+      "error": "Failed",
+      "ok": "Done",
+      "pending": "Waiting"
+    },
+    "showImage": "Expand the tool result with an image",
+    "lines": {
+      "one": "{n} line",
+      "other": "{n} lines"
+    }
+  },
+  "tabs": {
+    "closeOthers": "Close other tabs",
+    "closeAll": "Close all",
+    "label": "Open views",
+    "chat": "Chat",
+    "newReply": "New reply",
+    "unsaved": "Not saved",
+    "closeName": "Close {name}",
+    "asTabs": "Show as tabs",
+    "sideBySide": "Show next to the chat"
+  },
+  "composer": {
+    "ctxAuto": "This goes with the message",
+    "ctxFile": "Tells pi about this file with the message",
+    "attach": "attach",
+    "detach": "Remove attachment",
+    "removeImage": "Remove image",
+    "attachMenu": "Attach",
+    "attachImage": "Attach image",
+    "message": "Message"
+  },
+  "todo": {
+    "completed": "Done",
+    "inProgress": "In progress",
+    "pending": "Waiting",
+    "title": "To-do",
+    "hide": "Hide to-do",
+    "hideHint": "Hidden until the list changes",
+    "after": "after {ids}",
+    "none": "Nothing to do",
+    "allDone": "All done",
+    "blocked": "Only blocked tasks left",
+    "next": "Next: {task}"
+  },
+  "meta": {
+    "perm": {
+      "auto": {
+        "label": "Auto",
+        "hint": "Runs tools without asking."
+      },
+      "manual": {
+        "label": "Manual",
+        "hint": "Asks before running commands or changing files."
+      }
+    },
+    "search": "Search models",
+    "none": "No matching models.",
+    "add": "Add model…"
+  },
+  "chips": {
+    "task": "task",
+    "dismiss": "Dismiss {name}",
+    "more": {
+      "one": "Show {n} more task",
+      "other": "Show {n} more tasks"
+    }
+  },
+  "transcript": {
+    "starting": "Starting pi",
+    "intro": "In this folder pi reads files, runs commands and edits code. Type your request below.",
+    "bgNote": "Background task notice",
+    "ext": "Extension",
+    "compacted": "Context compacted",
+    "branchSummary": "Branch summary"
+  },
+  "thinking": {
+    "hidden": "(hidden)",
+    "chars": {
+      "one": "{n} char",
+      "other": "{n} chars"
+    }
+  },
+  "md": {
+    "copyFailed": "Copy failed"
+  },
+  "models": {
+    "openaiCompat": "OpenAI compatible (chat/completions): most servers",
+    "loadFailed": "Could not read the settings.",
+    "emptyList": "The server sent an empty model list. Type the model ID yourself.",
+    "connectFailed": "Could not connect.",
+    "needProvider": "Enter a provider name and address.",
+    "needModel": "Enter a model ID. (Load from the server to pick one.)",
+    "saved": "Saved",
+    "saveFailed": "Could not save.",
+    "delModelAsk": "Remove the model?",
+    "delProviderAsk": "Remove the provider?",
+    "delModelBody": "Removes {id} of {provider} from models.json.",
+    "delProviderBody": {
+      "one": "Removes {provider} and its {n} model from models.json, with its saved key.",
+      "other": "Removes {provider} and its {n} models from models.json, with its saved key."
+    },
+    "remove": "Remove",
+    "removed": "Removed",
+    "removeFailed": "Could not remove.",
+    "title": "Add model",
+    "providers": "Your providers",
+    "editHint": "Add more models to this provider or change its address",
+    "noAddress": "(no address)",
+    "removeName": "Remove {name}",
+    "removeProvider": "Remove provider",
+    "noModels": "No models",
+    "keyHint": "Key: {hint}",
+    "addTo": "Add to {name}",
+    "newProvider": "New provider and model",
+    "providerName": "Provider name",
+    "providerPh": "e.g. My Server",
+    "api": "API type",
+    "endpoint": "Endpoint address",
+    "apiKey": "API key",
+    "keySaved": "Saved key {hint} (leave empty to keep)",
+    "keyNone": "No key (leave empty to keep)",
+    "keyLocal": "Any value for a local server (e.g. a)",
+    "keyNote": "A plain value is saved in models.json. Forms pi reads, like <code>$ENV_VAR</code> or <code>!command</code>, work too.",
+    "clearKey": "Remove the saved key",
+    "probe": "Load models from the server",
+    "found": "Models the server offers",
+    "modelId": "Model ID",
+    "modelIdPh": "The model name sent to the server",
+    "displayName": "Display name",
+    "optional": "(optional)",
+    "displayPh": "The name shown in lists",
+    "reasoning": "Reasoning (thinking) model",
+    "image": "Image input",
+    "ctxWin": "Context window",
+    "tokens": "(tokens)",
+    "maxOut": "Max output",
+    "added": "Added <b>{id}</b>.",
+    "visible": "You can pick it in the open session's model list now.",
+    "notVisible": "Open sessions do not show it yet. Reopen the session to see it in the list.",
+    "saving": "Saving…",
+    "addModel": "Add model",
+    "saveProvider": "Save provider"
+  },
+  "time": {
+    "now": "just now",
+    "min": {
+      "one": "{n} min ago",
+      "other": "{n} min ago"
+    },
+    "hour": {
+      "one": "{n} hour ago",
+      "other": "{n} hours ago"
+    },
+    "day": {
+      "one": "{n} day ago",
+      "other": "{n} days ago"
+    }
+  },
+  "speed": {
+    "secs": "{n}s"
+  },
+  "notify": {
+    "ask": "Your answer is needed",
+    "done": "The work is done"
+  },
+  "cm": {
+    "empty": "Empty file."
+  },
+  "scrub": {
+    "project": "<project>"
+  },
+  "rules": {
+    "max": "You can make up to {n} rules.",
+    "rule": "Rule",
+    "empty": "Enter a pattern.",
+    "long": "The pattern is too long (200 characters at most).",
+    "nested": "Patterns with a repeat inside a repeat cannot be used, e.g. (a+)+",
+    "matchesEmpty": "The pattern matches empty text.",
+    "invalid": "Not a valid regular expression."
+  },
+  "pins": {
+    "emptyMsg": "(empty message)"
+  },
+  "appmsg": {
+    "delOne": "Delete this session?",
+    "delMany": {
+      "one": "Delete {n} session?",
+      "other": "Delete {n} sessions?"
+    },
+    "delBody": "The session file is deleted. This cannot be undone.",
+    "del": "Delete",
+    "delN": {
+      "other": "Delete {n}"
+    },
+    "delFailedN": {
+      "other": "Could not delete {n}."
+    },
+    "delPartial": "{ok} deleted, {failed} failed",
+    "deleted": {
+      "one": "Deleted {n} session",
+      "other": "Deleted {n} sessions"
+    },
+    "copied": "Copied",
+    "copyFailed": "Could not copy",
+    "restartFailed": {
+      "one": "Could not restart {n} session",
+      "other": "Could not restart {n} sessions"
+    },
+    "restartBusy": {
+      "one": "Restarted. Restart the {n} working session when it is done",
+      "other": "Restarted. Restart the {n} working sessions when they are done"
+    },
+    "restarted": "Restarted the sessions",
+    "reopened": "Reopened the session",
+    "reopenFailed": "Could not reopen: {err}",
+    "unsavedTitle": "There are unsaved files",
+    "unsavedBody": "Closing the session loses the changes you were editing.",
+    "network": "Could not connect to the server."
+  },
+  "chatmsg": {
+    "noFork": "Cannot branch from this message.",
+    "exited": "The pi process exited{code}.",
+    "code": " (code {n})",
+    "compactFailed": "Compaction failed: {err}",
+    "retrying": "The request failed; retrying ({n}/{max}): {err}",
+    "retryFailed": "Retry failed: {err}"
+  },
+  "slash": {
+    "desc": {
+      "new": "Start a new session",
+      "name": "Name the session: /name title",
+      "compact": "Compact the context: /compact [instructions]",
+      "model": "Choose a model: /model name",
+      "thinking": "Thinking level: /thinking level",
+      "clone": "Duplicate this session",
+      "export": "Export the session as HTML",
+      "copy": "Copy the last answer",
+      "session": "Session info",
+      "reload": "Reload extensions and skills (restarts pi)",
+      "quit": "Close this session"
+    },
+    "noName": "No name.",
+    "models": "Models: {list}",
+    "levels": "Levels: {list}",
+    "saved": "Saved: {path}",
+    "stats": "{req} requests, {res} replies, {tools} tool calls, {tokens} tokens, cost ${cost}",
+    "noStats": "No information.",
+    "unsupported": {
+      "resume": "Pick a session from the list on the left.",
+      "fork": "Use \"Branch from here\" on a message.",
+      "tree": "The session tree command is not supported on the web yet.",
+      "settings": "Change these settings in pi in a terminal.",
+      "login": "Log in with pi in a terminal.",
+      "logout": "Log out with pi in a terminal.",
+      "trust": "Decide project trust with pi in a terminal (or the server option --pi-arg=--approve).",
+      "hotkeys": "Not applicable on the web.",
+      "share": "Not supported on the web. Use /export."
+    }
+  },
+  "ext": {
+    "allow": "Allow {tool} to run?"
+  }
+}

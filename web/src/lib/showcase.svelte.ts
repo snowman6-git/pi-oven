@@ -9,14 +9,14 @@ export type Style = 'blur' | 'example';
 
 export type Part = 'paths' | 'user' | 'titles' | 'files' | 'secrets' | 'hosts' | 'chat';
 
-export const PARTS: { id: Part; label: string; hint: string; on: boolean }[] = [
-  { id: 'paths', label: '프로젝트 폴더 경로', hint: '폴더 이름과 경로(사이드바, 헤더, 정보 패널)를 흐리게, 대화와 출력 속의 경로는 <프로젝트>로 바꿉니다.', on: true },
-  { id: 'user', label: '사용자 이름·홈 폴더', hint: '/home/이름, C:\\Users\\이름 같은 부분을 ~ 나 user 로 바꿉니다.', on: true },
-  { id: 'titles', label: '세션 제목·첫 메시지', hint: '목록의 세션 제목, 헤더 제목, 트리의 메시지 미리보기를 흐리게 합니다.', on: true },
-  { id: 'secrets', label: '토큰·비밀번호·API 키', hint: '대화 속에서 찾은 토큰과 키, 주소에 붙은 token= 값을 가립니다. Pin 탭의 값도 가립니다.', on: true },
-  { id: 'hosts', label: '서버 주소·IP', hint: '주소의 호스트는 server로, IP는 •.•.•.• 로 바꾸고 설정·모델 화면의 주소를 흐리게 합니다.', on: true },
-  { id: 'files', label: '파일 이름', hint: '탐색기, 편집기 탭, Git·Diff 목록의 파일 이름을 흐리게 합니다.', on: false },
-  { id: 'chat', label: '대화 본문', hint: '메시지와 답변 글 전체를 흐리게 합니다(가장 강한 설정).', on: false },
+export const PARTS: { id: Part; on: boolean }[] = [
+  { id: 'paths', on: true },
+  { id: 'user', on: true },
+  { id: 'titles', on: true },
+  { id: 'secrets', on: true },
+  { id: 'hosts', on: true },
+  { id: 'files', on: false },
+  { id: 'chat', on: false },
 ];
 
 const KEY = 'pi-oven.showcase';

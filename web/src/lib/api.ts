@@ -2,6 +2,7 @@ import type { BgTask, DirListing, RuntimeInfo, SessionSummary } from './protocol
 import type { Entry } from './tree';
 
 import { serverUrl } from './settings.svelte';
+import { currentLang } from './i18n';
 
 const TOKEN_KEY = 'pi-oven.token';
 
@@ -39,6 +40,7 @@ export const auth = {
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+  headers.set('X-Pi-Oven-Lang', currentLang()); // the server words its errors in the page's language
   if (init.body) headers.set('Content-Type', 'application/json');
   let res: Response;
   try {
@@ -55,6 +57,19 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+export interface About {
+  pi: string | null;
+  oven: string;
+  packages: { source: string; name: string; version?: string; description?: string }[];
+  mcp: { name: string; transport?: string; tools?: number; prompts?: number; configured: boolean; disabled: boolean }[];
+}
+
+/** What pi-updater offered at the last session start: pi `[current, latest]` and/or package names. */
+export interface UpdateOffer { pi?: [string, string]; extensions: string[] }
+export interface UpdateStatus { offer: UpdateOffer | null; running: boolean }
+export type UpdateTarget = 'pi' | 'extensions' | 'all';
+export interface UpdateResult { ok: boolean; code: number | null; output: string }
+
 export interface SessionTree { path: string; cwd: string; leafId: string | null; entries: Entry[]; labels: Record<string, string> }
 export interface Branched { path: string; id: string; cwd: string; entries: number; text: string | null }
 export interface GitFile { path: string; status: string; staged: boolean; unstaged: boolean; added: number | null; removed: number | null }
@@ -64,6 +79,7 @@ export interface GitOverview { repo: boolean; branch: string | null; root: strin
 async function callText(path: string): Promise<string> {
   const headers = new Headers();
   if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+  headers.set('X-Pi-Oven-Lang', currentLang()); // the server words its errors in the page's language
   let res: Response;
   try { res = await fetch(serverUrl.value + path, { headers }); } catch { throw new Error('network'); }
   if (res.status === 401) throw new AuthError();
@@ -136,9 +152,14 @@ export const api = {
   restartRuntime: (id: string, sessionPath?: string) =>
     call<RuntimeInfo>(`/api/runtimes/${id}/restart`, { method: 'POST', body: JSON.stringify({ sessionPath }) }),
   tasks: (id: string) => call<BgTask[]>(`/api/runtimes/${id}/tasks`),
+  about: () => call<About>('/api/about'),
+  updates: () => call<UpdateStatus>('/api/update'),
+  runUpdate: (target: UpdateTarget) =>
+    call<UpdateResult>('/api/update', { method: 'POST', body: JSON.stringify({ target }) }),
   async taskOutput(id: string, task: string, tail = 24 * 1024): Promise<{ text: string; total: number }> {
     const headers = new Headers();
     if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+    headers.set('X-Pi-Oven-Lang', currentLang());
     const res = await fetch(`${serverUrl.value}/api/runtimes/${id}/tasks/${task}/output?tail=${tail}`, { headers });
     if (res.status === 404) return { text: '', total: 0 };       // nothing written yet
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

@@ -1,6 +1,7 @@
 // The person's own rules for what the Pin tab should pick up (regular expressions), kept in this browser.
 
 import { compileRule, ruleProblem, type CompiledRule } from './points';
+import { t } from './i18n';
 
 export interface PinRule { id: string; name: string; pattern: string; on: boolean }
 
@@ -33,9 +34,9 @@ class PinRules {
 
   /** Returns why it was refused, or null once added. */
   add(name: string, pattern: string): string | null {
-    const problem = ruleProblem(pattern) ?? (this.list.length >= MAX ? `규칙은 ${MAX}개까지 만들 수 있습니다.` : null);
+    const problem = ruleProblem(pattern) ?? (this.list.length >= MAX ? t('rules.max', { n: MAX }) : null);
     if (problem) return problem;
-    this.list.push({ id: crypto.randomUUID(), name: name.trim().slice(0, 40) || '규칙', pattern, on: true });
+    this.list.push({ id: crypto.randomUUID(), name: name.trim().slice(0, 40) || t('rules.rule'), pattern, on: true });
     this.#save();
     return null;
   }

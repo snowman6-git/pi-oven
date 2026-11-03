@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t as tr } from '../lib/i18n.svelte';
   import { api } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import type { Chat } from '../lib/chat.svelte';
@@ -18,7 +20,7 @@
   let outBox = $state<HTMLElement>();
   let now = $state(Date.now());
 
-  const label = { running: '실행 중', completed: '완료', failed: '실패', killed: '중단됨' } as const;
+  const label = (s: BgTask['status']) => tr(`bg.status.${s}`);
   const finishedCount = $derived(chat.bg.failed + chat.bg.stopped + chat.bg.done);
 
   async function refresh() {
@@ -64,8 +66,8 @@
   const elapsed = (t: BgTask) => duration((t.endTime ?? now) - t.startTime);
   const title = (t: BgTask) => t.name || t.description || t.command.split('\n')[0];
   const detail = (t: BgTask) => {
-    const parts: string[] = [label[t.status]];
-    if (t.status !== 'running' && t.exitCode != null) parts.push(`종료 코드 ${t.exitCode}`);
+    const parts: string[] = [label(t.status)];
+    if (t.status !== 'running' && t.exitCode != null) parts.push(tr('bg.exitCode', { n: t.exitCode }));
     parts.push(elapsed(t));
     if (t.bytesWritten) parts.push(`${compactNumber(t.bytesWritten)}B`);
     return parts.join(', ');
@@ -79,28 +81,28 @@
 <dialog bind:this={dlg} onclose={() => ((chat.bgOpen = false), (chat.bgFocus = null))} aria-labelledby="bg-title">
   <div class="box">
     <header>
-      <h2 id="bg-title">백그라운드 작업</h2>
+      <h2 id="bg-title">{tr('bg.title')}</h2>
       <div class="actions">
         {#if finishedCount > 0}
-          <button class="btn quiet" type="button" onclick={clearSeen} title="확인한 완료·실패 표시를 지웁니다">완료 항목 지우기</button>
+          <button class="btn quiet" type="button" onclick={clearSeen} title={tr('bg.clearHint')}>{tr('bg.clear')}</button>
         {/if}
-        <button class="btn quiet" type="button" onclick={() => dlg.close()}>닫기</button>
+        <button class="btn quiet" type="button" onclick={() => dlg.close()}>{S.close}</button>
       </div>
     </header>
 
     {#if error}<p class="err" role="alert">{error}</p>{/if}
 
     {#if loaded && tasks.length === 0}
-      <p class="empty">이 세션에서 시작한 백그라운드 작업이 없습니다. pi가 오래 걸리는 명령을 <code class="mono">bg_run</code>으로 시작하면 여기에 나타납니다.</p>
+      <p class="empty">{@html tr('bg.empty')}</p>
     {/if}
 
     <ul>
       {#each tasks as t (t.id)}
         <li class:open={openId === t.id}>
           <button class="row" type="button" aria-expanded={openId === t.id} onclick={() => toggle(t)}>
-            <span class="dot {t.status}" role="img" aria-label={label[t.status]}></span>
+            <span class="dot {t.status}" role="img" aria-label={label(t.status)}></span>
             <span class="main">
-              <span class="name">{title(t)}{#if t.isAgent}<em>에이전트</em>{/if}</span>
+              <span class="name">{title(t)}{#if t.isAgent}<em>{tr('bg.agent')}</em>{/if}</span>
               <span class="cmd mono">{t.command.split('\n')[0]}</span>
               <span class="meta">{detail(t)}</span>
             </span>
@@ -110,11 +112,11 @@
           {#if openId === t.id}
             <div class="out">
               {#if t.error}<p class="err">{t.error}</p>{/if}
-              <pre class="mono" bind:this={outBox}>{out.text || (t.status === 'running' ? '아직 출력이 없습니다…' : '출력이 없습니다.')}</pre>
+              <pre class="mono" bind:this={outBox}>{out.text || (t.status === 'running' ? tr('bg.noOutputYet') : tr('bg.noOutput'))}</pre>
               <div class="foot">
-                {#if out.total > out.text.length}<small>끝부분만 표시 ({compactNumber(out.total)}B 중)</small>{/if}
+                {#if out.total > out.text.length}<small>{tr('bg.tail', { total: compactNumber(out.total) })}</small>{/if}
                 <span class="grow"></span>
-                <button class="btn" type="button" disabled={!out.text} onclick={() => app.copy(out.text)}>출력 복사</button>
+                <button class="btn" type="button" disabled={!out.text} onclick={() => app.copy(out.text)}>{tr('turn.copyOutput')}</button>
               </div>
             </div>
           {/if}

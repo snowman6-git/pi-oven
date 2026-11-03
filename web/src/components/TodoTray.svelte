@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t as tr } from '../lib/i18n.svelte';
   import { headline, summarize, unfinished, type Task } from '../addons/todo';
   import { beep } from '../lib/notify';
   import type { Chat } from '../lib/chat.svelte';
@@ -25,7 +26,7 @@
   const show = $derived(chat.todo !== null && s.total > 0 && hiddenAt !== key);
 
   const squares = $derived(s.total <= 12);
-  const label = (t: Task) => (t.status === 'completed' ? '완료' : t.status === 'in_progress' ? '진행 중' : '대기');
+  const label = (t: Task) => tr(t.status === 'completed' ? 'todo.completed' : t.status === 'in_progress' ? 'todo.inProgress' : 'todo.pending');
 
   // A task that has just finished pops its square, the way a background task's chip does.
   // When the last one finishes the whole tray boings once, with a ring in the finished colour, like a background task's chip.
@@ -67,7 +68,7 @@
 </script>
 
 {#if show}
-  <div class="todo" bind:this={tray} class:open class:done={s.allDone} role="region" aria-label="할 일">
+  <div class="todo" bind:this={tray} class:open class:done={s.allDone} role="region" aria-label={tr('todo.title')}>
     <div class="head">
       <button class="bar" type="button" aria-expanded={open} aria-controls="todo-list" onclick={toggle}>
         {#if squares}
@@ -77,11 +78,11 @@
         {:else}
           <span class="meter" aria-hidden="true"><i class="ok" style="width:{(s.done / s.total) * 100}%"></i><i class="now" style="width:{s.current?.status === 'in_progress' ? Math.max(3, 100 / s.total) : 0}%"></i></span>
         {/if}
-        {#if open}<b class="title">할 일</b>{:else}<span class="hl">{headline(s)}</span>{/if}
+        {#if open}<b class="title">{tr('todo.title')}</b>{:else}<span class="hl">{headline(s)}</span>{/if}
         <span class="n">{s.done} / {s.total}</span>
         <span class="chev" class:down={open}><Icon name="up" size={14} /></span>
       </button>
-      <button class="x" type="button" aria-label="할 일 숨기기" title="목록이 바뀔 때까지 숨깁니다" onclick={() => (hiddenAt = key)}><Icon name="x" size={14} /></button>
+      <button class="x" type="button" aria-label={tr('todo.hide')} title={tr('todo.hideHint')} onclick={() => (hiddenAt = key)}><Icon name="x" size={14} /></button>
     </div>
     {#if open}
       <ul id="todo-list" bind:this={list}>
@@ -92,8 +93,8 @@
               {#if t.status === 'completed'}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>{/if}
             </span>
             <span class="sj">{t.subject}</span>
-            {#if t.status === 'in_progress'}<span class="side now">{t.activeForm || '진행 중'}</span>
-            {:else if wait.length}<span class="side">{wait.map((id) => `#${id}`).join(' ')} 끝나면</span>{/if}
+            {#if t.status === 'in_progress'}<span class="side now">{t.activeForm || tr('todo.inProgress')}</span>
+            {:else if wait.length}<span class="side">{tr('todo.after', { ids: wait.map((id) => `#${id}`).join(' ') })}</span>{/if}
           </li>
         {/each}
       </ul>

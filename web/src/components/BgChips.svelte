@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t as tr } from '../lib/i18n.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import type { BgTask } from '../lib/protocol';
   import { runClock } from '../lib/util';
@@ -26,28 +27,28 @@
 {#if chat.bgChips.length}
   {@const chips = chat.bgChips}
   {@const rest = chips.slice(fit).filter((t) => !chat.bgLanding.includes(t.id))}
-  <div class="bgrow" role="group" aria-label="백그라운드 작업" bind:clientWidth={rowW}>
+  <div class="bgrow" role="group" aria-label={tr('bg.title')} bind:clientWidth={rowW}>
     {#each chips.slice(0, fit) as t (t.id)}
       <span class="bgchip" data-bg-chip={t.id} class:land={chat.bgLanding.includes(t.id)} class:fading={chat.bgFading.includes(t.id)} class:run={t.status === 'running'} class:bad={t.status === 'failed' || t.status === 'killed'}>
         <button class="main" type="button" onclick={() => { chat.bgFocus = t.id; chat.bgOpen = true; chat.dismissBg(t.id); }} aria-haspopup="dialog"
           title={t.command.split('\n')[0]}>
-          <span class="dot" role="img" aria-label={t.status === 'running' ? '실행 중' : t.status === 'completed' ? '완료' : t.status === 'killed' ? '중단됨' : '실패'}></span>
+          <span class="dot" role="img" aria-label={tr(`bg.status.${t.status}`)}></span>
           <span class="nm">{t.name || t.description || t.command.split('\n')[0]}</span>
           {#if t.status === 'running' && elapsed(t) >= 1000}
             <span class="st tm">{runClock(elapsed(t))}</span>
           {:else}
-            <span class="st">{t.status === 'running' ? '실행 중' : t.status === 'completed' ? '완료' : t.status === 'killed' ? '중단됨' : '실패'}</span>
+            <span class="st">{tr(`bg.status.${t.status}`)}</span>
           {/if}
         </button>
         {#if t.status !== 'running'}
-          <button class="x" type="button" aria-label="{t.name || '작업'} 알림 닫기" onclick={() => chat.dismissBg(t.id)}>×</button>
+          <button class="x" type="button" aria-label={tr('chips.dismiss', { name: t.name || tr('chips.task') })} onclick={() => chat.dismissBg(t.id)}>×</button>
         {/if}
       </span>
     {/each}
     <!-- What does not fit in the one row piles up in one small circle. It is there (hidden) before the first one is stacked, so a task has somewhere to land. -->
     {#if chips.length > fit}
       <button class="stack" data-bg-stack class:land={rest.length === 0} class:run={rest.some((t) => t.status === 'running')} class:bad={rest.some((t) => t.status === 'failed' || t.status === 'killed')}
-        type="button" aria-label="작업 {rest.length}개 더 보기" title="작업 {rest.length}개 더 보기" aria-haspopup="dialog" onclick={() => (chat.bgOpen = true)}>+{rest.length}</button>
+        type="button" aria-label={tr('chips.more', { n: rest.length })} title={tr('chips.more', { n: rest.length })} aria-haspopup="dialog" onclick={() => (chat.bgOpen = true)}>+{rest.length}</button>
     {/if}
   </div>
 {/if}

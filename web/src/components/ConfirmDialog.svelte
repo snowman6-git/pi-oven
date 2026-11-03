@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
+  import { S } from '../lib/strings';
   import { app } from '../lib/app.svelte';
 
   let dlg = $state<HTMLDialogElement>();
@@ -23,12 +25,12 @@
       {#if d.items?.length}
         <ul>
           {#each d.items.slice(0, MAX) as it}<li>{it}</li>{/each}
-          {#if d.items.length > MAX}<li class="more">외 {d.items.length - MAX}개</li>{/if}
+          {#if d.items.length > MAX}<li class="more">{t('confirm.more', { n: d.items.length - MAX })}</li>{/if}
         </ul>
       {/if}
       <div class="foot">
         <!-- svelte-ignore a11y_autofocus -->
-        <button class="btn" type="button" autofocus onclick={() => d.resolve(false)}>취소</button>
+        <button class="btn" type="button" autofocus onclick={() => d.resolve(false)}>{S.cancel}</button>
         <button class="btn" class:danger={d.danger} class:primary={!d.danger} type="button" onclick={() => d.resolve(true)}>{d.confirm}</button>
       </div>
     </div>

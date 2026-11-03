@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import { serverUrl } from '../lib/settings.svelte';
   import { S } from '../lib/strings';
@@ -29,7 +30,7 @@
     {#if app.bootError}<p class="faint mono err" data-priv="hosts">{app.bootError}</p>{/if}
     <button class="btn" type="button" onclick={() => app.boot()}>{S.retry}</button>
     <form onsubmit={(e) => { e.preventDefault(); apply(); }}>
-      <input class="field mono" data-priv="hosts" bind:value={addr} placeholder="http://localhost:4141" spellcheck="false" aria-label="서버 주소" />
+      <input class="field mono" data-priv="hosts" bind:value={addr} placeholder="http://localhost:4141" spellcheck="false" aria-label={t('settings.server.title')} />
       <button class="btn primary" type="submit">{S.serverChange}</button>
     </form>
     {#if serverUrl.value}

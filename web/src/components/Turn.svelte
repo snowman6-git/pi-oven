@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import WaitBubble from './WaitBubble.svelte';
   import type { Block, Chat, Item, ToolBlock } from '../lib/chat.svelte';
   import { app } from '../lib/app.svelte';
@@ -35,46 +36,46 @@
   });
 
   function turnItems(e: { target: EventTarget | null }): MenuItem[] {
-    const t = e.target instanceof Element ? e.target : null;
+    const el = e.target instanceof Element ? e.target : null;
     const out: MenuItem[] = [];
 
     const sel = getSelection();
     const picked = sel?.toString().trim() ?? '';
-    if (picked && t?.closest('article')?.contains(sel!.anchorNode)) out.push({ label: '선택한 텍스트 복사', icon: 'copy', run: () => app.copy(picked) });
+    if (picked && el?.closest('article')?.contains(sel!.anchorNode)) out.push({ label: t('turn.copySelection'), icon: 'copy', run: () => app.copy(picked) });
 
-    const link = t?.closest('a');
+    const link = el?.closest('a');
     if (link) {
-      out.push({ label: '링크 주소 복사', icon: 'link', run: () => app.copy(link.href) });
-      out.push({ label: '링크를 새 탭에서 열기', icon: 'external', run: () => window.open(link.href, '_blank', 'noopener') });
+      out.push({ label: t('turn.copyLink'), icon: 'link', run: () => app.copy(link.href) });
+      out.push({ label: t('turn.openLink'), icon: 'external', run: () => window.open(link.href, '_blank', 'noopener') });
     }
-    const code = t?.closest('.code')?.querySelector('code')?.textContent;
-    if (code) out.push({ label: '코드 복사', icon: 'code', run: () => app.copy(code) });
+    const code = el?.closest('.code')?.querySelector('code')?.textContent;
+    if (code) out.push({ label: t('turn.copyCode'), icon: 'code', run: () => app.copy(code) });
     if (out.length) out.push('sep');
 
     if (item.kind === 'user') {
-      out.push({ label: '메시지 복사', icon: 'copy', run: () => app.copy(item.kind === 'user' ? item.text : '') });
-      out.push({ label: pinned ? '핀에서 빼기' : '핀에 추가', icon: 'pin', run: togglePin });
-      out.push({ label: '입력창에 넣기', icon: 'reply', run: () => (chat.prefill = { text: item.kind === 'user' ? item.text : '', n: Date.now() }) });
+      out.push({ label: t('turn.copyMessage'), icon: 'copy', run: () => app.copy(item.kind === 'user' ? item.text : '') });
+      out.push({ label: pinned ? t('turn.unpin') : t('turn.pin'), icon: 'pin', run: togglePin });
+      out.push({ label: t('turn.toComposer'), icon: 'reply', run: () => (chat.prefill = { text: item.kind === 'user' ? item.text : '', n: Date.now() }) });
       if (userIndex >= 0) {
         out.push({ label: S.fork, icon: 'fork', disabled: chat.running, run: () => chat.fork(userIndex) });
-        out.push({ label: '이 메시지로 다시 생성', icon: 'refresh', disabled: chat.running || hasImages, run: () => void regenerate(userIndex) });
+        out.push({ label: t('turn.regenFrom'), icon: 'refresh', disabled: chat.running || hasImages, run: () => void regenerate(userIndex) });
         out.push('sep');
-        out.push({ label: '여기부터 지우기', icon: 'trash', danger: true, disabled: chat.running, run: () => void rewind(userIndex) });
+        out.push({ label: t('turn.rewind'), icon: 'trash', danger: true, disabled: chat.running, run: () => void rewind(userIndex) });
       }
     } else if (item.kind === 'assistant') {
       const text = item.blocks.flatMap((b) => (b?.type === 'text' ? [b.text] : [])).join('\n\n');
-      out.push({ label: '답변 복사', icon: 'copy', disabled: !text, run: () => app.copy(text) });
-      if (showBar) out.push({ label: pinned ? '핀에서 빼기' : '핀에 추가', icon: 'pin', disabled: !text, run: togglePin });
-      if (turn.user >= 0) out.push({ label: '다시 생성', icon: 'refresh', disabled: chat.running || item.live, run: () => void regenerate(turn.user) });
+      out.push({ label: t('turn.copyAnswer'), icon: 'copy', disabled: !text, run: () => app.copy(text) });
+      if (showBar) out.push({ label: pinned ? t('turn.unpin') : t('turn.pin'), icon: 'pin', disabled: !text, run: togglePin });
+      if (turn.user >= 0) out.push({ label: t('turn.regen'), icon: 'refresh', disabled: chat.running || item.live, run: () => void regenerate(turn.user) });
     } else if (item.kind === 'task') {
-      const t = item;
-      out.push({ label: '출력 보기', icon: 'terminal', run: () => { chat.bgFocus = t.id; chat.bgOpen = true; } });
-      out.push({ label: '명령 복사', icon: 'copy', disabled: !t.command, run: () => app.copy(t.command) });
+      const task = item;
+      out.push({ label: t('turn.viewOutput'), icon: 'terminal', run: () => { chat.bgFocus = task.id; chat.bgOpen = true; } });
+      out.push({ label: t('turn.copyCommand'), icon: 'copy', disabled: !task.command, run: () => app.copy(task.command) });
     } else if (item.kind === 'bash') {
-      out.push({ label: '명령 복사', icon: 'terminal', run: () => app.copy(item.kind === 'bash' ? item.command : '') });
-      out.push({ label: '출력 복사', icon: 'copy', disabled: !item.output, run: () => app.copy(item.kind === 'bash' ? item.output : '') });
+      out.push({ label: t('turn.copyCommand'), icon: 'terminal', run: () => app.copy(item.kind === 'bash' ? item.command : '') });
+      out.push({ label: t('turn.copyOutput'), icon: 'copy', disabled: !item.output, run: () => app.copy(item.kind === 'bash' ? item.output : '') });
     } else {
-      out.push({ label: '복사', icon: 'copy', run: () => app.copy(item.kind === 'summary' || item.kind === 'notice' ? item.text : '') });
+      out.push({ label: S.copy, icon: 'copy', run: () => app.copy(item.kind === 'summary' || item.kind === 'notice' ? item.text : '') });
     }
     return out;
   }
@@ -88,9 +89,9 @@
   /** Go back to before this message, and carry on from there in a new session; the old one stays. */
   async function rewind(idx: number) {
     const ok = await app.ask({
-      title: '여기부터 지울까요?',
-      body: '이 메시지와 이후의 대화를 뺀 새 세션으로 이어집니다. 원래 세션의 기록은 그대로 남아 있어요.',
-      confirm: '지우기',
+      title: t('turn.rewindAsk'),
+      body: t('turn.rewindBody'),
+      confirm: t('turn.rewindConfirm'),
       danger: true,
     });
     if (ok) await chat.fork(idx, 'rewind');
@@ -99,10 +100,10 @@
   const regenerate = (idx: number) => chat.fork(idx, 'regenerate');
 
   /** "완료 · 3.2s", "실패 (종료 코드 2) · 1.0s" */
-  function taskLine(t: Extract<Item, { kind: 'task' }>) {
-    const word = t.status === 'completed' ? '완료' : t.status === 'killed' ? '중단됨' : '실패';
-    const code = t.exitCode != null && t.exitCode !== 0 ? ` (종료 코드 ${t.exitCode})` : '';
-    return [word + code, t.durationMs != null ? duration(t.durationMs) : ''].filter(Boolean).join(' · ');
+  function taskLine(task: Extract<Item, { kind: 'task' }>) {
+    const word = t(task.status === 'completed' ? 'turn.task.completed' : task.status === 'killed' ? 'turn.task.killed' : 'turn.task.failed');
+    const code = task.exitCode != null && task.exitCode !== 0 ? t('turn.task.exitCode', { n: task.exitCode }) : '';
+    return [word + code, task.durationMs != null ? duration(task.durationMs) : ''].filter(Boolean).join(' · ');
   }
 
   /** Whether this block has its actions underneath (they take a row of their own, so nothing overlaps). */
@@ -118,7 +119,7 @@
   const pinned = $derived(!!mkey && chat.pins.hasMessage(mkey));
   function togglePin() {
     if (!pinText) return;
-    app.flash(chat.pins.toggleMessage(pinRole, pinText, item.ts) ? '핀에 추가했습니다' : '핀에서 뺐습니다');
+    app.flash(chat.pins.toggleMessage(pinRole, pinText, item.ts) ? t('turn.pinned') : t('turn.unpinned'));
   }
 
   // How fast the answer is coming, measured as it streams (an estimate is marked with a ~).
@@ -136,7 +137,7 @@
   <div class="margin">
     <time>{clock(item.ts)}</time>
     {#if item.kind === 'assistant' && item.usage && item.usage.output > 0}
-      <span class="tok" title="출력 토큰 {item.usage.output.toLocaleString()} (입력 {item.usage.input.toLocaleString()})">{compactNumber(item.usage.output)}</span>
+      <span class="tok" title={t('turn.tokens', { out: item.usage.output.toLocaleString(), in: item.usage.input.toLocaleString() })}>{compactNumber(item.usage.output)}</span>
     {/if}
   </div>
 
@@ -154,14 +155,14 @@
         {/if}
       </div>
       {#if userIndex >= 0}
-        <div class="acts" role="group" aria-label="메시지 동작">
+        <div class="acts" role="group" aria-label={t('turn.msgActions')}>
           <div class="bar">
-            <button type="button" title="메시지 복사" aria-label="메시지 복사" onclick={() => app.copy(userText)}><Icon name="copy" size={15} /></button>
-            <button type="button" title="입력창에 넣기" aria-label="입력창에 넣기" onclick={() => (chat.prefill = { text: userText, n: Date.now() })}><Icon name="reply" size={15} /></button>
+            <button type="button" title={t('turn.copyMessage')} aria-label={t('turn.copyMessage')} onclick={() => app.copy(userText)}><Icon name="copy" size={15} /></button>
+            <button type="button" title={t('turn.toComposer')} aria-label={t('turn.toComposer')} onclick={() => (chat.prefill = { text: userText, n: Date.now() })}><Icon name="reply" size={15} /></button>
             <button type="button" title={S.fork} aria-label={S.fork} disabled={chat.running} onclick={() => chat.fork(userIndex)}><Icon name="fork" size={15} /></button>
-            <button type="button" title={pinned ? '핀에서 빼기' : '핀에 추가'} aria-label={pinned ? '핀에서 빼기' : '핀에 추가'} aria-pressed={pinned} class="pin" onclick={togglePin}><Icon name="pin" size={15} /></button>
-            <button type="button" title={hasImages ? '이미지가 있는 메시지는 다시 생성할 수 없습니다' : '이 메시지로 다시 생성'} aria-label="이 메시지로 다시 생성" disabled={chat.running || hasImages} onclick={() => regenerate(userIndex)}><Icon name="refresh" size={15} /></button>
-            <button class="danger" type="button" title="여기부터 지우기" aria-label="여기부터 지우기" disabled={chat.running} onclick={() => rewind(userIndex)}><Icon name="trash" size={15} /></button>
+            <button type="button" title={pinned ? t('turn.unpin') : t('turn.pin')} aria-label={pinned ? t('turn.unpin') : t('turn.pin')} aria-pressed={pinned} class="pin" onclick={togglePin}><Icon name="pin" size={15} /></button>
+            <button type="button" title={hasImages ? t('turn.noRegenImages') : t('turn.regenFrom')} aria-label={t('turn.regenFrom')} disabled={chat.running || hasImages} onclick={() => regenerate(userIndex)}><Icon name="refresh" size={15} /></button>
+            <button class="danger" type="button" title={t('turn.rewind')} aria-label={t('turn.rewind')} disabled={chat.running} onclick={() => rewind(userIndex)}><Icon name="trash" size={15} /></button>
             {#if item.ts}<time class="when">{clock(item.ts)}</time>{/if}
           </div>
         </div>
@@ -183,11 +184,11 @@
       {#if item.error}<p class="err">{item.error}</p>{/if}
       {#if item.stop === 'aborted'}<p class="faint">{S.aborted}</p>{/if}
       {#if showBar}
-        <div class="acts" role="group" aria-label="답변 동작">
+        <div class="acts" role="group" aria-label={t('turn.answerActions')}>
           <div class="bar">
-            <button type="button" title="답변 복사" aria-label="답변 복사" disabled={!answerText} onclick={() => app.copy(answerText)}><Icon name="copy" size={15} /></button>
-            <button type="button" title="다시 생성" aria-label="다시 생성" disabled={chat.running} onclick={() => regenerate(turn.user)}><Icon name="refresh" size={15} /></button>
-            <button type="button" title={pinned ? '핀에서 빼기' : '핀에 추가'} aria-label={pinned ? '핀에서 빼기' : '핀에 추가'} aria-pressed={pinned} class="pin" disabled={!answerText} onclick={togglePin}><Icon name="pin" size={15} /></button>
+            <button type="button" title={t('turn.copyAnswer')} aria-label={t('turn.copyAnswer')} disabled={!answerText} onclick={() => app.copy(answerText)}><Icon name="copy" size={15} /></button>
+            <button type="button" title={t('turn.regen')} aria-label={t('turn.regen')} disabled={chat.running} onclick={() => regenerate(turn.user)}><Icon name="refresh" size={15} /></button>
+            <button type="button" title={pinned ? t('turn.unpin') : t('turn.pin')} aria-label={pinned ? t('turn.unpin') : t('turn.pin')} aria-pressed={pinned} class="pin" disabled={!answerText} onclick={togglePin}><Icon name="pin" size={15} /></button>
             {#if item.ts}<time class="when">{clock(item.ts)}{#if item.usage && item.usage.output > 0} · {compactNumber(item.usage.output)}{/if}{#if speedText(item.speed)} · {speedText(item.speed)}{/if}</time>{/if}
           </div>
         </div>
@@ -205,7 +206,7 @@
         <span class="tdot" aria-hidden="true"></span>
         <span class="tnm" data-priv="titles">{showcase.text(item.name)}</span>
         <span class="tres">{taskLine(item)}</span>
-        <button class="tout" type="button" onclick={() => { chat.bgFocus = item.id; chat.bgOpen = true; }}>출력 보기</button>
+        <button class="tout" type="button" onclick={() => { chat.bgFocus = item.id; chat.bgOpen = true; }}>{t('turn.viewOutput')}</button>
       </div>
     {:else if item.kind === 'summary'}
       <details class="sum">

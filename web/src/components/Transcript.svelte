@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { onMount } from 'svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { S } from '../lib/strings';
@@ -54,14 +55,14 @@
 <div class="scroller" bind:this={scroller} onscroll={() => (stick = atBottom())}>
   <div class="inner" bind:this={inner}>
     {#if !chat.loaded && !chat.loadError}
-      <div class="hint"><WaitBubble {chat} text={chat.link === 'open' ? 'pi를 시작하는 중' : S.connecting} /></div>
+      <div class="hint"><WaitBubble {chat} text={chat.link === 'open' ? t('transcript.starting') : S.connecting} /></div>
     {:else if chat.loadError}
       <p class="hint bad">{chat.loadError}</p>
     {:else if chat.items.length === 0}
       <section class="welcome">
         <h2 data-priv="paths">{baseName(chat.runtime.cwd)}</h2>
         <p class="path mono" data-priv="paths">{tildePath(chat.runtime.cwd, app.home)}</p>
-        <p>이 폴더에서 pi가 파일을 읽고, 명령을 실행하고, 코드를 고칩니다. 아래에 요청을 입력하세요.</p>
+        <p>{t('transcript.intro')}</p>
       </section>
     {/if}
 

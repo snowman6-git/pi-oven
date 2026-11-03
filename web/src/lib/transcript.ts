@@ -3,6 +3,7 @@
 import type { ImagePart, Usage, WireMessage } from './protocol';
 import type { Speed } from './speed';
 import { textOf } from './util.ts';
+import { t } from './i18n';
 
 export interface ToolBlock {
   type: 'tool';
@@ -31,8 +32,7 @@ export type Item =
 const SKILL_BLOCK = /<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g;
 
 // Extensions name their injected messages for machines; show something a person can read.
-const CUSTOM_LABELS: Record<string, string> = { 'background-task-notification': '백그라운드 작업 알림' };
-export const customLabel = (t?: string) => (t && CUSTOM_LABELS[t]) || t || '확장';
+export const customLabel = (type?: string) => (type === 'background-task-notification' ? t('transcript.bgNote') : type || t('transcript.ext'));
 
 let keySeq = 0;
 export const nextKey = () => ++keySeq;
@@ -91,10 +91,10 @@ export function itemsFromMessages(msgs: WireMessage[]): Item[] {
         });
         break;
       case 'compactionSummary':
-        items.push({ kind: 'summary', key: nextKey(), label: '컨텍스트 압축됨', text: m.summary ?? '', ts: m.timestamp });
+        items.push({ kind: 'summary', key: nextKey(), label: t('transcript.compacted'), text: m.summary ?? '', ts: m.timestamp });
         break;
       case 'branchSummary':
-        items.push({ kind: 'summary', key: nextKey(), label: '분기 요약', text: m.summary ?? '', ts: m.timestamp });
+        items.push({ kind: 'summary', key: nextKey(), label: t('transcript.branchSummary'), text: m.summary ?? '', ts: m.timestamp });
         break;
       case 'custom': {
         const t = taskItem(m);

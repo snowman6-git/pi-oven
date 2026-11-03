@@ -16,60 +16,60 @@ const EXT: Record<string, Kind> = {
   ts: by('braces', 'blue', 'TypeScript'), tsx: by('braces', 'blue', 'TypeScript JSX'), mts: by('braces', 'blue', 'TypeScript'), cts: by('braces', 'blue', 'TypeScript'),
   js: by('braces', 'amber', 'JavaScript'), jsx: by('braces', 'amber', 'JavaScript JSX'), mjs: by('braces', 'amber', 'JavaScript'), cjs: by('braces', 'amber', 'JavaScript'),
   rs: by('code', 'orange', 'Rust'), py: by('code', 'blue', 'Python'), go: by('code', 'teal', 'Go'), java: by('code', 'red', 'Java'), kt: by('code', 'violet', 'Kotlin'),
-  c: by('code', 'blue', 'C'), h: by('code', 'violet', 'C 헤더'), cpp: by('code', 'blue', 'C++'), cc: by('code', 'blue', 'C++'), hpp: by('code', 'violet', 'C++ 헤더'),
+  c: by('code', 'blue', 'C'), h: by('code', 'violet', 'C header'), cpp: by('code', 'blue', 'C++'), cc: by('code', 'blue', 'C++'), hpp: by('code', 'violet', 'C++ header'),
   cs: by('code', 'green', 'C#'), rb: by('code', 'red', 'Ruby'), php: by('code', 'violet', 'PHP'), lua: by('code', 'blue', 'Lua'), swift: by('code', 'orange', 'Swift'),
-  sh: by('terminal', 'green', '셸 스크립트'), bash: by('terminal', 'green', '셸 스크립트'), zsh: by('terminal', 'green', '셸 스크립트'), fish: by('terminal', 'green', '셸 스크립트'), ps1: by('terminal', 'blue', 'PowerShell'), bat: by('terminal', 'green', '배치 파일'),
+  sh: by('terminal', 'green', 'Shell script'), bash: by('terminal', 'green', 'Shell script'), zsh: by('terminal', 'green', 'Shell script'), fish: by('terminal', 'green', 'Shell script'), ps1: by('terminal', 'blue', 'PowerShell'), bat: by('terminal', 'green', 'Batch file'),
   // markup and style
   html: by('tag', 'orange', 'HTML'), htm: by('tag', 'orange', 'HTML'), xml: by('tag', 'orange', 'XML'), svelte: by('tag', 'orange', 'Svelte'), vue: by('tag', 'green', 'Vue'),
   css: by('hash', 'violet', 'CSS'), scss: by('hash', 'violet', 'SCSS'), less: by('hash', 'violet', 'Less'),
   // data and configuration
   json: by('braces', 'ink', 'JSON'), jsonc: by('braces', 'ink', 'JSON'), json5: by('braces', 'ink', 'JSON'),
-  yml: by('gear', 'amber', 'YAML'), yaml: by('gear', 'amber', 'YAML'), toml: by('gear', 'amber', 'TOML'), ini: by('gear', 'amber', '설정'), conf: by('gear', 'amber', '설정'), env: by('gear', 'amber', '환경 변수'), cfg: by('gear', 'amber', '설정'),
-  sql: by('database', 'teal', 'SQL'), db: by('database', 'teal', '데이터베이스'), sqlite: by('database', 'teal', 'SQLite'), csv: by('database', 'green', 'CSV'), tsv: by('database', 'green', 'TSV'),
+  yml: by('gear', 'amber', 'YAML'), yaml: by('gear', 'amber', 'YAML'), toml: by('gear', 'amber', 'TOML'), ini: by('gear', 'amber', 'Config'), conf: by('gear', 'amber', 'Config'), env: by('gear', 'amber', 'Environment'), cfg: by('gear', 'amber', 'Config'),
+  sql: by('database', 'teal', 'SQL'), db: by('database', 'teal', 'Database'), sqlite: by('database', 'teal', 'SQLite'), csv: by('database', 'green', 'CSV'), tsv: by('database', 'green', 'TSV'),
   // documents
-  md: by('lines', 'ink', 'Markdown'), markdown: by('lines', 'ink', 'Markdown'), txt: by('lines', 'ink', '텍스트'), rst: by('lines', 'ink', 'reStructuredText'), log: by('lines', 'ink', '로그'), pdf: by('lines', 'red', 'PDF'),
+  md: by('lines', 'ink', 'Markdown'), markdown: by('lines', 'ink', 'Markdown'), txt: by('lines', 'ink', 'Text'), rst: by('lines', 'ink', 'reStructuredText'), log: by('lines', 'ink', 'Log'), pdf: by('lines', 'red', 'PDF'),
   // pictures, sound, fonts
-  png: by('image', 'teal', '이미지'), jpg: by('image', 'teal', '이미지'), jpeg: by('image', 'teal', '이미지'), gif: by('image', 'teal', '이미지'), webp: by('image', 'teal', '이미지'),
-  svg: by('image', 'orange', 'SVG'), ico: by('image', 'teal', '아이콘'), bmp: by('image', 'teal', '이미지'), avif: by('image', 'teal', '이미지'),
-  mp3: by('media', 'violet', '오디오'), wav: by('media', 'violet', '오디오'), flac: by('media', 'violet', '오디오'), ogg: by('media', 'violet', '오디오'),
-  mp4: by('media', 'violet', '비디오'), mkv: by('media', 'violet', '비디오'), mov: by('media', 'violet', '비디오'), webm: by('media', 'violet', '비디오'),
-  ttf: by('font', 'ink', '글꼴'), otf: by('font', 'ink', '글꼴'), woff: by('font', 'ink', '글꼴'), woff2: by('font', 'ink', '글꼴'),
+  png: by('image', 'teal', 'Image'), jpg: by('image', 'teal', 'Image'), jpeg: by('image', 'teal', 'Image'), gif: by('image', 'teal', 'Image'), webp: by('image', 'teal', 'Image'),
+  svg: by('image', 'orange', 'SVG'), ico: by('image', 'teal', 'Icon'), bmp: by('image', 'teal', 'Image'), avif: by('image', 'teal', 'Image'),
+  mp3: by('media', 'violet', 'Audio'), wav: by('media', 'violet', 'Audio'), flac: by('media', 'violet', 'Audio'), ogg: by('media', 'violet', 'Audio'),
+  mp4: by('media', 'violet', 'Video'), mkv: by('media', 'violet', 'Video'), mov: by('media', 'violet', 'Video'), webm: by('media', 'violet', 'Video'),
+  ttf: by('font', 'ink', 'Font'), otf: by('font', 'ink', 'Font'), woff: by('font', 'ink', 'Font'), woff2: by('font', 'ink', 'Font'),
   // packed and compiled
-  zip: by('archive', 'amber', '압축 파일'), tar: by('archive', 'amber', '압축 파일'), gz: by('archive', 'amber', '압축 파일'), tgz: by('archive', 'amber', '압축 파일'), xz: by('archive', 'amber', '압축 파일'), '7z': by('archive', 'amber', '압축 파일'), rar: by('archive', 'amber', '압축 파일'),
-  bin: by('binary', 'ink', '바이너리'), exe: by('binary', 'ink', '실행 파일'), dll: by('binary', 'ink', '라이브러리'), so: by('binary', 'ink', '라이브러리'), dylib: by('binary', 'ink', '라이브러리'),
-  wasm: by('binary', 'violet', 'WebAssembly'), o: by('binary', 'ink', '오브젝트'), a: by('binary', 'ink', '라이브러리'), class: by('binary', 'red', 'Java 클래스'), pyc: by('binary', 'ink', '컴파일된 Python'),
-  lock: by('lock', 'ink', '잠금 파일'),
+  zip: by('archive', 'amber', 'Archive'), tar: by('archive', 'amber', 'Archive'), gz: by('archive', 'amber', 'Archive'), tgz: by('archive', 'amber', 'Archive'), xz: by('archive', 'amber', 'Archive'), '7z': by('archive', 'amber', 'Archive'), rar: by('archive', 'amber', 'Archive'),
+  bin: by('binary', 'ink', 'Binary'), exe: by('binary', 'ink', 'Executable'), dll: by('binary', 'ink', 'Library'), so: by('binary', 'ink', 'Library'), dylib: by('binary', 'ink', 'Library'),
+  wasm: by('binary', 'violet', 'WebAssembly'), o: by('binary', 'ink', 'Object'), a: by('binary', 'ink', 'Library'), class: by('binary', 'red', 'Java class'), pyc: by('binary', 'ink', 'Compiled Python'),
+  lock: by('lock', 'ink', 'Lock file'),
 };
 
 /** Whole names that mean something whatever their extension. */
 const NAMES: Record<string, Kind> = {
-  'package.json': by('package', 'green', 'npm 패키지'),
-  'cargo.toml': by('package', 'orange', 'Cargo 패키지'),
-  'pyproject.toml': by('package', 'blue', 'Python 프로젝트'),
-  'go.mod': by('package', 'teal', 'Go 모듈'),
-  'package-lock.json': by('lock', 'ink', '잠금 파일'),
-  'cargo.lock': by('lock', 'ink', '잠금 파일'),
-  'bun.lock': by('lock', 'ink', '잠금 파일'),
-  'yarn.lock': by('lock', 'ink', '잠금 파일'),
-  'pnpm-lock.yaml': by('lock', 'ink', '잠금 파일'),
+  'package.json': by('package', 'green', 'npm package'),
+  'cargo.toml': by('package', 'orange', 'Cargo package'),
+  'pyproject.toml': by('package', 'blue', 'Python project'),
+  'go.mod': by('package', 'teal', 'Go module'),
+  'package-lock.json': by('lock', 'ink', 'Lock file'),
+  'cargo.lock': by('lock', 'ink', 'Lock file'),
+  'bun.lock': by('lock', 'ink', 'Lock file'),
+  'yarn.lock': by('lock', 'ink', 'Lock file'),
+  'pnpm-lock.yaml': by('lock', 'ink', 'Lock file'),
   '.gitignore': by('branch', 'ink', 'Git'),
   '.gitattributes': by('branch', 'ink', 'Git'),
   '.gitmodules': by('branch', 'ink', 'Git'),
   'dockerfile': by('package', 'blue', 'Docker'),
   'makefile': by('terminal', 'ink', 'Makefile'),
-  'license': by('lines', 'ink', '라이선스'),
-  'readme': by('lines', 'ink', '안내'),
-  'agents.md': by('lines', 'orange', '에이전트 지침'),
-  'claude.md': by('lines', 'orange', '에이전트 지침'),
+  'license': by('lines', 'ink', 'License'),
+  'readme': by('lines', 'ink', 'Readme'),
+  'agents.md': by('lines', 'orange', 'Agent instructions'),
+  'claude.md': by('lines', 'orange', 'Agent instructions'),
 };
 
 export function kindOf(name: string): Kind {
   const lower = name.toLowerCase();
   if (NAMES[lower]) return NAMES[lower];
   if (lower.startsWith('.env')) return EXT.env;
-  if (/\.(test|spec)\.[a-z0-9]+$/.test(lower)) return by('test', 'green', '테스트');
+  if (/\.(test|spec)\.[a-z0-9]+$/.test(lower)) return by('test', 'green', 'Test');
   const dot = lower.lastIndexOf('.');
   if (dot > 0 && EXT[lower.slice(dot + 1)]) return EXT[lower.slice(dot + 1)];
   if (dot === 0 && EXT[lower.slice(1)]) return EXT[lower.slice(1)]; // ".env", ".lock" and the like
-  return by('file', 'ink', '파일');
+  return by('file', 'ink', 'File');
 }

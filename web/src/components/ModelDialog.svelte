@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { S } from '../lib/strings';
+  import { t } from '../lib/i18n.svelte';
   import { api, HttpError, type ModelProvider, type ModelsConfig } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import type { Chat } from '../lib/chat.svelte';
@@ -9,11 +11,12 @@
   let { chat }: { chat: Chat } = $props();
 
   let dlg: HTMLDialogElement;
+  const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   let cfg = $state<ModelsConfig | null>(null);
   let loadError = $state<string | null>(null);
 
   const APIS: Record<string, string> = {
-    'openai-completions': 'OpenAI 호환 (chat/completions): 대부분의 서버',
+    'openai-completions': '',
     'openai-responses': 'OpenAI Responses',
     'anthropic-messages': 'Anthropic Messages',
     'google-generative-ai': 'Google Generative AI',
@@ -47,7 +50,7 @@
       cfg = await api.modelsConfig();
       loadError = null;
     } catch (e) {
-      loadError = e instanceof HttpError && e.status === 422 ? e.message : '설정을 읽지 못했습니다.';
+      loadError = e instanceof HttpError && e.status === 422 ? e.message : t('models.loadFailed');
     }
   }
 
@@ -74,9 +77,9 @@
     probing = true;
     try {
       found = (await api.probeModels({ baseUrl, apiKey: key || undefined, provider: existing?.name })).ids;
-      if (!found.length) probeError = '서버가 모델 목록을 비워서 보냈습니다. 모델 ID를 직접 입력하세요.';
+      if (!found.length) probeError = t('models.emptyList');
     } catch (e) {
-      probeError = e instanceof Error ? e.message : '연결하지 못했습니다.';
+      probeError = e instanceof Error ? e.message : t('models.connectFailed');
     } finally {
       probing = false;
     }
@@ -87,11 +90,11 @@
   async function save() {
     error = null;
     if (!provider.trim() || !baseUrl.trim()) {
-      error = '제공자 이름과 주소를 적어 주세요.';
+      error = t('models.needProvider');
       return;
     }
     if (!modelId.trim() && !existing) {
-      error = '모델 ID를 적어 주세요. (서버에서 불러오기를 누르면 고를 수 있어요)';
+      error = t('models.needModel');
       return;
     }
     saving = true;
@@ -113,9 +116,9 @@
         modelId = modelName = ctxWin = maxTok = '';
         reasoning = image = false;
         found = null;
-      } else app.flash('저장했습니다');
+      } else app.flash(t('models.saved'));
     } catch (e) {
-      error = e instanceof Error ? e.message : '저장하지 못했습니다.';
+      error = e instanceof Error ? e.message : t('models.saveFailed');
     } finally {
       saving = false;
     }
@@ -128,9 +131,9 @@
 
   async function remove(p: ModelProvider, id?: string) {
     const ok = await app.ask({
-      title: id ? '모델을 지울까요?' : '제공자를 지울까요?',
-      body: id ? `${p.name}의 ${id}을(를) models.json에서 지웁니다.` : `${p.name}과(와) 그 모델 ${p.models.length}개를 models.json에서 지웁니다. 저장된 키도 함께 지워집니다.`,
-      confirm: '지우기',
+      title: id ? t('models.delModelAsk') : t('models.delProviderAsk'),
+      body: id ? t('models.delModelBody', { provider: p.name, id }) : t('models.delProviderBody', { provider: p.name, n: p.models.length }),
+      confirm: t('models.remove'),
       danger: true,
     });
     if (!ok) return;
@@ -138,9 +141,9 @@
       await api.removeModel(p.name, id);
       await load();
       await chat.reloadModels();
-      app.flash('지웠습니다');
+      app.flash(t('models.removed'));
     } catch {
-      error = '지우지 못했습니다.';
+      error = t('models.removeFailed');
     }
   }
 
@@ -153,32 +156,32 @@
 <dialog bind:this={dlg} onclose={() => (app.modelDialog = false)} aria-labelledby="md-title">
   <div class="box">
     <header>
-      <h2 id="md-title">모델 추가</h2>
-      <button class="btn quiet" type="button" onclick={() => dlg.close()}>닫기</button>
+      <h2 id="md-title">{t('models.title')}</h2>
+      <button class="btn quiet" type="button" onclick={() => dlg.close()}>{S.close}</button>
     </header>
 
     {#if loadError}<p class="err" role="alert">{loadError}</p>{/if}
 
     {#if cfg && cfg.providers.length}
       <section class="have">
-        <h3>추가해 둔 제공자</h3>
+        <h3>{t('models.providers')}</h3>
         <ul>
           {#each cfg.providers as p (p.name)}
             <li class:on={p.name === provider.trim()}>
               <div class="top">
-                <button class="pick" type="button" onclick={() => edit(p)} title="이 제공자에 모델을 더 추가하거나 주소를 고칩니다">
+                <button class="pick" type="button" onclick={() => edit(p)} title={t('models.editHint')}>
                   <b>{p.name}</b>
-                  <span class="mono" data-priv="hosts">{p.baseUrl ?? '(주소 없음)'}</span>
+                  <span class="mono" data-priv="hosts">{p.baseUrl ?? t('models.noAddress')}</span>
                 </button>
-                <button class="icon-btn sm" type="button" aria-label="{p.name} 지우기" title="제공자 지우기" onclick={() => remove(p)}><Icon name="trash" size={15} /></button>
+                <button class="icon-btn sm" type="button" aria-label={t('models.removeName', { name: p.name })} title={t('models.removeProvider')} onclick={() => remove(p)}><Icon name="trash" size={15} /></button>
               </div>
               <div class="models">
                 {#each p.models as m (m.id)}
-                  <span class="mchip">{m.name || m.id}<button type="button" aria-label="{m.id} 지우기" onclick={() => remove(p, m.id)}>×</button></span>
+                  <span class="mchip">{m.name || m.id}<button type="button" aria-label={t('models.removeName', { name: m.id })} onclick={() => remove(p, m.id)}>×</button></span>
                 {:else}
-                  <small>모델 없음</small>
+                  <small>{t('models.noModels')}</small>
                 {/each}
-                {#if p.key.kind !== 'none'}<small class="khint" data-priv="secrets">키: {p.key.hint}</small>{/if}
+                {#if p.key.kind !== 'none'}<small class="khint" data-priv="secrets">{t('models.keyHint', { hint: p.key.hint ?? '' })}</small>{/if}
               </div>
             </li>
           {/each}
@@ -187,70 +190,70 @@
     {/if}
 
     <form onsubmit={(e) => { e.preventDefault(); void save(); }}>
-      <h3>{existing ? `${existing.name}에 추가` : '새 제공자와 모델'}</h3>
+      <h3>{existing ? t('models.addTo', { name: existing.name }) : t('models.newProvider')}</h3>
 
-      <label>제공자 이름
-        <input class="field" bind:value={provider} placeholder="예: My Server" list="md-providers" autocomplete="off" spellcheck="false" />
+      <label>{t('models.providerName')}
+        <input class="field" bind:value={provider} placeholder={t('models.providerPh')} list="md-providers" autocomplete="off" spellcheck="false" />
         <datalist id="md-providers">{#each cfg?.providers ?? [] as p (p.name)}<option value={p.name}></option>{/each}</datalist>
       </label>
 
-      <label>API 방식
+      <label>{t('models.api')}
         <select class="field" bind:value={apiKind}>
-          {#each cfg?.apis ?? Object.keys(APIS) as a (a)}<option value={a}>{APIS[a] ?? a}</option>{/each}
+          {#each cfg?.apis ?? Object.keys(APIS) as a (a)}<option value={a}>{a === 'openai-completions' ? t('models.openaiCompat') : (APIS[a] ?? a)}</option>{/each}
         </select>
       </label>
 
-      <label>엔드포인트 주소
+      <label>{t('models.endpoint')}
         <input class="field mono" data-priv="hosts" bind:value={baseUrl} placeholder="http://localhost:8000/v1" autocomplete="off" spellcheck="false" />
       </label>
 
-      <label>API 키
+      <label>{t('models.apiKey')}
         <input class="field mono" data-priv="secrets" type="password" bind:value={key} autocomplete="new-password"
-          placeholder={existing ? (keyHint ? `저장된 키 ${keyHint} (비워 두면 그대로)` : '키 없음 (비워 두면 그대로)') : '로컬 서버라면 아무 값이나 (예: a)'} />
-        <small>그대로 적으면 models.json에 저장됩니다. <code>$환경변수이름</code>이나 <code>!명령</code>처럼 pi가 읽는 형식도 됩니다.</small>
-        {#if existing && keyHint}<span class="inline"><input type="checkbox" bind:checked={clearKey} id="md-clear" /><label for="md-clear" class="plain">저장된 키 지우기</label></span>{/if}
+          placeholder={existing ? (keyHint ? t('models.keySaved', { hint: keyHint }) : t('models.keyNone')) : t('models.keyLocal')} />
+        <small>{@html t('models.keyNote')}</small>
+        {#if existing && keyHint}<span class="inline"><input type="checkbox" bind:checked={clearKey} id="md-clear" /><label for="md-clear" class="plain">{t('models.clearKey')}</label></span>{/if}
       </label>
 
       <div class="probe">
-        <button class="btn" type="button" disabled={probing || !baseUrl.trim()} onclick={probe}>{probing ? '불러오는 중…' : '서버에서 모델 불러오기'}</button>
+        <button class="btn" type="button" disabled={probing || !baseUrl.trim()} onclick={probe}>{probing ? S.loading : t('models.probe')}</button>
         {#if probeError}<small class="err" role="alert">{probeError}</small>{/if}
       </div>
       {#if found?.length}
-        <div class="found" role="group" aria-label="서버가 제공하는 모델">
+        <div class="found" role="group" aria-label={t('models.found')}>
           {#each found as id (id)}
             <button type="button" class="fchip" class:on={id === modelId} onclick={() => { modelId = id; if (!modelName) modelName = ''; }}>{id}</button>
           {/each}
         </div>
       {/if}
 
-      <label>모델 ID
-        <input class="field mono" bind:value={modelId} placeholder="서버에 보내는 모델 이름" autocomplete="off" spellcheck="false" />
+      <label>{t('models.modelId')}
+        <input class="field mono" bind:value={modelId} placeholder={t('models.modelIdPh')} autocomplete="off" spellcheck="false" />
       </label>
-      <label><span>표시 이름 <small>(선택)</small></span>
-        <input class="field" bind:value={modelName} placeholder="목록에 보일 이름" autocomplete="off" />
+      <label><span>{t('models.displayName')} <small>{t('models.optional')}</small></span>
+        <input class="field" bind:value={modelName} placeholder={t('models.displayPh')} autocomplete="off" />
       </label>
 
       <div class="checks">
-        <label class="inline"><input type="checkbox" bind:checked={reasoning} /> 추론(thinking) 모델</label>
-        <label class="inline"><input type="checkbox" bind:checked={image} /> 이미지 입력</label>
+        <label class="inline"><input type="checkbox" bind:checked={reasoning} /> {t('models.reasoning')}</label>
+        <label class="inline"><input type="checkbox" bind:checked={image} /> {t('models.image')}</label>
       </div>
       <div class="nums">
-        <label><span>컨텍스트 창 <small>(토큰)</small></span><input class="field" inputmode="numeric" bind:value={ctxWin} placeholder="128000" /></label>
-        <label><span>최대 출력 <small>(토큰)</small></span><input class="field" inputmode="numeric" bind:value={maxTok} placeholder="16384" /></label>
+        <label><span>{t('models.ctxWin')} <small>{t('models.tokens')}</small></span><input class="field" inputmode="numeric" bind:value={ctxWin} placeholder="128000" /></label>
+        <label><span>{t('models.maxOut')} <small>{t('models.tokens')}</small></span><input class="field" inputmode="numeric" bind:value={maxTok} placeholder="16384" /></label>
       </div>
 
       {#if error}<p class="err" role="alert">{error}</p>{/if}
       {#if applied}
         <p class="done" role="status" bind:this={doneEl}>
-          <b>{applied.id}</b>을(를) 추가했습니다.
-          {#if applied.visible}지금 열린 세션의 모델 목록에서 고를 수 있어요.
-          {:else}열려 있는 세션에는 아직 보이지 않습니다. 세션을 다시 열면 목록에 나타납니다.
-            <button class="btn" type="button" onclick={reopen}>세션 다시 열기</button>{/if}
+          {@html t('models.added', { id: escapeHtml(applied.id) })}
+          {#if applied.visible}{t('models.visible')}
+          {:else}{t('models.notVisible')}
+            <button class="btn" type="button" onclick={reopen}>{S.restart}</button>{/if}
         </p>
       {/if}
 
       <div class="actions">
-        <button class="btn primary" type="submit" disabled={saving}>{saving ? '저장 중…' : modelId.trim() ? '모델 추가' : '제공자 저장'}</button>
+        <button class="btn primary" type="submit" disabled={saving}>{saving ? t('models.saving') : modelId.trim() ? t('models.addModel') : t('models.saveProvider')}</button>
       </div>
       {#if cfg}<p class="path mono" data-priv="paths">{cfg.path}</p>{/if}
     </form>
@@ -276,7 +279,7 @@
   form { display: grid; gap: 12px; min-width: 0; }
   label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink-2); min-width: 0; }
   label small, .khint { font-weight: 450; color: var(--ink-3); font-size: 12px; }
-  label small code { font-size: 11.5px; }
+  label small :global(code) { font-size: 11.5px; }
   .field { height: 36px; width: 100%; box-sizing: border-box; font-weight: 450; color: var(--ink); }
   select.field { padding: 0 10px; font: inherit; font-size: 14px; text-overflow: ellipsis; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; }
   .inline { display: flex; align-items: center; gap: 8px; font-weight: 500; }

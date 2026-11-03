@@ -1,3 +1,4 @@
+import { t } from './i18n';
 // Tells the person a run finished or needs an answer while they are in another tab or session.
 // Works on plain HTTP (tab title + a short tone); desktop notifications need https or localhost.
 
@@ -77,7 +78,7 @@ export function alertPerson(kind: 'done' | 'ask', title: string, onClick: () => 
   if (!notifyEnabled()) return;
   tone(kind);
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    const n = new Notification(kind === 'ask' ? '확인이 필요합니다' : '작업이 끝났습니다', { body: title, tag: 'pi-oven-' + kind });
+    const n = new Notification(kind === 'ask' ? t('notify.ask') : t('notify.done'), { body: title, tag: 'pi-oven-' + kind });
     n.onclick = () => { window.focus(); onClick(); n.close(); };
   }
 }

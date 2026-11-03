@@ -32,15 +32,16 @@ fn given_server() -> Option<String> {
 }
 
 /// What the person typed → a URL we are willing to open: http(s) only; a bare `host:port` means http.
+/// Errors are message keys; the launcher page (`ui/index.html`) words them in its language.
 fn parse_server(raw: &str) -> Result<Url, String> {
     let raw = raw.trim();
     if raw.is_empty() {
-        return Err("서버 주소를 입력하세요.".into());
+        return Err("err.empty".into());
     }
     let full = if raw.contains("://") { raw.to_string() } else { format!("http://{raw}") };
-    let url = Url::parse(&full).map_err(|_| "주소 형식이 올바르지 않습니다. 예: localhost:4141".to_string())?;
+    let url = Url::parse(&full).map_err(|_| "err.format".to_string())?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("http:// 또는 https:// 주소만 쓸 수 있습니다.".into());
+        return Err("err.scheme".into());
     }
     Ok(url)
 }
@@ -122,7 +123,7 @@ fn show_launcher(app: &AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("launcher") {
         return w.set_focus();
     }
-    let b = WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into())).title("pi-oven 서버");
+    let b = WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into())).title("pi-oven");
     #[cfg(desktop)]
     let b = b.inner_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1).min_inner_size(480.0, 360.0).center();
     let w = b.build()?;

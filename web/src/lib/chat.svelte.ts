@@ -14,6 +14,7 @@ import {
   type Block, type Item, type ToolBlock,
 } from './transcript';
 import { stripAnsi, textOf } from './util';
+import { t } from './i18n';
 
 export { itemsFromMessages };
 export type { Block, Item, ToolBlock };
@@ -24,6 +25,8 @@ export interface ChatHost extends EditorHost {
   changed(): void;
   /** The server no longer has this pi (it restarted): open the same session again in a new one. */
   gone(chat: Chat): void;
+  /** pi offered updates (the server answered the prompt): the list shows them. */
+  updates(): void;
   /** A run finished or a question is waiting; the host decides whether anyone needs to be told. */
   notify(chat: Chat, kind: 'done' | 'ask'): void;
 }
@@ -535,7 +538,7 @@ export class Chat {
     try {
       const { messages } = await this.conn.request<{ messages: { entryId: string; text: string }[] }>({ type: 'get_fork_messages' });
       const target = messages[userIndex];
-      if (!target) throw new Error('이 메시지에서는 분기할 수 없습니다.');
+      if (!target) throw new Error(t('chatmsg.noFork'));
       const res = await this.conn.request<{ text: string; cancelled: boolean }>({ type: 'fork', entryId: target.entryId });
       if (res.cancelled) return;
       await this.load();
@@ -602,8 +605,11 @@ export class Chat {
         break;
       case 'oven_exit':
         this.running = false;
-        this.notice('error', `pi 프로세스가 종료되었습니다${rec.code != null ? ` (코드 ${rec.code})` : ''}.`);
+        this.notice('error', t('chatmsg.exited', { code: rec.code != null ? t('chatmsg.code', { n: rec.code }) : '' }));
         this.host.changed();
+        break;
+      case 'oven_update':
+        this.host.updates();
         break;
       case 'oven_gone':
         this.running = false;
@@ -715,16 +721,16 @@ export class Chat {
         break;
       case 'compaction_end':
         this.compacting = false;
-        if (rec.errorMessage) this.notice('error', `압축 실패: ${rec.errorMessage}`);
+        if (rec.errorMessage) this.notice('error', t('chatmsg.compactFailed', { err: rec.errorMessage }));
         else if (!rec.aborted && rec.result) void this.load();
         break;
       case 'auto_retry_start':
         this.retry = `${rec.attempt}/${rec.maxAttempts}`;
-        this.notice('warn', `요청이 실패해 다시 시도합니다 (${rec.attempt}/${rec.maxAttempts}): ${rec.errorMessage}`);
+        this.notice('warn', t('chatmsg.retrying', { n: rec.attempt, max: rec.maxAttempts, err: rec.errorMessage }));
         break;
       case 'auto_retry_end':
         this.retry = null;
-        if (!rec.success) this.notice('error', `재시도 실패: ${rec.finalError ?? ''}`);
+        if (!rec.success) this.notice('error', t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
         break;
 
       case 'extension_ui_request':

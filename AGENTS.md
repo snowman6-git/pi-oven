@@ -12,7 +12,7 @@ pi(coding agent)를 브라우저에서 쓰는 웹 UI. 백엔드 Rust(axum), 프�
 - 성공 `--ok`, 실패 `--bad`. diff는 `--add-bg`/`--del-bg`, 코드 바탕은 `--code-bg`.
 - 주황 버튼(`.btn.primary`)의 글자와 아이콘은 **어두운색**(`--accent-ink`). 흰 글자로 되돌리지 않는다.
 
-**글자**: 기본은 메이플(`NxMaple`, Light만, `web/src/lib/maple.ts`)이고 설정에서 고르는 다른 하나는 시스템 글꼴이다. 메이플에 없는 글자는 시스템 글꼴로 넘어간다. 고정폭은 JetBrains Mono. 문장형 한국어, 문장부호와 말투는 담백하게. 모든 화면 문구는 `web/src/lib/strings.ts`에 모으고, 컴포넌트 안의 일회성 문구는 짧고 사용자 관점으로 쓴다(오류는 사과하지 않고 무슨 일이 일어났는지와 다음 행동을 말한다).
+**글자**: 기본은 메이플(`NxMaple`, Light만, `web/src/lib/maple.ts`)이고 설정에서 고르는 다른 하나는 시스템 글꼴이다. 메이플에 없는 글자는 시스템 글꼴로 넘어간다. 고정폭은 JetBrains Mono. 문장형 한국어, 문장부호와 말투는 담백하게. 화면 문구는 코드에 직접 쓰지 않고 `web/src/locales/<언어>.json`에 둔다(`ko.json`이 원본, `en.json`은 함께 고친다). 컴포넌트에서는 `t('영역.키')`(`lib/i18n.svelte`), 순수 모듈에서는 `lib/i18n`의 `t`, 자주 쓰는 말은 `S.이름`(`common`). 개수에 따라 바뀌는 말은 복수형 객체(`{ "one": …, "other": … }`)로. 새 문구를 넣으면 `cd web && npm run i18n`으로 확인한다. 문구는 짧고 사용자 관점으로 쓴다(오류는 사과하지 않고 무슨 일이 일어났는지와 다음 행동을 말한다). 언어 추가 방법은 `web/src/locales/README.md`.
 
 **모양**
 - 면은 얇은 선(`1px solid var(--rule)`)과 8~10px 모서리. 다이얼로그는 14px와 `--shadow`. 그림자는 다이얼로그·플래시 정도에만 쓴다.
