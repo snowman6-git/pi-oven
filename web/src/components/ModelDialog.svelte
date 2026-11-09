@@ -7,8 +7,9 @@
   import Icon from './Icon.svelte';
 
   // Adding a model to pi: an address, the style of API it speaks, a key, and the model's id. It is written into pi's
-  // own models.json (this page never sees a saved key again, only a hint of it).
-  let { chat }: { chat: Chat } = $props();
+  // own models.json (this page never sees a saved key again, only a hint of it). Without an open session (from
+  // Settings) it still works: new sessions read the file when they start.
+  let { chat }: { chat?: Chat } = $props();
 
   let dlg: HTMLDialogElement;
   const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -111,8 +112,8 @@
       clearKey = false;
       await load();
       if (id) {
-        const list = await chat.reloadModels();
-        applied = { id, visible: list.some((m) => m.id === id && m.provider === provider.trim()) };
+        const list = chat ? await chat.reloadModels() : null;
+        applied = { id, visible: !list || list.some((m) => m.id === id && m.provider === provider.trim()) };
         modelId = modelName = ctxWin = maxTok = '';
         reasoning = image = false;
         found = null;
@@ -140,7 +141,7 @@
     try {
       await api.removeModel(p.name, id);
       await load();
-      await chat.reloadModels();
+      await chat?.reloadModels();
       app.flash(t('models.removed'));
     } catch {
       error = t('models.removeFailed');
@@ -149,7 +150,7 @@
 
   async function reopen() {
     dlg.close();
-    await app.restartChat(chat);
+    if (chat) await app.restartChat(chat);
   }
 </script>
 
@@ -246,7 +247,8 @@
       {#if applied}
         <p class="done" role="status" bind:this={doneEl}>
           {@html t('models.added', { id: escapeHtml(applied.id) })}
-          {#if applied.visible}{t('models.visible')}
+          {#if !chat}{t('models.newSessions')}
+          {:else if applied.visible}{t('models.visible')}
           {:else}{t('models.notVisible')}
             <button class="btn" type="button" onclick={reopen}>{S.restart}</button>{/if}
         </p>

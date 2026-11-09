@@ -10,7 +10,7 @@ import type {
   SlashCommand, ThinkingLevel, Usage, WireMessage,
 } from './protocol';
 import {
-  applyResult, blocksFromContent, customLabel, itemsFromMessages, nextKey, taskItem, taskItemFromXml, userItem,
+  applyResult, blocksFromContent, customLabel, itemsFromMessages, nextKey, repeatsFailure, taskItem, taskItemFromXml, userItem,
   type Block, type Item, type ToolBlock,
 } from './transcript';
 import { stripAnsi, textOf } from './util';
@@ -76,6 +76,8 @@ export class Chat {
   running = $state(false);
   compacting = $state(false);
   retry = $state<string | null>(null);
+  /** The 100h mode's place for this session: `at` is when the next try is due, empty while one is under way. */
+  long = $state<{ attempt: number; max: number; at: number | null; error: string } | null>(null);
   loaded = $state(false);
   queue = $state<{ steering: string[]; followUp: string[] }>({ steering: [], followUp: [] });
   commands = $state<SlashCommand[]>([]);
@@ -597,16 +599,30 @@ export class Chat {
     return m;
   }
 
+  #setLong(s: { attempt: number; max: number; inMs: number | null; error: string } | null | undefined) {
+    this.long = s ? { attempt: s.attempt, max: s.max, at: s.inMs == null ? null : Date.now() + s.inMs, error: s.error } : null;
+  }
+
+  async longAct(action: 'now' | 'stop') {
+    try { await api.longAct(this.runtime.id, action); } catch (e) { this.notice('error', (e as Error).message); }
+  }
+
   #onRecord(rec: any) {
     switch (rec.type) {
       case 'oven_attached':
         this.stderr = rec.stderrTail ?? [];
+        this.#setLong(rec.long);
+        break;
+      case 'oven_long':
+        this.#setLong(rec.state);
+        if (rec.gaveUp) this.notice('error', t('long.gaveUp'));
         break;
       case 'oven_stderr':
         this.stderr = [...this.stderr.slice(-39), rec.line];
         break;
       case 'oven_exit':
         this.running = false;
+        this.long = null;
         this.notice('error', t('chatmsg.exited', { code: rec.code != null ? t('chatmsg.code', { n: rec.code }) : '' }));
         this.host.changed();
         this.host.exited(this);
@@ -616,6 +632,7 @@ export class Chat {
         break;
       case 'oven_gone':
         this.running = false;
+        this.long = null;
         this.host.gone(this);
         break;
       case 'oven_lagged':
@@ -639,7 +656,7 @@ export class Chat {
         this.host.changed();
         void this.refreshStats();
         void this.conn.request<SessionState>({ type: 'get_state' }).then((s) => (this.state = s)).catch(() => {});
-        this.host.notify(this, 'done');
+        if (!this.long) this.host.notify(this, 'done'); // an hourly try that failed is not the end of anything
         break;
       case 'turn_end':
         this.#scheduleStats();
@@ -729,11 +746,11 @@ export class Chat {
         break;
       case 'auto_retry_start':
         this.retry = `${rec.attempt}/${rec.maxAttempts}`;
-        this.notice('warn', t('chatmsg.retrying', { n: rec.attempt, max: rec.maxAttempts, err: rec.errorMessage }));
+        if (!this.long) this.notice('warn', t('chatmsg.retrying', { n: rec.attempt, max: rec.maxAttempts, err: rec.errorMessage }));
         break;
       case 'auto_retry_end':
         this.retry = null;
-        if (!rec.success) this.notice('error', t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
+        if (!rec.success && !this.long) this.notice('error', t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
         break;
 
       case 'extension_ui_request':
@@ -795,6 +812,8 @@ export class Chat {
         live.stop = m.stopReason;
         live.error = m.errorMessage;
         live.ts = m.timestamp ?? live.ts;
+        const at = this.items.indexOf(live);
+        if (at > 0 && repeatsFailure(this.items[at - 1], live)) this.items.splice(at - 1, 1);
         if (this.#timer) {
           live.speed = this.#timer.finish(performance.now(), m.usage?.output);
           this.#timer = undefined;

@@ -6,10 +6,18 @@
   import type { Chat } from '../lib/chat.svelte';
   import { dismiss, autofocus } from '../lib/actions';
   import { S } from '../lib/strings';
-  import { tildePath } from '../lib/util';
+  import { runClock, tildePath } from '../lib/util';
   import Icon from './Icon.svelte';
 
   let { chat }: { chat: Chat } = $props();
+
+  let now = $state(Date.now());
+  $effect(() => {
+    if (chat.long?.at == null) return;
+    now = Date.now();
+    const clock = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(clock);
+  });
 
   let editing = $state(false);
   let draft = $state('');
@@ -72,8 +80,9 @@
   </div>
 </header>
 
-{#if chat.link !== 'open' || chat.compacting || chat.retry}
-  <div class="strip" class:bad={chat.link === 'exited'} role="status">
+{#if chat.link !== 'open' || chat.compacting || chat.retry || chat.long}
+  {@const long = chat.link === 'open' && !chat.compacting ? chat.long : null}
+  <div class="strip" class:bad={chat.link === 'exited'} class:long role="status">
     {#if chat.link === 'exited'}
       {S.exited}
       <span class="acts">
@@ -83,6 +92,16 @@
     {:else if chat.link === 'reconnecting'}{S.reconnecting}
     {:else if chat.link === 'connecting'}{S.connecting}
     {:else if chat.compacting}{S.compacting}
+    {:else if long}
+      <span title={showcase.tip('hosts', long.error)}>
+        <b>{t('long.name')}</b>
+        {#if long.at != null}{t('long.next', { time: runClock(long.at - now), n: long.attempt, max: long.max })}
+        {:else}{t('long.trying', { n: long.attempt, max: long.max })}{/if}
+      </span>
+      <span class="acts">
+        {#if long.at != null}<button class="btn" type="button" onclick={() => chat.longAct('now')}>{t('long.now')}</button>{/if}
+        <button class="btn" type="button" onclick={() => chat.longAct('stop')}>{t('long.stop')}</button>
+      </span>
     {:else}{S.retrying} {chat.retry}{/if}
   </div>
 {/if}
@@ -202,6 +221,22 @@
     background: color-mix(in srgb, var(--bad) 18%, var(--paper));
     flex-wrap: wrap;
     row-gap: 6px;
+  }
+  /* unlike a retry under way, this one has stopped for an hour: it has to be seen from across the room */
+  .strip.long {
+    background: var(--accent);
+    color: var(--accent-ink);
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .strip.long b {
+    font-weight: inherit;
+    margin-right: 6px;
+  }
+  .strip.long .btn {
+    background: transparent;
+    border-color: currentColor;
+    color: inherit;
   }
   .acts {
     display: inline-flex;

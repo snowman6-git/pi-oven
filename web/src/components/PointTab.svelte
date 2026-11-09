@@ -164,6 +164,7 @@
         </li>
       {/each}
     </ul>
+    <button class="btn quiet rules" type="button" onclick={() => app.openSettings('pins')}>{t('point.rules', { n: pinRules.list.length })}</button>
   </section>
 </div>
 
@@ -172,6 +173,7 @@
   section { display: grid; gap: 8px; min-width: 0; }
   h4 { margin: 0; font-size: 13px; font-weight: 700; color: var(--ink-2); }
   .cnt { color: var(--ink-3); font-weight: 500; margin-left: 2px; }
+  .rules { justify-self: start; margin-top: 4px; font-size: 12.5px; }
   .note { margin: 0; color: var(--ink-3); font-size: 12.5px; }
   small { color: var(--ink-3); font-size: 11.5px; }
   ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }

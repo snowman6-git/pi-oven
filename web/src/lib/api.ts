@@ -19,12 +19,19 @@ export class HttpError extends Error {
   }
 }
 
+/** The 100h mode's switch. `available` is false when the server has no retry extension. */
+export interface LongMode { enabled: boolean; available: boolean }
+
+/** One saved login per server: switching to another address must not send it this one's token. The page's own
+    server keeps the plain key, so a login saved before this still works. */
+const tokenKey = () => (serverUrl.value ? `${TOKEN_KEY}@${serverUrl.value}` : TOKEN_KEY);
+
 export const auth = {
   get token(): string | null {
-    try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+    try { return localStorage.getItem(tokenKey()); } catch { return null; }
   },
   set token(v: string | null) {
-    try { v ? localStorage.setItem(TOKEN_KEY, v) : localStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ }
+    try { v ? localStorage.setItem(tokenKey(), v) : localStorage.removeItem(tokenKey()); } catch { /* private mode */ }
     // ask the browser not to evict the saved login when it is short of space
     if (v) void navigator.storage?.persist?.().catch(() => {});
   },
@@ -158,6 +165,11 @@ export const api = {
   updates: () => call<UpdateStatus>('/api/update'),
   runUpdate: (target: UpdateTarget) =>
     call<UpdateResult>('/api/update', { method: 'POST', body: JSON.stringify({ target }) }),
+  longMode: () => call<LongMode>('/api/retry'),
+  setLongMode: (enabled: boolean) =>
+    call<LongMode>('/api/retry', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  longAct: (id: string, action: 'now' | 'stop') =>
+    call<void>(`/api/runtimes/${id}/retry`, { method: 'POST', body: JSON.stringify({ action }) }),
   async taskOutput(id: string, task: string, tail = 24 * 1024): Promise<{ text: string; total: number }> {
     const headers = new Headers();
     if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);

@@ -36,7 +36,7 @@ pi(coding agent)를 브라우저에서 쓰는 웹 UI. 백엔드 Rust(axum), 프�
 
 ## 구조
 
-- `src/` Rust 서버: `runtime.rs`(pi 프로세스·WS), `api.rs`, `sessions.rs`, `branch.rs`(세션 트리·분기, 세션 JSONL 직접 읽기/쓰기), `git.rs`(상태·diff·스테이지·커밋), `files.rs`(탐색기·편집기용 파일 API: 폴더 밖·`.git` 거부, 원자적 저장, `rev`가 다르면 409), `pet.rs`(`/api/pet/stream`), `web.rs`(`web/dist` 내장).
+- `src/` Rust 서버: `runtime.rs`(pi 프로세스·WS), `api.rs`, `sessions.rs`, `branch.rs`(세션 트리·분기, 세션 JSONL 직접 읽기/쓰기), `git.rs`(상태·diff·스테이지·커밋), `files.rs`(탐색기·편집기용 파일 API: 폴더 밖·`.git` 거부, 원자적 저장, `rev`가 다르면 409), `pet.rs`(`/api/pet/stream`), `retry.rs`(100h 모드: pi의 재시도가 끝난 뒤 60분마다 최대 100번. 일정은 서버, 시도는 `ext/oven-retry.ts`의 `/oven-retry`), `web.rs`(`web/dist` 내장).
 - `web/src/lib/` 상태와 순수 로직: `chat.svelte.ts`(대화·이벤트), `app.svelte.ts`(앱 전역), `tree.ts`, `changes.ts`, `points.ts`(Pin 감지), `bgorder.ts`(배경 작업 자리), `editor.svelte.ts`(열린 파일·저장·디스크 변경 감지), `cm.ts`(CodeMirror, 처음 파일을 열 때 지연 로드), `api.ts`. 서버: `/api/sessions/state`는 확장이 `appendEntry`로 저장한 최신 상태(현재 분기 기준)를 읽는다.
 - `web/src/addons/` 패키지별 애드온: 설치된 pi 패키지(확장)가 내보내는 도구·상태·세션 항목을 읽어 화면 조각으로 바꾼다. 패키지마다 방식이 달라서 코어에 조건문을 넣지 않고 애드온 하나(순수 로직 `addons/<이름>.ts` + 컴포넌트)로 둔다. `get_commands`에 그 패키지의 명령이 있을 때만 켜지고(없으면 요청도 화면도 없음), 모르는 도구는 일반 표시로 돌아간다. 디스크의 JS를 웹에 불러오는 방식은 쓰지 않는다. 지금은 `todo.ts`(rpiv-todo).
 - `web/src/components/` 화면. 우측 패널 탭은 `Inspector.svelte` + `DiffTab`/`GitTab`/`PointTab`.

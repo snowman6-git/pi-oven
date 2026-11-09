@@ -84,6 +84,7 @@ Open the server address in a browser, or enter the server address and token once
 - **Work folder**: file explorer and editor (CodeMirror, notices changes on disk), Diff, Git staging and commits.
 - **Pins**: addresses and tokens from the chat in one place, plus your own regex rules.
 - **Adding models**: an endpoint and key are saved to pi's `models.json` (backed up first).
+- **100h mode**: when a temporary API error has failed 3 times, tries again every 60 minutes, up to 100 times. The server keeps going with every window closed; turn it off in Settings → Chat.
 - **Showcase mode**: for sharing your screen, blurs or replaces paths, addresses, tokens, file names and more.
 - **Languages**: Korean and English. It follows the browser language and can be changed in Settings or with the globe button under the session list. Server errors follow the page's language; the terminal messages and `--help` follow the system locale (`LANG`). Adding one JSON file (`web/src/locales/<code>.json`) adds a language ([how](web/src/locales/README.md)).
 - **About**: the About tab in Settings shows the pi version, the installed packages with their versions, and the MCP servers (name, transport, tool count). MCP commands, addresses and keys are never sent to the page.

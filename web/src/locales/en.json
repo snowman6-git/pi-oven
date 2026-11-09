@@ -160,7 +160,9 @@
     "models": {
       "title": "Models",
       "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs.",
-      "open": "Add and manage models…"
+      "open": "Add a model…",
+      "none": "No models added yet. pi's own models and the providers you signed in to are in the model list under the message box.",
+      "manage": "Add or manage…"
     },
     "showcase": {
       "title": "Showcase mode",
@@ -173,13 +175,25 @@
     },
     "server": {
       "title": "Server address",
-      "note": "Leave empty to use the server that opened this page. Set it only when opening from elsewhere, like the desktop app.",
+      "note": "Usually left empty. Fill it in only to use the API of a server other than the one that served this page (a dev server, say). Logins are kept per server.",
       "apply": "Apply",
       "current": "Connected server",
-      "thisPage": "the server that opened this page",
+      "thisPage": "The server that served this page",
       "signedIn": "signed in",
-      "switchTo": "Switch to another server"
-    }
+      "switchTo": "Switch to another server",
+      "appNote": "In the app, the server is chosen on its first screen.",
+      "pick": "Choose another server…",
+      "signOut": "Sign out",
+      "signOutAsk": "Sign out?",
+      "signOutBody": "This removes the token saved in this browser. To come back you will need the token or password again."
+    },
+    "retry": {
+      "title": "API retries",
+      "hint": "After 3 failures, tries again every 60 minutes, up to 100 times. The server keeps going with this window closed.",
+      "unavailable": "Not available: the retry extension is not installed on this server."
+    },
+    "notifyBlocked": "The browser blocks notifications, so only the tab title and a tone tell you. Allow notifications in the browser's site settings.",
+    "notifyInsecure": "Desktop notifications do not work on this address (HTTP), so only the tab title and a tone tell you. Open it over HTTPS or on localhost for desktop notifications."
   },
   "showcase": {
     "paths": {
@@ -445,7 +459,11 @@
       "other": "Seen {n} times"
     },
     "secrets": "Values that look like tokens",
-    "noSecrets": "Nothing found. Looks for values named like token, secret or key, and common key formats."
+    "noSecrets": "Nothing found. Looks for values named like token, secret or key, and common key formats.",
+    "rules": {
+      "one": "Manage {n} detection rule…",
+      "other": "Manage {n} detection rules…"
+    }
   },
   "tree": {
     "start": "(start)",
@@ -696,7 +714,8 @@
     "notVisible": "Open sessions do not show it yet. Reopen the session to see it in the list.",
     "saving": "Saving…",
     "addModel": "Add model",
-    "saveProvider": "Save provider"
+    "saveProvider": "Save provider",
+    "newSessions": "It appears in the model list of sessions you open from now on."
   },
   "time": {
     "now": "just now",
@@ -816,5 +835,13 @@
   },
   "ext": {
     "allow": "Allow {tool} to run?"
+  },
+  "long": {
+    "name": "100h mode",
+    "next": "Next try in {time} ({n}/{max})",
+    "trying": "Trying again ({n}/{max})",
+    "now": "Try now",
+    "stop": "Stop",
+    "gaveUp": "100h mode: the request failed all 100 tries. Send a message to try again."
   }
 }

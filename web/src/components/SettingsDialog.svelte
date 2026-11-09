@@ -1,11 +1,10 @@
 <script lang="ts">
   import { app } from '../lib/app.svelte';
-  import { askPermission } from '../lib/notify';
   import { hasMaple } from '../lib/maple';
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
-  import { auth } from '../lib/api';
+  import { api, auth, HttpError, type LongMode, type ModelsConfig } from '../lib/api';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
   import type { IconName } from '../lib/icons';
@@ -26,8 +25,33 @@
     { id: 'server', icon: 'link' },
     { id: 'about', icon: 'info' },
   ];
+  // kept by the server, not this browser: the schedule runs there, for every device
+  let longMode = $state<LongMode | null>(null);
+  let longError = $state('');
+  $effect(() => { api.longMode().then((m) => (longMode = m)).catch((e) => (longError = (e as Error).message)); });
+  async function toggleLong(box: HTMLInputElement) {
+    longError = '';
+    try { longMode = await api.setLongMode(box.checked); }
+    catch (e) { box.checked = !box.checked; longError = (e as Error).message; }
+  }
+
+  // what is already in pi's models.json, read when the tab is first shown
+  let models = $state<ModelsConfig | null>(null);
+  let modelsError = $state('');
+  let modelsAsked = false;
+  $effect(() => {
+    if (tab !== 'models' || modelsAsked) return;
+    modelsAsked = true;
+    api.modelsConfig().then((c) => (models = c))
+      .catch((e) => (modelsError = e instanceof HttpError && e.status === 422 ? e.message : t('models.loadFailed')));
+  });
+  const manageModels = () => ((app.settingsOpen = false), (app.modelDialog = true));
+
   const TAB_KEY = 'pi-oven.settings-tab';
   let tab = $state<Tab>(((): Tab => {
+    const asked = app.settingsTab;
+    app.settingsTab = null;
+    if (TABS.some((x) => x.id === asked)) return asked as Tab;
     try { const v = localStorage.getItem(TAB_KEY); return TABS.some((x) => x.id === v) ? (v as Tab) : 'view'; } catch { return 'view'; }
   })());
   function pick(id: Tab) {
@@ -87,9 +111,22 @@
     location.reload();
   }
 
-  function toggleNotify() {
+  // What "notify" can actually do here: desktop notifications need a secure page and the browser's permission;
+  // without them only the tab title and a tone are left, and the switch should say so.
+  const canNotify = typeof Notification !== 'undefined' && window.isSecureContext;
+  let notifyPerm = $state(canNotify ? Notification.permission : 'denied');
+  async function toggleNotify() {
     app.toggleNotify();
-    if (app.notifyOn) askPermission();
+    if (app.notifyOn && canNotify && Notification.permission === 'default') notifyPerm = await Notification.requestPermission();
+  }
+
+  // Only the app has another way to pick a server: its first screen. There the field below would be a second one.
+  const back = (window as unknown as { __piOvenBack?: () => void }).__piOvenBack;
+  async function signOut() {
+    const ok = await app.ask({ title: t('settings.server.signOutAsk'), body: t('settings.server.signOutBody'), confirm: t('settings.server.signOut'), danger: true });
+    if (!ok) return;
+    auth.token = null;
+    location.reload();
   }
 </script>
 
@@ -179,6 +216,16 @@
           <span>{t('settings.notify')}</span>
           <input class="switch" type="checkbox" role="switch" checked={app.notifyOn} onchange={toggleNotify} />
         </label>
+        {#if app.notifyOn && notifyPerm !== 'granted'}<p class="note">{canNotify ? t('settings.notifyBlocked') : t('settings.notifyInsecure')}</p>{/if}
+      </section>
+      <section>
+        <h3>{t('settings.retry.title')}</h3>
+        <label class="row">
+          <span>{t('long.name')}<small>{t('settings.retry.hint')}</small></span>
+          <input class="switch" type="checkbox" role="switch" disabled={!longMode?.available} checked={longMode?.enabled ?? false} onchange={(e) => toggleLong(e.currentTarget)} />
+        </label>
+        {#if longMode && !longMode.available}<p class="note">{t('settings.retry.unavailable')}</p>{/if}
+        {#if longError}<p class="note err">{longError}</p>{/if}
       </section>
       {:else if tab === 'pins'}
       <section>
@@ -205,7 +252,21 @@
       <section>
         <h3>{t('settings.models.title')}</h3>
         <p class="note">{t('settings.models.note')}</p>
-        <button class="btn" type="button" onclick={() => ((app.settingsOpen = false), (app.modelDialog = true))}>{t('settings.models.open')}</button>
+        {#if modelsError}<p class="note err" role="alert">{modelsError}</p>
+        {:else if !models}<p class="note">{S.loading}</p>
+        {:else if models.providers.length}
+          <ul class="provs">
+            {#each models.providers as p (p.name)}
+              <li>
+                <div class="ptop"><b>{p.name}</b>{#if p.key.kind !== 'none'}<small data-priv="secrets">{t('models.keyHint', { hint: p.key.hint ?? '' })}</small>{/if}</div>
+                <span class="mono addr" data-priv="hosts" title={showcase.tip('hosts', p.baseUrl)}>{p.baseUrl ? showcase.text(p.baseUrl) : t('models.noAddress')}</span>
+                <small class="mono mlist">{p.models.length ? p.models.map((m) => m.name || m.id).join(' · ') : t('models.noModels')}</small>
+              </li>
+            {/each}
+          </ul>
+        {:else}<p class="note">{t('settings.models.none')}</p>{/if}
+        <button class="btn" type="button" onclick={manageModels}>{models?.providers.length ? t('settings.models.manage') : t('settings.models.open')}</button>
+        {#if models}<p class="note mono path" data-priv="paths">{showcase.text(models.path)}</p>{/if}
       </section>
       {:else if tab === 'showcase'}
       <section>
@@ -233,15 +294,22 @@
         <h3>{t('settings.server.current')}</h3>
         <p class="cur"><span class="mono" data-priv="hosts">{showcase.text(serverUrl.value || location.origin)}</span>
           <small>{serverUrl.value ? '' : t('settings.server.thisPage')}{auth.token ? `${serverUrl.value ? '' : ' · '}${t('settings.server.signedIn')}` : ''}</small></p>
+        {#if auth.token}<button class="btn" type="button" onclick={signOut}>{t('settings.server.signOut')}</button>{/if}
       </section>
       <section>
         <h3>{t('settings.server.switchTo')}</h3>
-        <p class="note">{t('settings.server.note')}</p>
-        <div class="srv">
-          <input class="field mono" data-priv="hosts" bind:value={server} placeholder={serverUrl.value || location.origin} spellcheck="false" aria-label={t('settings.server.title')}
-            onkeydown={(e) => e.key === 'Enter' && saveServer()} />
-          <button class="btn" type="button" onclick={saveServer}>{t('settings.server.apply')}</button>
-        </div>
+        {#if back}
+          <p class="note">{t('settings.server.appNote')}</p>
+          <button class="btn" type="button" onclick={back}>{t('settings.server.pick')}</button>
+        {:else}
+          <p class="note">{t('settings.server.note')}</p>
+          <div class="srv">
+            <input class="field mono" data-priv="hosts" bind:value={server} placeholder={serverUrl.value || location.origin} spellcheck="false" aria-label={t('settings.server.title')}
+              onkeydown={(e) => e.key === 'Enter' && saveServer()} />
+            <button class="btn" type="button" onclick={saveServer}>{t('settings.server.apply')}</button>
+          </div>
+          {#if serverUrl.value}<button class="btn quiet" type="button" onclick={() => ((server = ''), saveServer())}>{S.serverReset}</button>{/if}
+        {/if}
       </section>
       {:else if tab === 'about'}
       <About />
@@ -381,6 +449,12 @@
   .rules li .row { flex: 1; min-width: 0; }
   .rules li .row span { min-width: 0; overflow: hidden; }
   .rules li .btn { flex: none; }
+  .provs { list-style: none; margin: 0 0 10px; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .provs li { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: 8px 12px; display: grid; gap: 2px; min-width: 0; }
+  .ptop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .addr, .mlist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+  .mlist { color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; }
+  .path { font-size: 11.5px; overflow-wrap: anywhere; margin-top: 8px; }
   .rules small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note + .btn, .note + .newrule, .note + .rules { margin-top: 8px; }
   .newrule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; }

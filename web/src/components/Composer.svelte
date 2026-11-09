@@ -40,7 +40,7 @@
     const seen = new Set<string>();
     const all = [
       ...builtins.map((b) => ({ name: b.name, description: b.description })),
-      ...chat.commands.filter((c) => c.name !== 'oven-permission').map((c) => ({ name: c.name, description: c.description ?? '' })),
+      ...chat.commands.filter((c) => c.name !== 'oven-permission' && c.name !== 'oven-retry').map((c) => ({ name: c.name, description: c.description ?? '' })),
     ];
     return all.filter((c) => !seen.has(c.name) && seen.add(c.name));
   });

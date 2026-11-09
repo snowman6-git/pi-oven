@@ -63,6 +63,12 @@ export function userItem(m: WireMessage): Item {
   return { kind: 'user', key: nextKey(), text, images, skills, ts: m.timestamp };
 }
 
+/** The same request failing the same way again: hourly retries must not fill the chat, so only the newest one shows. */
+export function repeatsFailure(prev: Item | undefined, next: Item): boolean {
+  return prev?.kind === 'assistant' && next.kind === 'assistant' && !!next.error && prev.error === next.error
+    && prev.blocks.length === 0 && next.blocks.length === 0;
+}
+
 /** Build display items from a full message history (initial load, resync). */
 export function itemsFromMessages(msgs: WireMessage[]): Item[] {
   const items: Item[] = [];
@@ -73,10 +79,12 @@ export function itemsFromMessages(msgs: WireMessage[]): Item[] {
       case 'assistant': {
         const blocks = blocksFromContent(m.content, tools);
         for (const b of blocks) if (b.type === 'tool') tools.set(b.id, b);
-        items.push({
+        const item: Item = {
           kind: 'assistant', key: nextKey(), blocks, live: m.stopReason === 'pending', ts: m.timestamp,
           model: m.model, usage: m.usage, stop: m.stopReason, error: m.errorMessage,
-        });
+        };
+        if (repeatsFailure(items.at(-1), item)) items.pop();
+        items.push(item);
         break;
       }
       case 'toolResult': {

@@ -274,7 +274,7 @@
 
   {#if app.folderPicker}{#await import('./components/FolderPicker.svelte') then m}<m.default />{/await}{/if}
   {#if app.settingsOpen}{#await import('./components/SettingsDialog.svelte') then m}<m.default />{/await}{/if}
-  {#if app.modelDialog && chat}{#await import('./components/ModelDialog.svelte') then m}<m.default {chat} />{/await}{/if}
+  {#if app.modelDialog}{#await import('./components/ModelDialog.svelte') then m}<m.default chat={chat ?? undefined} />{/await}{/if}
   {#if app.treeTarget}{#await import('./components/TreePanel.svelte') then m}<m.default target={app.treeTarget} />{/await}{/if}
   <ConfirmDialog />
   <ContextMenu />

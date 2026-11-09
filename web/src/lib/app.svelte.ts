@@ -34,6 +34,12 @@ class App {
   picked = $state<string[]>([]);
   #flashTimer: ReturnType<typeof setTimeout> | undefined;
   settingsOpen = $state(false);
+  /** The tab the settings should open on, when something opens them for a reason (the showcase badge, the Pin tab). */
+  settingsTab = $state<string | null>(null);
+  openSettings(tab?: string) {
+    this.settingsTab = tab ?? null;
+    this.settingsOpen = true;
+  }
   /** The dialog for adding models and their endpoints. */
   modelDialog = $state(false);
   /** The session whose branches are being looked at; works for sessions that are not open. */

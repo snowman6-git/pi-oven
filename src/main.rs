@@ -12,6 +12,7 @@ mod models;
 mod pet;
 mod runtime;
 mod sessions;
+mod retry;
 mod update;
 mod web;
 mod ws;
@@ -45,7 +46,7 @@ fn cors(origins: &[String]) -> tower_http::cors::CorsLayer {
     let allowed: Vec<HeaderValue> = origins.iter().filter_map(|o| HeaderValue::from_str(o).ok()).collect();
     tower_http::cors::CorsLayer::new()
         .allow_origin(allowed)
-        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::HeaderName::from_static("x-pi-oven-lang")])
 }
 
@@ -67,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
     if !cfg.no_permission_ext {
         cfg.extension_path = config::install_extension();
     }
+    cfg.retry_extension_path = config::install_retry_extension();
     let host = cfg.listen_host();
     let cfg = Arc::new(cfg);
     // Off loopback something has to be asked for: with neither given, a token is made up.
@@ -116,6 +118,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/pet/stream", get(api::pet_stream))
         .route("/api/about", get(about::about))
         .route("/api/update", get(update::status).post(update::run))
+        .route("/api/retry", get(retry::get_mode).put(retry::set_mode))
+        .route("/api/runtimes/{id}/retry", axum::routing::post(retry::act))
         .fallback(web::serve)
         .layer(middleware::from_fn_with_state(app.clone(), auth::guard))
         .layer(middleware::from_fn(lang::layer))

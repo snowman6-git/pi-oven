@@ -209,7 +209,7 @@
       <button class="icon-btn upd-rail" class:busy={upd.running} type="button" aria-label={S.updateAvailable} title="{S.updateAvailable}: {updSummary}"
         onclick={() => { app.toggleSidebarFold(); }}><Icon name="update" size={20} /></button>
     {/if}
-    <button class="icon-btn" class:showing={showcase.on} type="button" aria-label={t('sidebar.settings')} title={showcase.on ? t('sidebar.settingsShowcase') : t('sidebar.settings')} onclick={() => (app.settingsOpen = true)}><Icon name={showcase.on ? 'eyeOff' : 'gear'} size={20} /></button>
+    <button class="icon-btn" class:showing={showcase.on} type="button" aria-label={t('sidebar.settings')} title={showcase.on ? t('sidebar.settingsShowcase') : t('sidebar.settings')} onclick={() => app.openSettings(showcase.on ? 'showcase' : undefined)}><Icon name={showcase.on ? 'eyeOff' : 'gear'} size={20} /></button>
   </div>
 {:else}
   <div class="brand">
@@ -344,7 +344,7 @@
       <Icon name="globe" size={15} /><span>{i18n.lang.toUpperCase()}</span>
     </button>
     {#if showcase.on}
-      <button class="showtag" type="button" title={t('sidebar.showcaseOn')} onclick={() => (app.settingsOpen = true)}><Icon name="eyeOff" size={13} />{t('sidebar.showcase')}</button>
+      <button class="showtag" type="button" title={t('sidebar.showcaseOn')} onclick={() => app.openSettings('showcase')}><Icon name="eyeOff" size={13} />{t('sidebar.showcase')}</button>
     {/if}
   </footer>
 {/if}

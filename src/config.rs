@@ -71,6 +71,9 @@ pub struct Config {
 
     #[arg(skip)]
     pub extension_path: Option<PathBuf>,
+
+    #[arg(skip)]
+    pub retry_extension_path: Option<PathBuf>,
 }
 
 /// The command line in the terminal's language: Korean help on a Korean locale, English otherwise.
@@ -179,16 +182,25 @@ impl Config {
 }
 
 const PERMISSION_EXT: &str = include_str!("../ext/oven-permission.ts");
+const RETRY_EXT: &str = include_str!("../ext/oven-retry.ts");
 
-/// Writes the bundled pi extension next to the user's cache so `pi --extension` can load it.
 pub fn install_extension() -> Option<PathBuf> {
+    install("oven-permission.ts", PERMISSION_EXT)
+}
+
+pub fn install_retry_extension() -> Option<PathBuf> {
+    install("oven-retry.ts", RETRY_EXT)
+}
+
+/// Writes a bundled pi extension next to the user's cache so `pi --extension` can load it.
+fn install(name: &str, body: &str) -> Option<PathBuf> {
     let dir = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".cache"))
         .join("pi-oven");
     std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join("oven-permission.ts");
-    std::fs::write(&path, PERMISSION_EXT).ok()?;
+    let path = dir.join(name);
+    std::fs::write(&path, body).ok()?;
     Some(path)
 }
 

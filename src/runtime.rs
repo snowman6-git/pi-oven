@@ -16,7 +16,10 @@ use tokio::{
     sync::{broadcast, mpsc, watch, RwLock},
 };
 
-use crate::config::{random_hex, Config};
+use crate::{
+    config::{random_hex, Config},
+    retry::{self, Event, Long, Step, Wait},
+};
 
 const STDERR_TAIL: usize = 40;
 
@@ -147,6 +150,8 @@ pub struct Runtime {
     shutdown: watch::Sender<bool>,
     stderr_tail: Mutex<VecDeque<String>>,
     pet: Arc<crate::pet::PetHub>,
+    /// Where this session is in the 100h mode's schedule.
+    long: Mutex<Option<Wait>>,
 }
 
 impl Runtime {
@@ -182,6 +187,79 @@ impl Runtime {
     pub fn close(&self) {
         let _ = self.shutdown.send(true);
     }
+
+    pub fn long_view(&self) -> Option<serde_json::Value> {
+        self.long.lock().unwrap().as_ref().map(|w| w.view(now_ms()))
+    }
+
+    fn long_publish(&self, gave_up: bool) {
+        let frame = serde_json::json!({ "type": "oven_long", "state": self.long_view(), "gaveUp": gave_up });
+        let _ = self.events.send(Arc::from(frame.to_string()));
+    }
+
+    fn long_event(self: &Arc<Self>, event: Event, long: &Arc<Long>) {
+        let (step, begun) = {
+            let mut g = self.long.lock().unwrap();
+            let idle = g.is_none();
+            let step = retry::advance(&mut g, event, long.enabled(), now_ms());
+            (step, idle && g.is_some())
+        };
+        if step != Step::Same {
+            self.long_publish(step == Step::GaveUp);
+        }
+        if begun {
+            tokio::spawn(self.clone().long_clock(long.clone()));
+        }
+    }
+
+    /// Runs while a wait exists. A tick rather than one long sleep, so "try now", "stop" and the switch need no wake-up
+    /// call and a machine that slept is caught up with.
+    async fn long_clock(self: Arc<Self>, long: Arc<Long>) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if *self.shutdown.borrow() {
+                return;
+            }
+            let (ended, due) = {
+                let mut g = self.long.lock().unwrap();
+                let Some(w) = g.as_mut() else { return };
+                let waiting = w.next_at.is_some();
+                if waiting && !long.enabled() {
+                    *g = None;
+                    (true, false)
+                } else if w.next_at.is_some_and(|t| now_ms() >= t) {
+                    w.next_at = None;
+                    (false, true)
+                } else {
+                    (false, false)
+                }
+            };
+            if due {
+                let _ = self.stdin_tx.send(retry::TRY_COMMAND.to_owned()).await;
+            }
+            if ended || due {
+                self.long_publish(false);
+            }
+            if ended {
+                return;
+            }
+        }
+    }
+
+    pub fn long_try_now(&self, now: u64) {
+        if let Some(w) = self.long.lock().unwrap().as_mut() {
+            if w.next_at.is_some() {
+                w.next_at = Some(now);
+            }
+        }
+    }
+
+    pub fn long_stop(&self) {
+        let had = self.long.lock().unwrap().take().is_some();
+        if had {
+            self.long_publish(false);
+        }
+    }
 }
 
 pub struct Manager {
@@ -193,6 +271,7 @@ pub struct Manager {
     pub pet: Arc<crate::pet::PetHub>,
     /// What pi-updater last offered (its prompt is answered here, not shown in every new session).
     pub updates: Arc<crate::update::Updates>,
+    pub long: Arc<Long>,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -210,7 +289,8 @@ pub fn now_ms() -> u64 {
 
 impl Manager {
     pub fn new(cfg: Arc<Config>) -> Arc<Self> {
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default() })
+        let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -285,6 +365,9 @@ impl Manager {
         if let Some(t) = &req.thinking {
             cmd.arg("--thinking").arg(t);
         }
+        if let Some(ext) = &self.cfg.retry_extension_path {
+            cmd.arg("--extension").arg(ext);
+        }
         if let Some(ext) = &self.cfg.extension_path {
             cmd.arg("--extension").arg(ext);
             // the chosen permission mode lives next to the extension, so a new pi starts in it (not in "auto"
@@ -328,6 +411,7 @@ impl Manager {
             shutdown,
             stderr_tail: Mutex::new(VecDeque::new()),
             pet: self.pet.clone(),
+            long: Mutex::new(None),
         });
         self.pet.attach(rt.clone());
 
@@ -335,6 +419,7 @@ impl Manager {
         {
             let rt = rt.clone();
             let updates = self.updates.clone();
+            let long = self.long.clone();
             tokio::spawn(async move {
                 let mut rd = BufReader::new(stdout);
                 let mut buf = Vec::new();
@@ -359,12 +444,29 @@ impl Manager {
                                     continue;
                                 }
                             }
-                            let mut replay = rt.replay.lock().unwrap();
-                            replay.record(&line);
-                            let _ = rt.events.send(line);
+                            // The page hears of a failure first, so the first one still gets its notice; a run's end
+                            // comes after the wait is settled, so the page knows whether it was a real end.
+                            let event = retry::read(&line);
+                            let failed = matches!(event, Some(Event::Failed(_)));
+                            let event = match event {
+                                Some(e) if !failed => {
+                                    rt.long_event(e, &long);
+                                    None
+                                }
+                                e => e,
+                            };
+                            {
+                                let mut replay = rt.replay.lock().unwrap();
+                                replay.record(&line);
+                                let _ = rt.events.send(line);
+                            }
+                            if let Some(e) = event {
+                                rt.long_event(e, &long);
+                            }
                         }
                     }
                 }
+                rt.long.lock().unwrap().take();
             });
         }
 
