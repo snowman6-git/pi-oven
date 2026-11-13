@@ -190,7 +190,14 @@
       "unavailable": "이 서버에는 재시도 확장이 설치되지 않아 쓸 수 없습니다."
     },
     "notifyBlocked": "브라우저가 알림을 막아 두었습니다. 탭 제목과 소리로만 알립니다. 브라우저의 사이트 설정에서 알림을 허용하세요.",
-    "notifyInsecure": "이 주소(HTTP)에서는 데스크톱 알림을 쓸 수 없어 탭 제목과 소리로만 알립니다. HTTPS나 localhost로 열면 데스크톱 알림이 됩니다."
+    "notifyInsecure": "이 주소(HTTP)에서는 데스크톱 알림을 쓸 수 없어 탭 제목과 소리로만 알립니다. HTTPS나 localhost로 열면 데스크톱 알림이 됩니다.",
+    "meta": {
+      "title": "입력창 아래 표시",
+      "context": "컨텍스트 링",
+      "limits": "구독 한도",
+      "limitsHint": "ChatGPT·Claude 구독 모델일 때만 나옵니다.",
+      "limitText": "구독 한도 숫자"
+    }
   },
   "showcase": {
     "paths": {
@@ -815,5 +822,25 @@
     "now": "지금 시도",
     "stop": "그만두기",
     "gaveUp": "100h 모드: 100번 시도했지만 요청이 실패했습니다. 다시 보내려면 메시지를 입력하세요."
+  },
+  "limits": {
+    "title": "구독 한도",
+    "w5h": "5시간",
+    "week": "주간",
+    "days": {
+      "other": "{n}일"
+    },
+    "hours": {
+      "other": "{n}시간"
+    },
+    "m": "{m}분",
+    "hm": "{h}시간 {m}분",
+    "resetIn": "{time} 뒤 초기화",
+    "resetAt": "{date} 초기화",
+    "reached": "한도 도달",
+    "asOf": "{time} 응답 기준",
+    "showInfo": "정보 탭에서 보기",
+    "chip": "구독 한도: {text}",
+    "inUse": "사용 중"
   }
 }

@@ -5,8 +5,8 @@ export type ToolImages = 'always' | 'expanded';
 
 const KEY = 'pi-oven.settings';
 
-interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages }
-const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always' };
+interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean }
+const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true };
 
 function read(): Saved {
   try {
@@ -26,6 +26,10 @@ class Settings {
   get family() { return this.#s.family; }
   get thinkingOpen() { return this.#s.thinkingOpen; }
   get toolImages() { return this.#s.toolImages; }
+  /** What the row under the message box shows: the context ring, the plan-limit ring, and that ring's number. */
+  get metaContext() { return this.#s.metaContext !== false; }
+  get metaLimits() { return this.#s.metaLimits !== false; }
+  get metaLimitText() { return this.#s.metaLimitText !== false; }
 
   set<K extends keyof Saved>(key: K, value: Saved[K]) {
     this.#s[key] = value;

@@ -209,6 +209,21 @@
         {#if app.notifyOn && notifyPerm !== 'granted'}<p class="note">{canNotify ? t('settings.notifyBlocked') : t('settings.notifyInsecure')}</p>{/if}
       </section>
       <section>
+        <h3>{t('settings.meta.title')}</h3>
+        <label class="row">
+          <span>{t('settings.meta.context')}</span>
+          <input class="switch" type="checkbox" role="switch" checked={settings.metaContext} onchange={(e) => settings.set('metaContext', e.currentTarget.checked)} />
+        </label>
+        <label class="row">
+          <span>{t('settings.meta.limits')}<small>{t('settings.meta.limitsHint')}</small></span>
+          <input class="switch" type="checkbox" role="switch" checked={settings.metaLimits} onchange={(e) => settings.set('metaLimits', e.currentTarget.checked)} />
+        </label>
+        <label class="row">
+          <span>{t('settings.meta.limitText')}</span>
+          <input class="switch" type="checkbox" role="switch" checked={settings.metaLimitText} disabled={!settings.metaLimits} onchange={(e) => settings.set('metaLimitText', e.currentTarget.checked)} />
+        </label>
+      </section>
+      <section>
         <h3>{t('settings.retry.title')}</h3>
         <label class="row">
           <span>{t('long.name')}<small>{t('settings.retry.hint')}</small></span>

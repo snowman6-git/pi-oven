@@ -74,6 +74,9 @@ pub struct Config {
 
     #[arg(skip)]
     pub retry_extension_path: Option<PathBuf>,
+
+    #[arg(skip)]
+    pub limits_extension_path: Option<PathBuf>,
 }
 
 /// The command line in the terminal's language: Korean help on a Korean locale, English otherwise.
@@ -183,6 +186,7 @@ impl Config {
 
 const PERMISSION_EXT: &str = include_str!("../ext/oven-permission.ts");
 const RETRY_EXT: &str = include_str!("../ext/oven-retry.ts");
+const LIMITS_EXT: &str = include_str!("../ext/oven-limits.ts");
 
 pub fn install_extension() -> Option<PathBuf> {
     install("oven-permission.ts", PERMISSION_EXT)
@@ -190,6 +194,10 @@ pub fn install_extension() -> Option<PathBuf> {
 
 pub fn install_retry_extension() -> Option<PathBuf> {
     install("oven-retry.ts", RETRY_EXT)
+}
+
+pub fn install_limits_extension() -> Option<PathBuf> {
+    install("oven-limits.ts", LIMITS_EXT)
 }
 
 /// Writes a bundled pi extension next to the user's cache so `pi --extension` can load it.

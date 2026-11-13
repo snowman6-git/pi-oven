@@ -190,7 +190,14 @@
       "unavailable": "Not available: the retry extension is not installed on this server."
     },
     "notifyBlocked": "The browser blocks notifications, so only the tab title and a tone tell you. Allow notifications in the browser's site settings.",
-    "notifyInsecure": "Desktop notifications do not work on this address (HTTP), so only the tab title and a tone tell you. Open it over HTTPS or on localhost for desktop notifications."
+    "notifyInsecure": "Desktop notifications do not work on this address (HTTP), so only the tab title and a tone tell you. Open it over HTTPS or on localhost for desktop notifications.",
+    "meta": {
+      "title": "Under the message box",
+      "context": "Context ring",
+      "limits": "Plan limits",
+      "limitsHint": "Shown only for ChatGPT or Claude subscription models.",
+      "limitText": "Plan limit number"
+    }
   },
   "showcase": {
     "paths": {
@@ -839,5 +846,27 @@
     "now": "Try now",
     "stop": "Stop",
     "gaveUp": "100h mode: the request failed all 100 tries. Send a message to try again."
+  },
+  "limits": {
+    "title": "Plan limits",
+    "w5h": "5 hours",
+    "week": "Weekly",
+    "days": {
+      "one": "{n} day",
+      "other": "{n} days"
+    },
+    "hours": {
+      "one": "{n} hour",
+      "other": "{n} hours"
+    },
+    "m": "{m}m",
+    "hm": "{h}h {m}m",
+    "resetIn": "resets in {time}",
+    "resetAt": "resets {date}",
+    "reached": "Limit reached",
+    "asOf": "As of a reply {time}",
+    "showInfo": "Show in Info",
+    "chip": "Plan limits: {text}",
+    "inUse": "in use"
   }
 }

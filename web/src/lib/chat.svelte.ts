@@ -1,4 +1,5 @@
 import { api } from './api';
+import { limits } from './limits.svelte';
 import { orderBatch } from './bgorder';
 import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, fromDetails as todoFromDetails, latestFromItems as todoFromItems, type Task as TodoTask } from '../addons/todo';
 import { Connection } from './connection.svelte';
@@ -875,6 +876,10 @@ export class Chat {
           this.bg = next;
           void this.refreshBgTasks();
           if (wasRunning && next.running === 0) this.host.notify(this, 'done');
+          break;
+        }
+        if (r.statusKey === 'oven-limits') {
+          void limits.refresh();
           break;
         }
         if (r.statusKey === 'oven-permission') {

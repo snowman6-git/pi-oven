@@ -10,6 +10,7 @@
   import FilesTab from './FilesTab.svelte';
   import GitTab from './GitTab.svelte';
   import PointTab from './PointTab.svelte';
+  import LimitsSection from './LimitsSection.svelte';
 
   let { chat }: { chat: Chat } = $props();
 
@@ -74,6 +75,8 @@
       <p class="sub">{ctx ? t('inspector.afterCompact') : t('inspector.noModel')}</p>
     {/if}
   </section>
+
+  <LimitsSection provider={chat.state?.model?.provider} />
 
   {#if chat.stats?.tokens}
     <section>

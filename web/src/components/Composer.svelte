@@ -17,7 +17,7 @@
 
   let { chat }: { chat: Chat } = $props();
 
-  type Menu = 'plus' | 'perm' | 'model' | 'think' | 'ctx' | null;
+  type Menu = 'plus' | 'perm' | 'model' | 'think' | 'ctx' | 'limit' | null;
 
   let text = $state('');
   let images = $state<ImagePart[]>([]);

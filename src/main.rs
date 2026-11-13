@@ -12,6 +12,7 @@ mod models;
 mod pet;
 mod runtime;
 mod sessions;
+mod limits;
 mod retry;
 mod update;
 mod web;
@@ -69,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.extension_path = config::install_extension();
     }
     cfg.retry_extension_path = config::install_retry_extension();
+    cfg.limits_extension_path = config::install_limits_extension();
     let host = cfg.listen_host();
     let cfg = Arc::new(cfg);
     // Off loopback something has to be asked for: with neither given, a token is made up.
@@ -90,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
 
     let router = Router::new()
         .route("/api/info", get(api::info))
+        .route("/api/limits", get(limits::get))
         .route("/api/sessions", get(api::sessions).delete(api::delete_session))
         .route("/api/runtimes", get(api::list_runtimes).post(api::create_runtime))
         .route("/api/runtimes/{id}", delete(api::delete_runtime))

@@ -272,6 +272,7 @@ pub struct Manager {
     /// What pi-updater last offered (its prompt is answered here, not shown in every new session).
     pub updates: Arc<crate::update::Updates>,
     pub long: Arc<Long>,
+    pub limits: Arc<crate::limits::Limits>,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -290,7 +291,8 @@ pub fn now_ms() -> u64 {
 impl Manager {
     pub fn new(cfg: Arc<Config>) -> Arc<Self> {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long })
+        let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -365,7 +367,7 @@ impl Manager {
         if let Some(t) = &req.thinking {
             cmd.arg("--thinking").arg(t);
         }
-        if let Some(ext) = &self.cfg.retry_extension_path {
+        for ext in [&self.cfg.retry_extension_path, &self.cfg.limits_extension_path].into_iter().flatten() {
             cmd.arg("--extension").arg(ext);
         }
         if let Some(ext) = &self.cfg.extension_path {
@@ -420,6 +422,7 @@ impl Manager {
             let rt = rt.clone();
             let updates = self.updates.clone();
             let long = self.long.clone();
+            let limits = self.limits.clone();
             tokio::spawn(async move {
                 let mut rd = BufReader::new(stdout);
                 let mut buf = Vec::new();
@@ -443,6 +446,9 @@ impl Manager {
                                     let _ = rt.events.send(Arc::from(r#"{"type":"oven_update"}"#));
                                     continue;
                                 }
+                            }
+                            if let Some(e) = crate::limits::read(&line) {
+                                limits.record(e);
                             }
                             // The page hears of a failure first, so the first one still gets its notice; a run's end
                             // comes after the wait is settled, so the page knows whether it was a real end.

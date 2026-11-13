@@ -7,9 +7,14 @@
   import { S } from '../lib/strings';
   import { compactNumber } from '../lib/util';
   import ContextRing from './ContextRing.svelte';
+  import LimitRing from './LimitRing.svelte';
+  import { settings } from '../lib/settings.svelte';
+  import { limits } from '../lib/limits.svelte';
+  import { halves, planName, providerName, resetDate, until, untilShort, windowName, type WindowNow } from '../lib/limits';
+  import { relativeTime } from '../lib/util';
   import Icon from './Icon.svelte';
 
-  type Menu = 'plus' | 'perm' | 'model' | 'think' | 'ctx' | null;
+  type Menu = 'plus' | 'perm' | 'model' | 'think' | 'ctx' | 'limit' | null;
 
   // The row under the message box: permission, model, thinking level, context. `menu` is shared with the attach menu
   // in Composer so that only one is open at a time.
@@ -28,6 +33,20 @@
   const sameModel = (m: ModelInfo) => m.id === model?.id && m.provider === model?.provider;
   const ctx = $derived(chat.stats?.contextUsage);
   const pct = $derived(chat.contextPercent);
+
+  // The subscription behind the chosen model, when the provider has sent its limits (none for local or API-key models).
+  $effect(() => limits.ensure());
+  const lim = $derived(model ? limits.items[model.provider] : undefined);
+  const half = $derived(lim ? halves(lim, limits.now) : {});
+  const used = $derived.by(() => {
+    const { short, long } = half;
+    const full = short?.reached ? short : long?.reached ? long : undefined;
+    if (full) return { text: full.resetAt ? untilShort(full.resetAt, limits.now) : t('limits.reached'), level: 'full' };
+    const w = short ?? long;
+    return w ? { text: `${Math.round(w.used)}%`, level: w.level } : null;
+  });
+  const resetText = (w: WindowNow) =>
+    w.resetAt == null ? '' : w.minutes > 1440 ? t('limits.resetAt', { date: resetDate(w.resetAt, false) }) : t('limits.resetIn', { time: until(w.resetAt, limits.now) });
 
   const perms: { id: Permission }[] = [{ id: 'auto' }, { id: 'manual' }];
   const permLabel = $derived(t(`meta.perm.${chat.permission}.label`));
@@ -99,6 +118,33 @@
     </div>
   {/if}
 
+  {#if lim && used && settings.metaLimits}
+    <div class="pop" use:dismiss={() => { if (menu === 'limit') menu = null; }}>
+      <button class="chip limit {used.level}" type="button" aria-label={t('limits.chip', { text: used.text })} aria-expanded={menu === 'limit'} onclick={() => toggle('limit')}>
+        <LimitRing short={half.short} long={half.long} />{#if settings.metaLimitText}{used.text}{/if}
+      </button>
+      {#if menu === 'limit'}
+        <div class="sheet limitsheet">
+          <b>{t('limits.title')} <small>· {providerName(lim.provider)} {planName(lim.plan)}</small></b>
+          <div class="halves">
+            {#each [half.long, half.short] as w, i (i)}
+              {#if w}
+                <div class:full={w.reached}>
+                  <small>{windowName(w.minutes)}</small>
+                  <span class="pctbig">{w.reached ? t('limits.reached') : `${Math.round(w.used)}%`}</span>
+                  <small>{resetText(w)}</small>
+                </div>
+              {/if}
+            {/each}
+          </div>
+          <small>{t('limits.asOf', { time: relativeTime(lim.at) })}</small>
+          <button class="btn" type="button" onclick={() => ((menu = null), app.openInspector('info'))}>{t('limits.showInfo')}</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  {#if settings.metaContext}
   <div class="pop" use:dismiss={() => { if (menu === 'ctx') menu = null; }}>
     <button class="chip ring" type="button" aria-label="{S.context} {pct != null ? Math.round(pct) + '%' : ''}" aria-expanded={menu === 'ctx'} onclick={() => toggle('ctx')}>
       <ContextRing percent={pct} />
@@ -116,6 +162,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 </div>
 
 <style>
@@ -180,6 +227,57 @@
     font-weight: 750;
     letter-spacing: -0.03em;
     line-height: 1.1;
+  }
+  .chip.limit {
+    gap: 5px;
+    padding: 0 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .chip.limit.warm {
+    color: var(--heat);
+  }
+  .chip.limit.full {
+    color: var(--bad);
+  }
+  .limitsheet {
+    min-width: 300px;
+    gap: 8px;
+    padding: 12px;
+  }
+  .limitsheet b small {
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+  .halves {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .halves > div {
+    display: grid;
+    gap: 2px;
+    align-content: start;
+  }
+  .halves > div + div {
+    border-left: 1px solid var(--rule);
+    padding-left: 10px;
+  }
+  .halves > div:first-child:not(:only-child) {
+    padding-right: 10px;
+  }
+  .halves .pctbig {
+    font-size: 24px;
+  }
+  .halves .full .pctbig {
+    color: var(--bad);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+  .limitsheet small {
+    color: var(--ink-3);
+  }
+  .limitsheet .btn {
+    margin-top: 4px;
+    justify-content: center;
   }
   .ctxsheet .btn {
     margin-top: 8px;

@@ -1,4 +1,5 @@
 import type { BgTask, DirListing, RuntimeInfo, SessionSummary } from './protocol';
+import type { LimitWire } from './limits';
 import type { Entry } from './tree';
 
 import { serverUrl } from './settings.svelte';
@@ -165,6 +166,7 @@ export const api = {
   updates: () => call<UpdateStatus>('/api/update'),
   runUpdate: (target: UpdateTarget) =>
     call<UpdateResult>('/api/update', { method: 'POST', body: JSON.stringify({ target }) }),
+  limits: () => call<{ items: LimitWire[] }>('/api/limits'),
   longMode: () => call<LongMode>('/api/retry'),
   setLongMode: (enabled: boolean) =>
     call<LongMode>('/api/retry', { method: 'PUT', body: JSON.stringify({ enabled }) }),
