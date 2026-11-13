@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api, type OvenRelease } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
+  import { clock } from '../lib/util';
+  import Markdown from './Markdown.svelte';
 
   // pi-oven updating itself: check the newest GitHub release by hash, then replace and restart with the same arguments.
   let { version }: { version: string } = $props();
@@ -54,6 +56,12 @@
     {#if rel?.upToDate}<p class="state">{t('oven.upToDate', { tag: rel.tag })}</p>{/if}
     <button class="btn" type="button" disabled={phase === 'checking'} onclick={check}>{phase === 'checking' ? t('oven.checking') : t('oven.check')}</button>
   {/if}
+  {#if rel?.notes && phase !== 'restarting'}
+    <details class="notes" open={!rel.upToDate}>
+      <summary>{t('oven.notes')}{#if rel.updatedAt}<span class="when">{t('oven.builtAt', { date: new Date(rel.updatedAt).toLocaleDateString(), time: clock(Date.parse(rel.updatedAt)) })}</span>{/if}</summary>
+      <div class="body"><Markdown source={rel.notes} /></div>
+    </details>
+  {/if}
   {#if error}<p class="note err" role="alert">{error}</p>{/if}
 </div>
 
@@ -90,5 +98,29 @@
   }
   .err {
     color: var(--bad);
+  }
+  .notes {
+    width: 100%;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+  }
+  .notes summary {
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .when {
+    margin-left: 8px;
+    font-weight: 400;
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+  .notes .body {
+    max-height: 340px;
+    overflow: auto;
+    padding: 0 12px 10px;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
   }
 </style>

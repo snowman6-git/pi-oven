@@ -69,7 +69,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 /** The newest release's server binary against the one running (first 12 hex digits of SHA-256). */
-export interface OvenRelease { tag: string; current: string | null; latest: string; upToDate: boolean; updatedAt: string }
+export interface OvenRelease { tag: string; current: string | null; latest: string; upToDate: boolean; updatedAt: string; notes: string }
 
 export interface About {
   pi: string | null;

@@ -19,6 +19,7 @@ use tokio::process::Command;
 use crate::{api::fail, AppState};
 
 pub const REPO: &str = "snowman6-git/pi-oven";
+const MAX_NOTES: usize = 40_000;
 
 /// The running binary's path and hash, taken at start: once the file is replaced, /proc/self/exe no longer says.
 static EXE: OnceLock<Option<(PathBuf, String)>> = OnceLock::new();
@@ -86,6 +87,8 @@ pub struct Staged {
     pub hash: String,
     pub updated_at: String,
     pub bin: PathBuf,
+    /// The release notes (Markdown), as written on GitHub.
+    pub notes: String,
 }
 
 fn work_dir() -> PathBuf {
@@ -133,7 +136,8 @@ pub async fn fetch_latest() -> Result<Staged, String> {
         return Err("pi-oven in the archive is not a file".into());
     }
     let hash = sha256_file(&bin).map_err(|e| e.to_string())?;
-    Ok(Staged { tag, hash, updated_at: server["updated_at"].as_str().unwrap_or("").to_owned(), bin })
+    let notes: String = rel["body"].as_str().unwrap_or("").chars().take(MAX_NOTES).collect();
+    Ok(Staged { tag, hash, updated_at: server["updated_at"].as_str().unwrap_or("").to_owned(), bin, notes })
 }
 
 /// Put `new` where the running binary is: a temporary file next to it, the old file's mode, then rename.
@@ -180,6 +184,7 @@ fn view(s: &Staged) -> serde_json::Value {
         "latest": &s.hash[..12],
         "upToDate": current == s.hash,
         "updatedAt": s.updated_at,
+        "notes": s.notes,
     })
 }
 
@@ -251,6 +256,14 @@ pub async fn cli(args: &[String]) -> i32 {
         return 0;
     }
     if check_only {
+        if !s.notes.trim().is_empty() {
+            println!();
+            for l in s.notes.lines().take(20) {
+                println!("  {l}");
+            }
+            println!("  …  https://github.com/{REPO}/releases/tag/{}", s.tag);
+            println!();
+        }
         println!("{}", tr!("업데이트가 있습니다. `pi-oven update`로 설치합니다.", "An update is available. Install it with `pi-oven update`."));
         return 0;
     }
