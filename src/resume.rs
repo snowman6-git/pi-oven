@@ -1,4 +1,4 @@
-//! "Zero Standby": when a subscription's usage limit stops a run, send a chosen message (default "계속해")
+//! "Zero-Standby": when a subscription's usage limit stops a run, send a chosen message (default "계속해")
 //! once the limit has reset, so the work carries on without anyone at the keyboard.
 //!
 //! pi does not retry a usage limit (it resets in hours), so the run just ends with that error. The server sees it,
@@ -25,6 +25,8 @@ pub const EARLY_RETRY_MS: u64 = 60_000;
 pub const EARLY_WINDOW_MS: u64 = 10 * 60_000;
 /// When nothing says when the limit resets: look again in an hour.
 const FALLBACK_MS: u64 = 60 * 60_000;
+/// Windows up to a day are worth waiting for (the 5-hour one); a weekly limit is not.
+pub const SHORT_WINDOW_MAX: u32 = 24 * 60;
 /// A message that runs into the limit again waits again, but not forever.
 pub const MAX_TRIES: u32 = 10;
 const MAX_TEXT: usize = 2000;

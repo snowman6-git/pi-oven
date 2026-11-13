@@ -1,5 +1,6 @@
 import { api } from './api';
 import { limits } from './limits.svelte';
+import { resetDate, windowName } from './limits';
 import { orderBatch } from './bgorder';
 import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, fromDetails as todoFromDetails, latestFromItems as todoFromItems, type Task as TodoTask } from '../addons/todo';
 import { Connection } from './connection.svelte';
@@ -629,6 +630,7 @@ export class Chat {
         this.#setResume(rec.state);
         void limits.refresh(); // a limit just hit marks its window as used up
         if (rec.gaveUp) this.notice('error', t('resume.gaveUp'));
+        if (rec.skipped) this.notice('warn', t('resume.skippedLong', { window: windowName(rec.skipped.window), date: resetDate(Date.now() + rec.skipped.inMs) }));
         break;
       case 'oven_long':
         this.#setLong(rec.state);

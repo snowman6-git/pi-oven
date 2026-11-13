@@ -900,18 +900,19 @@
     "leftPct": "{n}% left"
   },
   "resume": {
-    "name": "Zero Standby",
+    "name": "Zero-Standby",
     "title": "Plan limits",
     "hint": "When the 5-hour limit stops a run, the message below is sent once it resets so the work carries on. Runs on the server, with every window closed.",
     "textLabel": "Message to send",
     "default": "계속해",
     "now": "Send now",
-    "gaveUp": "Zero Standby: the limit was still hit after resetting, so it stopped.",
+    "gaveUp": "Zero-Standby: the limit was still hit after resetting, so it stopped.",
     "tipWindow": "Sent when the {window} limit resets at {clock}",
     "tip": "Sent when the limit resets at {clock}",
     "tipGuess": "Reset time unknown: tries in an hour",
     "reached": "Limit reached",
     "about": "about",
-    "then": "then \"{text}\""
+    "then": "then \"{text}\"",
+    "skippedLong": "The {window} limit was hit. It resets {date}, too far off for Zero-Standby to wait."
   }
 }

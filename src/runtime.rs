@@ -152,7 +152,7 @@ pub struct Runtime {
     pet: Arc<crate::pet::PetHub>,
     /// Where this session is in the 100h mode's schedule.
     long: Mutex<Option<Wait>>,
-    /// Waiting for a usage limit to reset ("Zero Standby").
+    /// Waiting for a usage limit to reset ("Zero-Standby").
     resume: Mutex<Option<crate::resume::Pending>>,
     /// How many times in a row the continue message ran into the limit again.
     resume_tries: std::sync::atomic::AtomicU32,
@@ -211,6 +211,14 @@ impl Runtime {
     fn resume_begin(self: &Arc<Self>, error: &str, culprit: Option<(u64, u32)>) {
         use std::sync::atomic::Ordering;
         if !self.resume_cfg.get().enabled {
+            return;
+        }
+        // a weekly (or longer) limit is days away: nothing to win by waiting, so the page just says when it resets
+        if let Some((reset_at, minutes)) = culprit.filter(|c| c.1 > crate::resume::SHORT_WINDOW_MAX) {
+            self.resume_tries.store(0, Ordering::Relaxed);
+            self.resume.lock().unwrap().take();
+            let frame = serde_json::json!({ "type": "oven_resume", "state": null, "gaveUp": false, "skipped": { "window": minutes, "inMs": reset_at.saturating_sub(now_ms()) } });
+            let _ = self.events.send(Arc::from(frame.to_string()));
             return;
         }
         let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
@@ -621,7 +629,7 @@ impl Manager {
                             match &event {
                                 Some(Event::Started) => rt.resume_on_start(),
                                 Some(Event::Settled) => rt.resume_on_settled(),
-                                // a usage limit resets in hours: "Zero Standby" waits for it, not 100h mode
+                                // a usage limit resets in hours: "Zero-Standby" waits for it, not 100h mode
                                 Some(Event::Failed(e)) if crate::resume::is_usage_limit(e) && rt.resume_cfg.get().enabled => event = None,
                                 _ => {}
                             }
