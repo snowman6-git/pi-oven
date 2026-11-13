@@ -152,6 +152,11 @@ pub struct Runtime {
     pet: Arc<crate::pet::PetHub>,
     /// Where this session is in the 100h mode's schedule.
     long: Mutex<Option<Wait>>,
+    /// Waiting for a usage limit to reset ("continue after the limit").
+    resume: Mutex<Option<crate::resume::Pending>>,
+    /// How many times in a row the continue message ran into the limit again.
+    resume_tries: std::sync::atomic::AtomicU32,
+    resume_cfg: Arc<crate::resume::Resume>,
     /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
     session_file: Mutex<Option<String>>,
 }
@@ -188,6 +193,96 @@ impl Runtime {
 
     pub fn close(&self) {
         let _ = self.shutdown.send(true);
+    }
+
+    pub fn resume_view(&self) -> Option<serde_json::Value> {
+        let text = self.resume_cfg.get().text;
+        self.resume.lock().unwrap().as_ref().map(|p| p.view(now_ms(), &text))
+    }
+
+    fn resume_publish(&self, gave_up: bool) {
+        let frame = serde_json::json!({ "type": "oven_resume", "state": self.resume_view(), "gaveUp": gave_up });
+        let _ = self.events.send(Arc::from(frame.to_string()));
+    }
+
+    /// A run ended on the usage limit: wait for the reset, then send the chosen message.
+    fn resume_begin(self: &Arc<Self>, error: &str, reset_at: Option<u64>) {
+        use std::sync::atomic::Ordering;
+        if !self.resume_cfg.get().enabled {
+            return;
+        }
+        let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
+        if tries > crate::resume::MAX_TRIES {
+            self.resume_tries.store(0, Ordering::Relaxed);
+            self.resume_publish(true);
+            return;
+        }
+        let pending = crate::resume::Pending { at: crate::resume::due(error, reset_at, now_ms()), tries };
+        let begun = self.resume.lock().unwrap().replace(pending).is_none();
+        self.resume_publish(false);
+        if begun {
+            tokio::spawn(self.clone().resume_clock());
+        }
+    }
+
+    /// pi started a run. Ours takes the wait away before it sends, so a wait still here means the user sent something.
+    fn resume_on_start(&self) {
+        if self.resume.lock().unwrap().take().is_some() {
+            self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
+            self.resume_publish(false);
+        }
+    }
+
+    /// A run that ends with nothing waiting got through: the count starts again.
+    fn resume_on_settled(&self) {
+        if self.resume.lock().unwrap().is_none() {
+            self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    async fn resume_clock(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if *self.shutdown.borrow() {
+                return;
+            }
+            let fire = {
+                let mut g = self.resume.lock().unwrap();
+                let Some(p) = g.as_ref() else { return };
+                if !self.resume_cfg.get().enabled {
+                    *g = None;
+                    drop(g);
+                    self.resume_publish(false);
+                    return;
+                }
+                if now_ms() >= p.at {
+                    self.resume_tries.store(p.tries, std::sync::atomic::Ordering::Relaxed);
+                    *g = None;
+                    true
+                } else {
+                    false
+                }
+            };
+            if fire {
+                let text = self.resume_cfg.get().text;
+                let _ = self.stdin_tx.send(serde_json::json!({ "type": "prompt", "message": text }).to_string()).await;
+                self.resume_publish(false);
+                return;
+            }
+        }
+    }
+
+    pub fn resume_now(&self) {
+        if let Some(p) = self.resume.lock().unwrap().as_mut() {
+            p.at = now_ms();
+        }
+    }
+
+    pub fn resume_stop(&self) {
+        if self.resume.lock().unwrap().take().is_some() {
+            self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
+            self.resume_publish(false);
+        }
     }
 
     pub fn long_view(&self) -> Option<serde_json::Value> {
@@ -275,6 +370,7 @@ pub struct Manager {
     pub updates: Arc<crate::update::Updates>,
     pub long: Arc<Long>,
     pub limits: Arc<crate::limits::Limits>,
+    pub resume: Arc<crate::resume::Resume>,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -304,7 +400,8 @@ impl Manager {
     pub fn new(cfg: Arc<Config>) -> Arc<Self> {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits })
+        let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -465,6 +562,9 @@ impl Manager {
             pet: self.pet.clone(),
             long: Mutex::new(None),
             session_file: Mutex::new(None),
+            resume: Mutex::new(None),
+            resume_tries: Default::default(),
+            resume_cfg: self.resume.clone(),
         });
         self.pet.attach(rt.clone());
 
@@ -506,7 +606,15 @@ impl Manager {
                             }
                             // The page hears of a failure first, so the first one still gets its notice; a run's end
                             // comes after the wait is settled, so the page knows whether it was a real end.
-                            let event = retry::read(&line);
+                            let mut event = retry::read(&line);
+                            match &event {
+                                Some(Event::Started) => rt.resume_on_start(),
+                                Some(Event::Settled) => rt.resume_on_settled(),
+                                // a usage limit resets in hours: "continue after the limit" waits for it, not 100h mode
+                                Some(Event::Failed(e)) if crate::resume::is_usage_limit(e) && rt.resume_cfg.get().enabled => event = None,
+                                _ => {}
+                            }
+                            let limit = crate::resume::limit_error(&line);
                             let failed = matches!(event, Some(Event::Failed(_)));
                             let event = match event {
                                 Some(e) if !failed => {
@@ -522,6 +630,10 @@ impl Manager {
                             }
                             if let Some(e) = event {
                                 rt.long_event(e, &long);
+                            }
+                            if let Some((error, provider)) = limit {
+                                let reset_at = limits.reset_of(provider.as_deref(), now_ms());
+                                rt.resume_begin(&error, reset_at);
                             }
                         }
                     }

@@ -22,6 +22,7 @@ export class HttpError extends Error {
 
 /** The 100h mode's switch. `available` is false when the server has no retry extension. */
 export interface LongMode { enabled: boolean; available: boolean }
+export interface ResumeSettings { enabled: boolean; text: string }
 
 /** One saved login per server: switching to another address must not send it this one's token. The page's own
     server keeps the plain key, so a login saved before this still works. */
@@ -172,6 +173,10 @@ export const api = {
   runUpdate: (target: UpdateTarget) =>
     call<UpdateResult>('/api/update', { method: 'POST', body: JSON.stringify({ target }) }),
   limits: () => call<{ items: LimitWire[] }>('/api/limits'),
+  resumeSettings: () => call<ResumeSettings>('/api/resume'),
+  setResumeSettings: (s: ResumeSettings) => call<ResumeSettings>('/api/resume', { method: 'PUT', body: JSON.stringify(s) }),
+  resumeAct: (id: string, action: 'now' | 'stop') =>
+    call<void>(`/api/runtimes/${id}/resume`, { method: 'POST', body: JSON.stringify({ action }) }),
   longMode: () => call<LongMode>('/api/retry'),
   setLongMode: (enabled: boolean) =>
     call<LongMode>('/api/retry', { method: 'PUT', body: JSON.stringify({ enabled }) }),
@@ -191,6 +196,12 @@ export const api = {
     call<DirListing>('/api/fs/mkdir', { method: 'POST', body: JSON.stringify({ parent, name }) }),
   browse: (path?: string, hidden = false) =>
     call<DirListing>(`/api/fs?${new URLSearchParams({ ...(path ? { path } : {}), hidden: String(hidden) })}`),
+  /** An image file's bytes, for an `<img>` (which cannot send the token in a header). `v` busts the cache. */
+  rawUrl(id: string, path: string, v = 0) {
+    const base = (serverUrl.value || location.origin).replace(/\/+$/, '');
+    const q = new URLSearchParams({ path, v: String(v), ...(auth.token ? { token: auth.token } : {}) });
+    return `${base}/api/runtimes/${id}/files/raw?${q}`;
+  },
   wsUrl(id: string) {
     const base = new URL(serverUrl.value || location.origin);
     const proto = base.protocol === 'https:' ? 'wss' : 'ws';

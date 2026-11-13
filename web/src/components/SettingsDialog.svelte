@@ -4,7 +4,7 @@
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
-  import { api, auth, type LongMode } from '../lib/api';
+  import { api, auth, type LongMode, type ResumeSettings } from '../lib/api';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
   import ModelManager from './ModelManager.svelte';
@@ -30,6 +30,16 @@
   let longMode = $state<LongMode | null>(null);
   let longError = $state('');
   $effect(() => { api.longMode().then((m) => (longMode = m)).catch((e) => (longError = (e as Error).message)); });
+  let resumeSet = $state<ResumeSettings | null>(null);
+  let resumeText = $state('');
+  let resumeError = $state('');
+  $effect(() => { api.resumeSettings().then((s) => ((resumeSet = s), (resumeText = s.text))).catch((e) => (resumeError = (e as Error).message)); });
+  async function saveResume(enabled: boolean, text: string) {
+    resumeError = '';
+    const clean = text.trim() || t('resume.default');
+    try { resumeSet = await api.setResumeSettings({ enabled, text: clean }); resumeText = resumeSet.text; }
+    catch (e) { resumeError = (e as Error).message; }
+  }
   async function toggleLong(box: HTMLInputElement) {
     longError = '';
     try { longMode = await api.setLongMode(box.checked); }
@@ -231,6 +241,20 @@
         </label>
         {#if longMode && !longMode.available}<p class="note">{t('settings.retry.unavailable')}</p>{/if}
         {#if longError}<p class="note err">{longError}</p>{/if}
+      </section>
+      <section>
+        <h3>{t('resume.title')}</h3>
+        <label class="row">
+          <span>{t('resume.name')}<small>{t('resume.hint')}</small></span>
+          <input class="switch" type="checkbox" role="switch" disabled={!resumeSet} checked={resumeSet?.enabled ?? false} onchange={(e) => saveResume(e.currentTarget.checked, resumeText)} />
+        </label>
+        <label class="textrow">
+          <span>{t('resume.textLabel')}</span>
+          <input class="field" type="text" maxlength="2000" disabled={!resumeSet?.enabled} bind:value={resumeText} placeholder={t('resume.default')}
+            onchange={() => resumeSet && saveResume(resumeSet.enabled, resumeText)}
+            onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) (e.currentTarget as HTMLInputElement).blur(); }} />
+        </label>
+        {#if resumeError}<p class="note err">{resumeError}</p>{/if}
       </section>
       {:else if tab === 'pins'}
       <section>
@@ -555,5 +579,15 @@
     font-size: 12px;
     line-height: 1.45;
     color: var(--ink-3);
+  }
+  .textrow {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  .textrow .field {
+    width: 100%;
+    box-sizing: border-box;
   }
 </style>

@@ -85,6 +85,8 @@ Open the server address in a browser, or enter the server address and token once
 - **Pins**: addresses and tokens from the chat in one place, plus your own regex rules.
 - **Adding models**: an endpoint and key are saved to pi's `models.json` (backed up first).
 - **Plan limits**: a ChatGPT subscription's 5-hour and weekly usage, as a chip under the message box and cards in the Info tab (from the numbers that come with each reply)
+- **Continue after the limit**: when a ChatGPT usage limit stops a run, a chosen message (default "계속해") is sent once it resets
+- **Image preview**: PNG, JPG, GIF, WebP, SVG and the like open as pictures from the file explorer
 - **100h mode**: when a temporary API error has failed 3 times, tries again every 60 minutes, up to 100 times. The server keeps going with every window closed; turn it off in Settings → Chat.
 - **Showcase mode**: for sharing your screen, blurs or replaces paths, addresses, tokens, file names and more.
 - **Languages**: Korean and English. It follows the browser language and can be changed in Settings or with the globe button under the session list. Server errors follow the page's language; the terminal messages and `--help` follow the system locale (`LANG`). Adding one JSON file (`web/src/locales/<code>.json`) adds a language ([how](web/src/locales/README.md)).

@@ -26,6 +26,7 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>) {
         "runtime": rt.info,
         "stderrTail": rt.stderr_tail(),
         "long": rt.long_view(),
+        "resume": rt.resume_view(),
     });
     if sock.send(Message::text(hello.to_string())).await.is_err() {
         return;

@@ -23,7 +23,15 @@ export interface Doc {
   saving: boolean;
   /** Bumped whenever `base` is replaced from disk, so the editor knows to start over from it. */
   version: number;
+  /** Shown as a picture, not text: nothing to edit or save. */
+  image?: boolean;
+  /** For an image: its size on disk. */
+  size?: number;
 }
+
+const IMAGE = /\.(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i;
+/** Files the editor shows as pictures. An SVG is a picture too (its text can still be opened elsewhere). */
+export const isImage = (path: string) => IMAGE.test(path);
 
 /** What is selected in the file in view, for sending to pi along with a message. */
 export interface Selection {
@@ -110,7 +118,7 @@ export class Editors {
       this.activate(path);
       return;
     }
-    const doc: Doc = { path, name: nameOf(path), loading: true, error: null, base: '', rev: null, eol: 'lf', bom: false, dirty: false, conflict: null, saving: false, version: 0 };
+    const doc: Doc = { path, name: nameOf(path), loading: true, error: null, base: '', rev: null, eol: 'lf', bom: false, dirty: false, conflict: null, saving: false, version: 0, image: isImage(path) };
     this.docs.push(doc);
     this.activate(path);
     await this.#load(path);
@@ -207,6 +215,7 @@ export class Editors {
   async #load(path: string) {
     const doc = this.get(path);
     if (!doc) return;
+    if (doc.image) return this.#loadImage(doc);
     try {
       const f = await api.readFile(this.runtimeId, path);
       doc.base = f.content;
@@ -231,6 +240,27 @@ export class Editors {
     }
   }
 
+  /** An image is only looked at: its revision says when the picture should be fetched again. */
+  async #loadImage(doc: Doc) {
+    try {
+      const st = (await api.statFiles(this.runtimeId, [doc.path]))[doc.path];
+      if (!st) {
+        doc.error = t('editor.err.e404');
+        doc.missing = true;
+      } else {
+        doc.rev = st.rev;
+        doc.size = st.size;
+        doc.error = null;
+        doc.missing = false;
+        doc.version++;
+      }
+    } catch {
+      doc.error = t('editor.err.read');
+    } finally {
+      doc.loading = false;
+    }
+  }
+
   /** Throw away what was typed and take what the disk has. */
   async reload(path: string) {
     const doc = this.get(path);
@@ -242,7 +272,7 @@ export class Editors {
   async save(path: string, overwrite = false) {
     const doc = this.get(path);
     const text = this.textOf?.(path);
-    if (!doc || doc.saving || doc.error || text == null) return;
+    if (!doc || doc.image || doc.saving || doc.error || text == null) return;
     doc.saving = true;
     try {
       const r = await api.writeFile(this.runtimeId, { path, content: text, rev: doc.rev, overwrite, eol: doc.eol, bom: doc.bom });
@@ -277,6 +307,11 @@ export class Editors {
         if (d.saving) continue;
         const st = now[d.path];
         if (st === undefined) continue;
+        if (d.image) {
+          if (st === null) d.error = t('editor.err.e404');
+          else if (st.rev !== d.rev) { d.rev = st.rev; d.size = st.size; d.version++; }
+          continue;
+        }
         if (st === null) {
           d.conflict = 'deleted';
         } else if (st.rev !== d.rev) {

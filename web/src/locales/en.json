@@ -560,7 +560,8 @@
     "applied": {
       "one": "{name}: applied {n} changed line",
       "other": "{name}: applied {n} changed lines"
-    }
+    },
+    "imageBroken": "This image cannot be shown. The file is damaged or too large (up to 30 MB)."
   },
   "bg": {
     "status": {
@@ -896,5 +897,15 @@
     "inUse": "in use",
     "leftOf": "{name} left",
     "leftPct": "{n}% left"
+  },
+  "resume": {
+    "name": "Continue after the limit",
+    "title": "Plan limits",
+    "hint": "When the 5-hour limit stops a run, the message below is sent once it resets so the work carries on. Runs on the server, with every window closed.",
+    "textLabel": "Message to send",
+    "default": "계속해",
+    "next": "sends \"{text}\" in {time}",
+    "now": "Send now",
+    "gaveUp": "Continue after the limit: the limit was still hit after resetting, so it stopped."
   }
 }

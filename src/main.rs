@@ -14,6 +14,7 @@ mod runtime;
 mod scope;
 mod sessions;
 mod limits;
+mod resume;
 mod retry;
 mod update;
 mod web;
@@ -106,6 +107,8 @@ async fn main() -> anyhow::Result<()> {
     let router = Router::new()
         .route("/api/info", get(api::info))
         .route("/api/limits", get(limits::get))
+        .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
+        .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))
         .route("/api/sessions", get(api::sessions).delete(api::delete_session))
         .route("/api/runtimes", get(api::list_runtimes).post(api::create_runtime))
         .route("/api/runtimes/{id}", delete(api::delete_runtime))
@@ -121,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/runtimes/{id}/git/commit", axum::routing::post(git::commit))
         .route("/api/runtimes/{id}/files", get(files::list).delete(files::delete))
         .route("/api/runtimes/{id}/files/read", get(files::read))
+        .route("/api/runtimes/{id}/files/raw", get(files::raw))
         .route("/api/runtimes/{id}/files/write", axum::routing::put(files::write).layer(axum::extract::DefaultBodyLimit::max(files::MAX_WRITE + 1_000_000)))
         .route("/api/runtimes/{id}/files/create", axum::routing::post(files::create))
         .route("/api/runtimes/{id}/files/rename", axum::routing::post(files::rename))

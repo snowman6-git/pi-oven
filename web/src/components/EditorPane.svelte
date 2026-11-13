@@ -7,6 +7,8 @@
   import type { Chat } from '../lib/chat.svelte';
   import type { Doc } from '../lib/editor.svelte';
   import { merge3 } from '../lib/merge';
+  import { api } from '../lib/api';
+  import { compactNumber } from '../lib/util';
   import Icon from './Icon.svelte';
 
   let { chat, splitOn = false }: { chat: Chat; splitOn?: boolean } = $props();
@@ -34,7 +36,16 @@
     return p ? editors.get(p) : undefined;
   });
   const visible = $derived(!!doc);
-  const ready = $derived(!!doc && !doc.loading && !doc.error);
+  const ready = $derived(!!doc && !doc.loading && !doc.error && !doc.image);
+  const picture = $derived(!!doc && !doc.loading && !doc.error && !!doc.image);
+  let dims = $state<{ w: number; h: number } | null>(null);
+  let broken = $state(false);
+  $effect(() => {
+    doc?.path;
+    doc?.version;
+    dims = null;
+    broken = false;
+  });
 
   onMount(() => {
     let alive = true;
@@ -188,7 +199,17 @@
 
   <div class="body">
     <div class="cm" bind:this={host} class:off={!ready}></div>
-    {#if doc && !ready}
+    {#if doc && picture}
+      <div class="pic" data-priv="files">
+        {#if broken}
+          <p class="msg-inline">{t('editor.imageBroken')}</p>
+        {:else}
+          <img src={api.rawUrl(chat.runtime.id, doc.path, doc.version)} alt={doc.name}
+            onload={(e) => { const i = e.currentTarget as HTMLImageElement; dims = { w: i.naturalWidth, h: i.naturalHeight }; }}
+            onerror={() => (broken = true)} />
+        {/if}
+      </div>
+    {:else if doc && !ready}
       <div class="msg">
         {#if doc.loading}<p>{S.loading}</p>
         {:else}
@@ -198,6 +219,15 @@
       </div>
     {/if}
   </div>
+
+  {#if doc && picture}
+    <footer>
+      <span class="path mono" title={showcase.tip('files', doc.path)} data-priv="files">{doc.path}</span>
+      <span class="grow"></span>
+      {#if dims}<span class="stat">{dims.w} × {dims.h}</span>{/if}
+      {#if doc.size != null}<span class="stat">{compactNumber(doc.size)}B</span>{/if}
+    </footer>
+  {/if}
 
   {#if doc && ready}
     <footer>
@@ -240,6 +270,26 @@
   }
   .cm :global(.cm-editor) {
     height: 100%;
+  }
+  .pic {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    /* a checkerboard, so transparent parts read as transparent */
+    background: repeating-conic-gradient(var(--paper-sunk) 0% 25%, var(--paper) 0% 50%) 50% / 20px 20px;
+  }
+  .pic img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    image-rendering: auto;
+    box-shadow: 0 0 0 1px var(--rule);
+  }
+  .msg-inline {
+    color: var(--ink-2);
   }
   .msg {
     position: absolute;

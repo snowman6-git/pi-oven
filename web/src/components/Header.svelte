@@ -13,7 +13,7 @@
 
   let now = $state(Date.now());
   $effect(() => {
-    if (chat.long?.at == null) return;
+    if (chat.long?.at == null && !chat.resume) return;
     now = Date.now();
     const clock = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(clock);
@@ -80,9 +80,10 @@
   </div>
 </header>
 
-{#if chat.link !== 'open' || chat.compacting || chat.retry || chat.long}
+{#if chat.link !== 'open' || chat.compacting || chat.retry || chat.long || chat.resume}
   {@const long = chat.link === 'open' && !chat.compacting ? chat.long : null}
-  <div class="strip" class:bad={chat.link === 'exited'} class:long role="status">
+  {@const resume = chat.link === 'open' && !chat.compacting && !long ? chat.resume : null}
+  <div class="strip" class:bad={chat.link === 'exited'} class:long={!!long || !!resume} role="status">
     {#if chat.link === 'exited'}
       {S.exited}
       <span class="acts">
@@ -101,6 +102,15 @@
       <span class="acts">
         {#if long.at != null}<button class="btn" type="button" onclick={() => chat.longAct('now')}>{t('long.now')}</button>{/if}
         <button class="btn" type="button" onclick={() => chat.longAct('stop')}>{t('long.stop')}</button>
+      </span>
+    {:else if resume}
+      <span>
+        <b>{t('resume.name')}</b>
+        {t('resume.next', { time: runClock(resume.at - now), text: resume.text })}
+      </span>
+      <span class="acts">
+        <button class="btn" type="button" onclick={() => chat.resumeAct('now')}>{t('resume.now')}</button>
+        <button class="btn" type="button" onclick={() => chat.resumeAct('stop')}>{t('long.stop')}</button>
       </span>
     {:else}{S.retrying} {chat.retry}{/if}
   </div>

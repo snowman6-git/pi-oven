@@ -219,6 +219,60 @@ pub async fn read(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String>
     }
 }
 
+// ── raw (image preview) ──────────────────────────────────────────────────────
+
+const MAX_IMAGE: u64 = 30_000_000;
+
+/// The content type of an image the browser can show, by extension. Nothing else is served raw.
+pub fn image_type(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "svg" => "image/svg+xml",
+        _ => return None,
+    })
+}
+
+/// An image's bytes for the editor's preview. Served so that even an SVG opened on its own runs nothing.
+pub async fn raw(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String>, Query(q): Query<PathQuery>) -> Response {
+    let Some(kind) = image_type(&q.path) else { return fail(StatusCode::UNSUPPORTED_MEDIA_TYPE, "not an image") };
+    let root = match root_of(&app, &id).await {
+        Ok(r) => r,
+        Err((c, m)) => return fail(c, m),
+    };
+    let res = blocking(move || {
+        let p = existing(&root, q.path.trim_matches('/'), false)?;
+        let meta = fs::metadata(&p).map_err(io_fail)?;
+        if !meta.is_file() {
+            return Err((StatusCode::BAD_REQUEST, "not a file"));
+        }
+        if meta.len() > MAX_IMAGE {
+            return Err((StatusCode::PAYLOAD_TOO_LARGE, "too large"));
+        }
+        fs::read(&p).map_err(io_fail)
+    })
+    .await;
+    match res {
+        Ok(bytes) => (
+            [
+                (axum::http::header::CONTENT_TYPE, kind),
+                (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+                (axum::http::header::CONTENT_SECURITY_POLICY, "default-src 'none'; style-src 'unsafe-inline'; sandbox"),
+                (axum::http::header::CACHE_CONTROL, "private, no-cache"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err((c, m)) => fail(c, m),
+    }
+}
+
 // ── write ────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -403,5 +457,18 @@ pub async fn stat(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String>
     match out {
         Ok(v) => Json(v).into_response(),
         Err((c, m)) => fail(c, m),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::image_type;
+
+    #[test]
+    fn only_images_are_served_raw() {
+        assert_eq!(image_type("a/b.PNG"), Some("image/png"));
+        assert_eq!(image_type("x.svg"), Some("image/svg+xml"));
+        assert_eq!(image_type("x.html"), None);
+        assert_eq!(image_type("png"), None);
     }
 }

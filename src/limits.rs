@@ -113,6 +113,22 @@ impl Limits {
         }
     }
 
+    /// When a used-up window of this provider resets (the latest, if more than one is used up).
+    pub fn reset_of(&self, provider: Option<&str>, now: u64) -> Option<u64> {
+        let map = self.map.lock().unwrap();
+        let entries: Vec<&Entry> = match provider {
+            Some(p) => map.get(p).into_iter().collect(),
+            None => map.values().collect(),
+        };
+        entries
+            .iter()
+            .flat_map(|e| e.windows.iter())
+            .filter(|w| w.used >= 99.5)
+            .filter_map(|w| w.reset_at)
+            .filter(|&t| t > now)
+            .max()
+    }
+
     pub fn view(&self, now: u64) -> serde_json::Value {
         let map = self.map.lock().unwrap();
         serde_json::json!({ "items": map.values().map(|e| e.view(now)).collect::<Vec<_>>() })

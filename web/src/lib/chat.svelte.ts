@@ -79,6 +79,8 @@ export class Chat {
   retry = $state<string | null>(null);
   /** The 100h mode's place for this session: `at` is when the next try is due, empty while one is under way. */
   long = $state<{ attempt: number; max: number; at: number | null; error: string } | null>(null);
+  /** Waiting for a usage limit to reset, to send `text` then (kept by the server). */
+  resume = $state<{ at: number; text: string; tries: number } | null>(null);
   loaded = $state(false);
   queue = $state<{ steering: string[]; followUp: string[] }>({ steering: [], followUp: [] });
   commands = $state<SlashCommand[]>([]);
@@ -604,6 +606,14 @@ export class Chat {
     this.long = s ? { attempt: s.attempt, max: s.max, at: s.inMs == null ? null : Date.now() + s.inMs, error: s.error } : null;
   }
 
+  #setResume(s: { inMs: number; text: string; tries: number } | null | undefined) {
+    this.resume = s ? { at: Date.now() + s.inMs, text: s.text, tries: s.tries } : null;
+  }
+
+  async resumeAct(action: 'now' | 'stop') {
+    try { await api.resumeAct(this.runtime.id, action); } catch (e) { this.notice('error', (e as Error).message); }
+  }
+
   async longAct(action: 'now' | 'stop') {
     try { await api.longAct(this.runtime.id, action); } catch (e) { this.notice('error', (e as Error).message); }
   }
@@ -613,6 +623,11 @@ export class Chat {
       case 'oven_attached':
         this.stderr = rec.stderrTail ?? [];
         this.#setLong(rec.long);
+        this.#setResume(rec.resume);
+        break;
+      case 'oven_resume':
+        this.#setResume(rec.state);
+        if (rec.gaveUp) this.notice('error', t('resume.gaveUp'));
         break;
       case 'oven_long':
         this.#setLong(rec.state);
@@ -624,6 +639,7 @@ export class Chat {
       case 'oven_exit':
         this.running = false;
         this.long = null;
+        this.resume = null;
         this.notice('error', t('chatmsg.exited', { code: rec.code != null ? t('chatmsg.code', { n: rec.code }) : '' }));
         this.host.changed();
         this.host.exited(this);
@@ -634,6 +650,7 @@ export class Chat {
       case 'oven_gone':
         this.running = false;
         this.long = null;
+        this.resume = null;
         this.host.gone(this);
         break;
       case 'oven_lagged':
