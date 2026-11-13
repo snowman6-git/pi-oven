@@ -89,6 +89,8 @@ pub struct Staged {
     pub bin: PathBuf,
     /// The release notes (Markdown), as written on GitHub.
     pub notes: String,
+    /// The archive's hash from SHA256SUMS (what the light check compares).
+    pub archive: String,
 }
 
 fn work_dir() -> PathBuf {
@@ -137,7 +139,7 @@ pub async fn fetch_latest() -> Result<Staged, String> {
     }
     let hash = sha256_file(&bin).map_err(|e| e.to_string())?;
     let notes: String = rel["body"].as_str().unwrap_or("").chars().take(MAX_NOTES).collect();
-    Ok(Staged { tag, hash, updated_at: server["updated_at"].as_str().unwrap_or("").to_owned(), bin, notes })
+    Ok(Staged { tag, hash, updated_at: server["updated_at"].as_str().unwrap_or("").to_owned(), bin, notes, archive: expected })
 }
 
 /// Put `new` where the running binary is: a temporary file next to it, the old file's mode, then rename.
@@ -170,10 +172,116 @@ pub fn reexec() -> std::io::Error {
     std::process::Command::new(exe).args(std::env::args_os().skip(1)).exec()
 }
 
-#[derive(Default)]
 pub struct SelfUpdate {
     busy: Arc<tokio::sync::Mutex<()>>,
     staged: Mutex<Option<Staged>>,
+    /// The background check (on unless turned off in Settings → About).
+    auto: std::sync::atomic::AtomicBool,
+    /// What the last check found, kept in a file so a restart need not download again.
+    known: Mutex<Option<Known>>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Known {
+    pub tag: String,
+    /// The archive's hash in SHA256SUMS, and the hash of the binary inside it.
+    pub archive: String,
+    pub binary: String,
+    pub checked_at: u64,
+}
+
+impl Default for SelfUpdate {
+    fn default() -> Self {
+        let dir = crate::config::cache_dir();
+        let auto = std::fs::read_to_string(dir.join("update-check")).map(|v| v.trim() != "off").unwrap_or(true);
+        let known = std::fs::read(dir.join("update-known.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        Self { busy: Default::default(), staged: Default::default(), auto: auto.into(), known: Mutex::new(known) }
+    }
+}
+
+impl SelfUpdate {
+    fn remember(&self, s: &Staged) {
+        let k = Known { tag: s.tag.clone(), archive: s.archive.clone(), binary: s.hash.clone(), checked_at: crate::runtime::now_ms() };
+        let dir = crate::config::cache_dir();
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let _ = std::fs::write(dir.join("update-known.json"), serde_json::to_vec(&k).unwrap_or_default());
+        }
+        *self.known.lock().unwrap() = Some(k);
+    }
+
+    /// Whether the newest known release differs from the running binary.
+    pub fn status(&self) -> serde_json::Value {
+        let k = self.known.lock().unwrap().clone();
+        let current = exe().map(|(_, h)| h.clone());
+        serde_json::json!({
+            "auto": self.auto.load(std::sync::atomic::Ordering::Relaxed),
+            "available": match (&k, &current) { (Some(k), Some(c)) => k.binary != *c, _ => false },
+            "tag": k.as_ref().map(|k| k.tag.clone()),
+            "latest": k.as_ref().map(|k| k.binary[..12].to_owned()),
+            "current": current.map(|c| c[..12].to_owned()),
+            "checkedAt": k.as_ref().map(|k| k.checked_at),
+        })
+    }
+
+    /// The light check: only SHA256SUMS, unless the archive changed since last time (then a full, checked download).
+    async fn light_check(&self) -> Result<(), String> {
+        let Ok(_one) = self.busy.try_lock() else { return Ok(()) };
+        let suffix = asset_suffix().ok_or("no release file for this system")?;
+        let rel: serde_json::Value = serde_json::from_slice(&curl(&format!("https://api.github.com/repos/{REPO}/releases/latest"), None).await?).map_err(|e| e.to_string())?;
+        let assets = rel["assets"].as_array().cloned().unwrap_or_default();
+        let name_of = |pred: &dyn Fn(&str) -> bool| assets.iter().find(|a| a["name"].as_str().is_some_and(pred)).cloned();
+        let server = name_of(&|n| n.starts_with("server-pi-oven-") && n.ends_with(suffix)).ok_or("no server file")?;
+        let sums = name_of(&|n| n == "SHA256SUMS").ok_or("no SHA256SUMS")?;
+        let sums_url = sums["browser_download_url"].as_str().unwrap_or_default();
+        if !sums_url.starts_with("https://") {
+            return Err("unexpected download address".into());
+        }
+        let text = String::from_utf8_lossy(&curl(sums_url, None).await?).into_owned();
+        let archive = sum_for(&text, server["name"].as_str().unwrap_or_default()).ok_or("SHA256SUMS does not list the server file")?;
+        let same = self.known.lock().unwrap().as_ref().is_some_and(|k| k.archive == archive);
+        if same {
+            if let Some(k) = self.known.lock().unwrap().as_mut() {
+                k.checked_at = crate::runtime::now_ms();
+            }
+            return Ok(());
+        }
+        let s = fetch_latest().await?;
+        self.remember(&s);
+        *self.staged.lock().unwrap() = Some(s);
+        Ok(())
+    }
+
+    /// Runs for the life of the server: shortly after start, then every 6 hours.
+    pub async fn watch(self: Arc<Self>) {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        loop {
+            if self.auto.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Err(e) = self.light_check().await {
+                    tracing::debug!("update check: {e}");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+        }
+    }
+}
+
+pub async fn status(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    Json(app.self_update.status())
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetAuto {
+    enabled: bool,
+}
+
+pub async fn set_auto(State(app): State<Arc<AppState>>, Json(req): Json<SetAuto>) -> Json<serde_json::Value> {
+    app.self_update.auto.store(req.enabled, std::sync::atomic::Ordering::Relaxed);
+    let dir = crate::config::cache_dir();
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::write(dir.join("update-check"), if req.enabled { "on" } else { "off" });
+    }
+    Json(app.self_update.status())
 }
 
 fn view(s: &Staged) -> serde_json::Value {
@@ -195,6 +303,7 @@ pub async fn check(State(app): State<Arc<AppState>>) -> Response {
     match fetch_latest().await {
         Ok(s) => {
             let v = view(&s);
+            u.remember(&s);
             *u.staged.lock().unwrap() = Some(s);
             Json(v).into_response()
         }

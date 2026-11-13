@@ -111,10 +111,13 @@ async fn main() -> anyhow::Result<()> {
         root: cfg.root.clone(),
         self_update: Default::default(),
     });
+    tokio::spawn(app.self_update.clone().watch());
 
     let router = Router::new()
         .route("/api/info", get(api::info))
         .route("/api/oven/update", get(selfupdate::check).post(selfupdate::apply))
+        .route("/api/oven/status", get(selfupdate::status))
+        .route("/api/oven/auto", axum::routing::put(selfupdate::set_auto))
         .route("/api/limits", get(limits::get))
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))

@@ -69,6 +69,9 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 /** The newest release's server binary against the one running (first 12 hex digits of SHA-256). */
+/** What the server's background check last found. */
+export interface OvenStatus { auto: boolean; available: boolean; tag: string | null; latest: string | null; current: string | null; checkedAt: number | null }
+
 export interface OvenRelease { tag: string; current: string | null; latest: string; upToDate: boolean; updatedAt: string; notes: string }
 
 export interface About {
@@ -160,6 +163,8 @@ export const api = {
   gitDiff: (id: string, path: string) => callText(`/api/runtimes/${id}/git/diff?path=${encodeURIComponent(path)}`),
   info: () => call<{ version: string; build?: string | null; home: string; sessionsDir: string }>('/api/info'),
   ovenCheck: () => call<OvenRelease>('/api/oven/update'),
+  ovenStatus: () => call<OvenStatus>('/api/oven/status'),
+  setOvenAuto: (enabled: boolean) => call<OvenStatus>('/api/oven/auto', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   ovenApply: () => call<{ restarting: boolean; latest: string }>('/api/oven/update', { method: 'POST' }),
   sessions: () => call<SessionSummary[]>('/api/sessions'),
   /** Name a session that is not open (an empty name clears it). An open one is renamed through its own pi. */

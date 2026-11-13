@@ -1,4 +1,4 @@
-import { api, auth, AuthError, type Branched, type UpdateOffer, type UpdateTarget } from './api';
+import { api, auth, AuthError, type Branched, type OvenStatus, type UpdateOffer, type UpdateTarget } from './api';
 import { Chat } from './chat.svelte';
 import { copyText } from './clipboard';
 import { alertPerson, notifyEnabled, setNotifyEnabled } from './notify';
@@ -94,6 +94,8 @@ class App {
       // another device's new session may have brought news; look again when this page comes back
       this.#watchingUpdates = true;
       document.addEventListener('visibilitychange', () => { if (!document.hidden && this.status === 'ready') void this.refreshUpdates(); });
+      // the server looks for a new pi-oven build on its own; pick up what it found now and then
+      setInterval(() => { if (!document.hidden && this.status === 'ready') void this.refreshUpdates(); }, 15 * 60_000);
     }
     const wanted = new URLSearchParams(location.search).get('r');
     this.select(this.chats.find((c) => c.runtime.id === wanted)?.runtime.id ?? this.chats[0]?.runtime.id ?? null);
@@ -264,6 +266,20 @@ class App {
       this.updates.offer = s.offer;
       this.updates.running = s.running;
     } catch { /* an older server has no /api/update */ }
+    try { this.oven = await api.ovenStatus(); } catch { /* an older server cannot update itself */ }
+  }
+
+  /** The newest pi-oven build the server knows of (its own background check). */
+  oven = $state<OvenStatus | null>(null);
+  /** A build whose notice was closed: not shown again until a newer one. */
+  ovenDismissed = $state<string | null>(load<string | null>('pi-oven.oven-dismissed', null));
+  dismissOven() {
+    this.ovenDismissed = this.oven?.latest ?? null;
+    save('pi-oven.oven-dismissed', this.ovenDismissed);
+  }
+  get ovenNotice() {
+    const o = this.oven;
+    return !!o?.available && o.latest !== this.ovenDismissed;
   }
 
   /** Runs `pi update` on the server. Open sessions keep the old pi until they are restarted. */

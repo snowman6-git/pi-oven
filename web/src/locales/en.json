@@ -926,6 +926,10 @@
     "restarting": "Restarting… the page reloads when the server is back.",
     "notBack": "The server did not come back as the new build within 90 seconds. Check the server itself.",
     "notes": "Release notes",
-    "builtAt": "built {date} {time}"
+    "builtAt": "built {date} {time}",
+    "newBuild": "New pi-oven build",
+    "see": "View",
+    "auto": "Check for updates automatically",
+    "autoHint": "The server checks the GitHub release every 6 hours and shows a notice under the list when there is a new build."
   }
 }

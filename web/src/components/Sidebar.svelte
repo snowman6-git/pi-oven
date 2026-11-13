@@ -358,6 +358,17 @@
     </div>
   {/if}
 
+  {#if app.ovenNotice && app.oven}
+    <div class="upd" role="status">
+      <Icon name="update" size={18} />
+      <div class="ut"><b>{t('oven.newBuild')}</b><span class="mono">{app.oven.current ?? '?'} → {app.oven.latest}</span></div>
+      <div class="ua row2">
+        <button class="btn primary" type="button" onclick={() => app.openSettings('about')}>{t('oven.see')}</button>
+        <button class="icon-btn sm" type="button" aria-label={S.close} title={S.close} onclick={() => app.dismissOven()}><Icon name="x" size={15} /></button>
+      </div>
+    </div>
+  {/if}
+
   <footer>
     <button class="btn quiet set" type="button" onclick={() => (app.settingsOpen = true)}>
       <Icon name="gear" size={16} />{t('sidebar.settings')}

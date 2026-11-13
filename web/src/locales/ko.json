@@ -897,6 +897,10 @@
     "restarting": "다시 시작하는 중… 돌아오면 페이지를 새로 엽니다.",
     "notBack": "서버가 90초 안에 새 빌드로 돌아오지 않았습니다. 서버를 직접 확인해 주세요.",
     "notes": "릴리즈 노트",
-    "builtAt": "{date} {time} 빌드"
+    "builtAt": "{date} {time} 빌드",
+    "newBuild": "pi-oven 새 빌드",
+    "see": "보기",
+    "auto": "업데이트 자동 확인",
+    "autoHint": "서버가 6시간마다 GitHub 릴리즈를 확인하고 새 빌드가 있으면 목록 아래에 알립니다."
   }
 }

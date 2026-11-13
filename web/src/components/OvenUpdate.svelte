@@ -3,6 +3,7 @@
   import { t } from '../lib/i18n.svelte';
   import { clock } from '../lib/util';
   import Markdown from './Markdown.svelte';
+  import { app } from '../lib/app.svelte';
 
   // pi-oven updating itself: check the newest GitHub release by hash, then replace and restart with the same arguments.
   let { version }: { version: string } = $props();
@@ -14,10 +15,14 @@
 
   $effect(() => { api.info().then((i) => (build = i.build ?? null)).catch(() => {}); });
 
+  async function setAuto(on: boolean) {
+    try { app.oven = await api.setOvenAuto(on); } catch (e) { error = (e as Error).message; }
+  }
+
   async function check() {
     phase = 'checking';
     error = '';
-    try { rel = await api.ovenCheck(); phase = 'idle'; }
+    try { rel = await api.ovenCheck(); phase = 'idle'; void app.refreshUpdates(); }
     catch (e) { error = (e as Error).message; phase = 'failed'; }
   }
 
@@ -63,6 +68,12 @@
     </details>
   {/if}
   {#if error}<p class="note err" role="alert">{error}</p>{/if}
+  {#if app.oven}
+    <label class="auto">
+      <span>{t('oven.auto')}<small>{t('oven.autoHint')}</small></span>
+      <input class="switch" type="checkbox" role="switch" checked={app.oven.auto} onchange={(e) => setAuto(e.currentTarget.checked)} />
+    </label>
+  {/if}
 </div>
 
 <style>
@@ -98,6 +109,19 @@
   }
   .err {
     color: var(--bad);
+  }
+  .auto {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 14px;
+  }
+  .auto small {
+    display: block;
+    color: var(--ink-3);
+    font-size: 12px;
   }
   .notes {
     width: 100%;
