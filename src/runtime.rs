@@ -152,6 +152,8 @@ pub struct Runtime {
     pet: Arc<crate::pet::PetHub>,
     /// Where this session is in the 100h mode's schedule.
     long: Mutex<Option<Wait>>,
+    /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
+    session_file: Mutex<Option<String>>,
 }
 
 impl Runtime {
@@ -281,6 +283,16 @@ fn exit_frame(code: Option<i32>) -> String {
     format!(r#"{{"type":"oven_exit","code":{}}}"#, code.map_or_else(|| "null".to_owned(), |c| c.to_string()))
 }
 
+/// `sessionFile` from pi's answer to `get_state`.
+fn state_session_file(line: &str) -> Option<String> {
+    // pi puts the request's `id` first when there is one
+    if !line.contains(r#""type":"response""#) || !line.contains(r#""command":"get_state""#) {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    v["data"]["sessionFile"].as_str().map(str::to_owned)
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -313,6 +325,36 @@ impl Manager {
             }
             None => false,
         }
+    }
+
+    /// The runtimes that have this session file open (by what pi last reported, or what they were opened with).
+    pub async fn using_file(&self, file: &std::path::Path) -> Vec<String> {
+        let same = |p: &str| PathBuf::from(p).canonicalize().is_ok_and(|p| p == file);
+        self.map
+            .read()
+            .await
+            .values()
+            .filter(|r| {
+                let known = r.session_file.lock().unwrap().clone();
+                known.as_deref().is_some_and(same) || r.info.session_path.as_deref().is_some_and(same)
+            })
+            .map(|r| r.info.id.clone())
+            .collect()
+    }
+
+    /// Stop a runtime and wait (a few seconds at most) for pi to exit, so its session file is no longer written.
+    pub async fn close_and_wait(&self, id: &str) {
+        let Some(rt) = self.get(id).await else { return };
+        let mut rx = rt.events.subscribe();
+        self.close(id).await;
+        let _ = tokio::time::timeout(Duration::from_secs(8), async {
+            while let Ok(line) = rx.recv().await {
+                if line.starts_with(r#"{"type":"oven_exit""#) {
+                    break;
+                }
+            }
+        })
+        .await;
     }
 
     /// Stop a runtime, wait for pi to exit (so the session file is released), start it again.
@@ -354,6 +396,14 @@ impl Manager {
         let cwd = req.cwd.canonicalize().with_context(|| format!("folder not found: {}", req.cwd.display()))?;
         if !cwd.is_dir() {
             anyhow::bail!("not a folder: {}", cwd.display());
+        }
+        if !crate::scope::allows(self.cfg.root.as_deref(), &cwd) {
+            anyhow::bail!("outside the allowed folder: {}", cwd.display());
+        }
+        if let Some(p) = &req.session_path {
+            if !crate::scope::allows_session(self.cfg.root.as_deref(), std::path::Path::new(p)) {
+                anyhow::bail!("session outside the allowed folder");
+            }
         }
 
         let mut cmd = Command::new(&self.cfg.pi_bin);
@@ -414,6 +464,7 @@ impl Manager {
             stderr_tail: Mutex::new(VecDeque::new()),
             pet: self.pet.clone(),
             long: Mutex::new(None),
+            session_file: Mutex::new(None),
         });
         self.pet.attach(rt.clone());
 
@@ -446,6 +497,9 @@ impl Manager {
                                     let _ = rt.events.send(Arc::from(r#"{"type":"oven_update"}"#));
                                     continue;
                                 }
+                            }
+                            if let Some(f) = state_session_file(&line) {
+                                *rt.session_file.lock().unwrap() = Some(f);
                             }
                             if let Some(e) = crate::limits::read(&line) {
                                 limits.record(e);
@@ -555,6 +609,14 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn learns_the_session_file_from_get_state() {
+        let ok = r#"{"id":"1","type":"response","command":"get_state","success":true,"data":{"sessionFile":"/s/a.jsonl","model":null}}"#;
+        assert_eq!(state_session_file(ok).as_deref(), Some("/s/a.jsonl"));
+        assert_eq!(state_session_file(r#"{"type":"response","id":"1","command":"get_state","success":true,"data":{}}"#), None);
+        assert_eq!(state_session_file(r#"{"type":"message_end","sessionFile":"/x"}"#), None);
+    }
 
     fn feed(r: &mut Replay, lines: &[&str]) {
         for l in lines {

@@ -61,7 +61,11 @@ pub struct Config {
     #[arg(long = "pi-arg", allow_hyphen_values = true, value_name = "ARG", help_heading = "pi")]
     pub pi_args: Vec<String>,
 
-    /// Where pi keeps sessions. Default: $PI_CODING_AGENT_SESSION_DIR or ~/.pi/agent/sessions
+    /// Work only in this folder and below: browsing, new folders, starting pi, and which sessions are shown.
+    #[arg(long, env = "PI_OVEN_ROOT", value_name = "DIR", help_heading = "pi")]
+    pub root: Option<PathBuf>,
+
+    /// Where pi keeps sessions. Default: $PI_CODING_AGENT_SESSION_DIR, then $PI_CODING_AGENT_DIR/sessions, then ~/.pi/agent/sessions
     #[arg(long, env = "PI_OVEN_SESSIONS_DIR", value_name = "DIR", help_heading = "pi")]
     pub sessions_dir: Option<PathBuf>,
 
@@ -96,7 +100,7 @@ pub fn parse_args() -> Config {
 외부에 열면 pi가 이 PC에서 명령을 실행할 수 있게 되므로, VPN이나 HTTPS 리버스 프록시 뒤에서 쓰세요.
 토큰·비밀번호는 `ps`에 보이니 --token/--password보다 환경변수나 -file 옵션을 권합니다.",
             );
-        let ko: [(&str, &str, &str); 13] = [
+        let ko: [(&str, &str, &str); 14] = [
             ("host", "서버", "듣는 주소. 루프백(127.0.0.1)이 아니면 토큰이나 비밀번호가 꼭 필요합니다(없으면 토큰을 만듭니다)."),
             ("lan", "서버", "다른 기기에서도 접속하게 열기 (--host 0.0.0.0과 같음)."),
             ("port", "서버", "포트."),
@@ -108,7 +112,8 @@ pub fn parse_args() -> Config {
             ("allow_origins", "접근 제어", "이 서버의 API를 호출해도 되는 다른 브라우저 출처(여러 번 가능). 예: https://pi.example.com"),
             ("pi_bin", "pi", "실행할 pi 프로그램."),
             ("pi_args", "pi", "모든 `pi --mode rpc` 프로세스에 넘길 인자(여러 번 가능). 예: --pi-arg=--approve"),
-            ("sessions_dir", "pi", "pi가 세션을 저장하는 폴더. 기본: $PI_CODING_AGENT_SESSION_DIR 또는 ~/.pi/agent/sessions"),
+            ("root", "pi", "이 폴더와 그 아래에서만 작업: 폴더 탐색, 새 폴더, pi 시작, 보이는 세션이 여기로 제한됩니다. pi의 도구가 바깥을 읽는 것까지 막지는 않습니다."),
+            ("sessions_dir", "pi", "pi가 세션을 저장하는 폴더. 기본: $PI_CODING_AGENT_SESSION_DIR, $PI_CODING_AGENT_DIR/sessions, ~/.pi/agent/sessions 순"),
             ("no_permission_ext", "pi", "내장 권한 확장을 끕니다(자동/수동 전환이 사라집니다)."),
         ];
         for (id, heading, help) in ko {
@@ -180,6 +185,8 @@ impl Config {
         self.sessions_dir
             .clone()
             .or_else(|| std::env::var_os("PI_CODING_AGENT_SESSION_DIR").map(PathBuf::from))
+            // where pi puts them when its whole folder is moved
+            .or_else(|| std::env::var_os("PI_CODING_AGENT_DIR").map(|d| PathBuf::from(d).join("sessions")))
             .unwrap_or_else(|| home_dir().join(".pi/agent/sessions"))
     }
 }

@@ -285,7 +285,7 @@
     "closeList": "Close list",
     "sessions": "Sessions",
     "sessionName": "Session name",
-    "lockedHint": "Close an open session before deleting it",
+    "lockedHint": "A session that has not been saved yet cannot be picked",
     "opened": "Open",
     "selbar": "Delete selected sessions",
     "pickedN": {
@@ -326,7 +326,11 @@
     "waiting": "Waiting"
   },
   "picker": {
-    "path": "Folder path"
+    "path": "Folder path",
+    "newFolder": "New folder",
+    "newFolderName": "New folder name",
+    "create": "Create",
+    "outside": "This server works only inside one folder. Choose a folder within it."
   },
   "turn": {
     "viewOutput": "View output",
@@ -794,7 +798,15 @@
     "reopenFailed": "Could not reopen: {err}",
     "unsavedTitle": "There are unsaved files",
     "unsavedBody": "Closing the session loses the changes you were editing.",
-    "network": "Could not connect to the server."
+    "network": "Could not connect to the server.",
+    "delOpen": {
+      "one": "The open session is closed first.",
+      "other": "The {n} open sessions are closed first."
+    },
+    "delOpenRunning": {
+      "one": "The open session is closed first, and its running work stops.",
+      "other": "The {n} open sessions are closed first, and their running work stops."
+    }
   },
   "chatmsg": {
     "noFork": "Cannot branch from this message.",

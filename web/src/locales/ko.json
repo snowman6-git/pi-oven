@@ -281,7 +281,7 @@
     "closeList": "목록 닫기",
     "sessions": "세션",
     "sessionName": "세션 이름",
-    "lockedHint": "열려 있는 세션은 먼저 닫아야 삭제할 수 있어요",
+    "lockedHint": "아직 저장되지 않은 세션은 고를 수 없습니다",
     "opened": "열림",
     "selbar": "선택한 세션 삭제",
     "pickedN": {
@@ -322,7 +322,11 @@
     "waiting": "대기 중"
   },
   "picker": {
-    "path": "폴더 경로"
+    "path": "폴더 경로",
+    "newFolder": "새 폴더",
+    "newFolderName": "새 폴더 이름",
+    "create": "만들기",
+    "outside": "이 서버는 정해진 폴더 안에서만 작업합니다. 그 안의 폴더를 고르세요."
   },
   "turn": {
     "viewOutput": "출력 보기",
@@ -770,7 +774,13 @@
     "reopenFailed": "다시 열지 못했습니다: {err}",
     "unsavedTitle": "저장하지 않은 파일이 있습니다",
     "unsavedBody": "세션을 닫으면 편집 중이던 변경 내용이 사라집니다.",
-    "network": "서버에 연결하지 못했습니다."
+    "network": "서버에 연결하지 못했습니다.",
+    "delOpen": {
+      "other": "열려 있는 세션 {n}개는 닫은 뒤 지웁니다."
+    },
+    "delOpenRunning": {
+      "other": "열려 있는 세션 {n}개는 닫은 뒤 지웁니다. 진행 중인 작업도 멈춥니다."
+    }
   },
   "chatmsg": {
     "noFork": "이 메시지에서는 분기할 수 없습니다.",

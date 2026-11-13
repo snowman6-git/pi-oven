@@ -119,6 +119,8 @@
     border-radius: 10px;
     box-shadow: var(--shadow);
     display: grid;
+    /* without this the column grows to the longest label and the menu runs past its max width */
+    grid-template-columns: minmax(0, 1fr);
     outline: none;
     animation: pop 0.1s ease-out;
   }
@@ -136,6 +138,7 @@
     padding: 7px 12px 7px 10px;
     border-radius: 6px;
     white-space: nowrap;
+    min-width: 0;
   }
   .ic {
     flex: none;

@@ -58,7 +58,7 @@
       const on = !!e.session && app.picked.includes(e.session.path);
       return [
         { label: on ? t('sidebar.unselect') : t('sidebar.select'), icon: on ? 'x' : 'check', disabled: !e.session || !app.canDelete(e.session), run: () => e.session && app.togglePick(e.session) },
-        { label: t('sidebar.selectFolder', { folder: baseName(g.cwd) }), icon: 'select', run: () => app.pickMany(deletable(g), true) },
+        { label: t('sidebar.selectFolder', { folder: shortName(g.cwd) }), icon: 'select', run: () => app.pickMany(deletable(g), true) },
         { label: t('sidebar.selectAll'), icon: 'select', run: () => app.pickMany(allSessions(), true) },
         'sep',
         { label: t('sidebar.deletePicked', { n: app.picked.length }), icon: 'trash', danger: true, disabled: app.picked.length === 0, run: () => deleteSelected() },
@@ -68,7 +68,7 @@
     return [
       { label: t('sidebar.open'), icon: 'chat', run: () => open(e) },
       { label: S.rename, icon: 'edit', disabled: !e.chat && !e.session, run: () => startRename(e) },
-      { label: t('sidebar.newIn', { folder: baseName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
+      { label: t('sidebar.newIn', { folder: shortName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
       'sep',
       { label: t('sidebar.tree'), icon: 'fork', disabled: !file, run: () => file && (app.treeTarget = { path: file, cwd: g.cwd, title: e.title }) },
       'sep',
@@ -76,22 +76,27 @@
       { label: t('sidebar.copyFile'), icon: 'link', disabled: !file, run: () => app.copy(file ?? '') },
       'sep',
       ...(e.chat ? [{ label: S.closeSession, icon: 'x', run: () => app.closeChat(e.chat!) } as MenuItem] : []),
-      ...(e.session && !e.chat ? [{ label: S.deleteSession, icon: 'trash', danger: true, run: () => remove(e) } as MenuItem] : []),
-      ...(e.session && !e.chat ? [{ label: t('sidebar.selectToDelete'), icon: 'select', danger: true, run: () => app.startSelect(e.session) } as MenuItem] : []),
+      ...(e.session ? [{ label: S.deleteSession, icon: 'trash', danger: true, run: () => remove(e) } as MenuItem] : []),
+      ...(e.session ? [{ label: t('sidebar.selectToDelete'), icon: 'select', danger: true, run: () => app.startSelect(e.session) } as MenuItem] : []),
     ];
   };
   const groupItems = (g: Group): MenuItem[] => app.selecting
     ? [
-        { label: t('sidebar.selectFolder', { folder: baseName(g.cwd) }), icon: 'select', run: () => app.pickMany(deletable(g), true) },
-        { label: t('sidebar.unselectFolder', { folder: baseName(g.cwd) }), icon: 'x', run: () => app.pickMany(deletable(g), false) },
+        { label: t('sidebar.selectFolder', { folder: shortName(g.cwd) }), icon: 'select', run: () => app.pickMany(deletable(g), true) },
+        { label: t('sidebar.unselectFolder', { folder: shortName(g.cwd) }), icon: 'x', run: () => app.pickMany(deletable(g), false) },
       ]
     : [
-        { label: t('sidebar.newIn', { folder: baseName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
+        { label: t('sidebar.newIn', { folder: shortName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
         { label: t('sidebar.copyFolder'), icon: 'folder', run: () => app.copy(g.cwd) },
         'sep',
         { label: t('sidebar.deleteInFolder'), icon: 'select', danger: true, disabled: deletable(g).length === 0, run: () => { app.startSelect(); app.pickMany(deletable(g), false); } },
       ];
 
+  /** A folder name for a menu label: a long one keeps its start and end, so the rest of the label still shows. */
+  const shortName = (cwd: string) => {
+    const n = baseName(cwd);
+    return n.length > 16 ? `${n.slice(0, 10)}…${n.slice(-5)}` : n;
+  };
   const deletable = (g: Group) => g.entries.flatMap((e) => (e.session && app.canDelete(e.session) ? [e.session] : []));
   const allSessions = () => groups.flatMap(deletable);
   const groupState = (g: Group): 'all' | 'some' | 'none' => {
@@ -236,7 +241,7 @@
           {#if app.selecting}
             {@const st = groupState(g)}
             <button class="box" class:on={st !== 'none'} type="button" role="checkbox" aria-checked={st === 'all' ? 'true' : st === 'some' ? 'mixed' : 'false'}
-              aria-label={t('sidebar.selectFolder', { folder: baseName(g.cwd) })} disabled={deletable(g).length === 0}
+              aria-label={t('sidebar.selectFolder', { folder: shortName(g.cwd) })} disabled={deletable(g).length === 0}
               onclick={() => app.pickMany(deletable(g), st !== 'all')}>
               {#if st === 'all'}<Icon name="check" size={12} />{:else if st === 'some'}<span class="dash"></span>{/if}
             </button>
@@ -275,7 +280,7 @@
                 <span class="m">{relativeTime(e.when)}</span>
               </button>
               {/if}
-              {#if e.session && !e.chat && !app.selecting && renaming !== e.key}
+              {#if e.session && !app.selecting && renaming !== e.key}
                 <button class="del icon-btn sm" type="button" aria-label={S.deleteSession} title={S.deleteSession} onclick={() => remove(e)}>
                   <Icon name="trash" size={15} />
                 </button>

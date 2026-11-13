@@ -33,6 +33,9 @@ fn resolve(app: &AppState, path: &str) -> Result<PathBuf, (StatusCode, &'static 
     if !file.starts_with(&root) || file.extension().and_then(|e| e.to_str()) != Some("jsonl") {
         return Err((StatusCode::FORBIDDEN, "not a session file"));
     }
+    if !crate::scope::allows_session(app.root.as_deref(), &file) {
+        return Err((StatusCode::FORBIDDEN, "outside the allowed folder"));
+    }
     Ok(file)
 }
 

@@ -112,6 +112,7 @@ Each part appears only when its package is installed.
 | `--allow-origin <origin>` | Another browser origin allowed to call the API (repeatable) |
 | `--pi-bin <path>`, `--pi-arg <arg>` | The pi to run, and an argument for every pi process |
 | `--sessions-dir <dir>` | pi's session folder (default `~/.pi/agent/sessions`) |
+| `--root <dir>` | Work only in this folder and below (browsing, new folders, starting pi, listed sessions). Does not stop pi's tools from reading outside |
 | `--no-permission-ext` | Turn off the built-in permission (auto/manual) extension |
 
 Every option can also be given as a `PI_OVEN_*` environment variable. Repeated wrong tokens or passwords lock that address out for a while. The screens and behaviour in detail are in [docs/USAGE.md](docs/USAGE.md) (Korean).

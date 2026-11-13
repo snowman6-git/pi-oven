@@ -112,6 +112,7 @@ cargo build --release
 | `--allow-origin <출처>` | API를 호출해도 되는 다른 브라우저 출처 (여러 번 가능) |
 | `--pi-bin <경로>`, `--pi-arg <인자>` | 실행할 pi와, 모든 pi 프로세스에 넘길 인자 |
 | `--sessions-dir <폴더>` | pi 세션 폴더 (기본 `~/.pi/agent/sessions`) |
+| `--root <폴더>` | 이 폴더와 그 아래에서만 작업(폴더 탐색, 새 폴더, pi 시작, 보이는 세션). pi의 도구가 바깥을 읽는 것은 막지 않음 |
 | `--no-permission-ext` | 내장 권한(자동/수동) 확장을 끔 |
 
 모든 인자는 `PI_OVEN_*` 환경변수로도 줄 수 있습니다. 틀린 토큰·비밀번호가 반복되면 그 주소는 잠시 잠깁니다. 화면 구성과 세부 동작은 [docs/USAGE.md](docs/USAGE.md)에 있습니다.

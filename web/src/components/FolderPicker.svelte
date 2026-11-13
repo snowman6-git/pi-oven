@@ -11,6 +11,14 @@
   let hidden = $state(false);
   let error = $state<string | null>(null);
   let manual = $state('');
+  /** The new folder's name while it is being typed (null: not making one). */
+  let newName = $state<string | null>(null);
+
+  /** The server's reason, in the page's language when it is the folder limit (`--root`). */
+  const reason = (e: unknown) => {
+    const m = (e as Error).message;
+    return /outside the allowed folder/.test(m) ? t('picker.outside') : m;
+  };
 
   async function go(path?: string) {
     try {
@@ -18,7 +26,7 @@
       manual = listing.path;
       error = null;
     } catch (e) {
-      error = (e as Error).message;
+      error = reason(e);
     }
   }
 
@@ -28,6 +36,24 @@
     (document.activeElement as HTMLElement | null)?.blur();
     void go(app.chats.find((c) => c.runtime.id === app.currentId)?.runtime.cwd);
   });
+
+  function startNew() {
+    newName = newName == null ? '' : null;
+    error = null;
+  }
+
+  async function makeFolder() {
+    const name = (newName ?? '').trim();
+    if (!listing || !name) return;
+    try {
+      listing = await api.mkdir(listing.path, name);
+      manual = listing.path;
+      newName = null;
+      error = null;
+    } catch (e) {
+      error = reason(e);
+    }
+  }
 
   function close() {
     app.folderPicker = false;
@@ -50,7 +76,23 @@
       </button>
       <input class="field mono" bind:value={manual} aria-label={t('picker.path')} spellcheck="false"
         onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void go(manual); } }} />
+      <button class="icon-btn" type="button" disabled={!listing} aria-label={t('picker.newFolder')} title={t('picker.newFolder')} aria-expanded={newName != null} onclick={startNew}>
+        <Icon name="folderPlus" />
+      </button>
     </div>
+
+    {#if newName != null}
+      <div class="path">
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="field" bind:value={newName} placeholder={t('picker.newFolderName')} aria-label={t('picker.newFolderName')} spellcheck="false" autofocus maxlength="255"
+          onkeydown={(e) => {
+            if (e.isComposing) return;
+            if (e.key === 'Enter') { e.preventDefault(); void makeFolder(); }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); newName = null; }
+          }} />
+        <button class="btn" type="button" disabled={!newName.trim()} onclick={makeFolder}>{t('picker.create')}</button>
+      </div>
+    {/if}
 
     {#if error}<p class="err" role="alert">{error}</p>{/if}
 

@@ -25,7 +25,13 @@ pub async fn info(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
 
 pub async fn sessions(State(app): State<Arc<AppState>>) -> Response {
     let app2 = app.clone();
-    match tokio::task::spawn_blocking(move || app2.sessions.list(&app2.sessions_dir)).await {
+    let root = app.root.clone();
+    let list = move || {
+        let mut v = app2.sessions.list(&app2.sessions_dir);
+        v.retain(|s| crate::scope::allows(root.as_deref(), std::path::Path::new(&s.cwd)));
+        v
+    };
+    match tokio::task::spawn_blocking(list).await {
         Ok(list) => Json(list).into_response(),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
@@ -35,6 +41,8 @@ pub async fn sessions(State(app): State<Arc<AppState>>) -> Response {
 pub struct PathQuery {
     path: Option<String>,
     hidden: Option<bool>,
+    /// On delete: close the session first if it is open (anywhere), instead of refusing.
+    close: Option<bool>,
 }
 
 /// Only files inside the sessions directory may be deleted.
@@ -46,9 +54,18 @@ pub async fn delete_session(State(app): State<Arc<AppState>>, Query(q): Query<Pa
     if !file.starts_with(&root) || file.extension().and_then(|e| e.to_str()) != Some("jsonl") {
         return fail(StatusCode::FORBIDDEN, "not a session file");
     }
-    let open = |p: &str| PathBuf::from(p).canonicalize().is_ok_and(|p| p == file);
-    if app.runtimes.list().await.iter().any(|r| r.session_path.as_deref().is_some_and(open)) {
-        return fail(StatusCode::CONFLICT, "session is open — close it first");
+    if !crate::scope::allows_session(app.root.as_deref(), &file) {
+        return fail(StatusCode::FORBIDDEN, "outside the allowed folder");
+    }
+    let using = app.runtimes.using_file(&file).await;
+    if !using.is_empty() {
+        if q.close != Some(true) {
+            return fail(StatusCode::CONFLICT, "session is open — close it first");
+        }
+        // pi must be gone before the file is: a running pi would write it back
+        for id in &using {
+            app.runtimes.close_and_wait(id).await;
+        }
     }
     match std::fs::remove_file(&file) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -175,14 +192,43 @@ pub async fn task_output(
     }
 }
 
-pub async fn browse(Query(q): Query<PathQuery>) -> Response {
-    let path = q.path.map(PathBuf::from).unwrap_or_else(home_dir);
+pub async fn browse(State(app): State<Arc<AppState>>, Query(q): Query<PathQuery>) -> Response {
+    let root = app.root.clone();
+    let path = q.path.map(PathBuf::from).unwrap_or_else(|| root.clone().unwrap_or_else(home_dir));
+    if !crate::scope::allows(root.as_deref(), &path) {
+        return fail(StatusCode::FORBIDDEN, format!("{}: outside the allowed folder", path.display()));
+    }
     let hidden = q.hidden.unwrap_or(false);
     let p2 = path.clone();
     // A slow disk or network folder must not hold up the other requests.
-    match tokio::task::spawn_blocking(move || fs::list_dirs(&p2, hidden)).await {
+    match tokio::task::spawn_blocking(move || fs::list_dirs(&p2, hidden, root.as_deref())).await {
         Ok(Ok(l)) => Json(l).into_response(),
         Ok(Err(e)) => fail(StatusCode::BAD_REQUEST, format!("{}: {e}", path.display())),
+        Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct MkdirBody {
+    parent: String,
+    name: String,
+}
+
+/// A new folder inside `parent` (the folder picker's "new folder"). Answers with the new folder's listing.
+pub async fn mkdir(State(app): State<Arc<AppState>>, Json(b): Json<MkdirBody>) -> Response {
+    if !crate::scope::folder_name_ok(&b.name) {
+        return fail(StatusCode::BAD_REQUEST, "invalid folder name");
+    }
+    let Ok(parent) = PathBuf::from(&b.parent).canonicalize() else { return fail(StatusCode::NOT_FOUND, "folder not found") };
+    if !parent.is_dir() || !crate::scope::allows(app.root.as_deref(), &parent) {
+        return fail(StatusCode::FORBIDDEN, "outside the allowed folder");
+    }
+    let dir = parent.join(&b.name);
+    let root = app.root.clone();
+    match tokio::task::spawn_blocking(move || std::fs::create_dir(&dir).and_then(|_| fs::list_dirs(&dir, false, root.as_deref()))).await {
+        Ok(Ok(l)) => Json(l).into_response(),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => fail(StatusCode::CONFLICT, "a folder or file with that name already exists"),
+        Ok(Err(e)) => fail(StatusCode::BAD_REQUEST, e),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }

@@ -11,6 +11,7 @@ mod git;
 mod models;
 mod pet;
 mod runtime;
+mod scope;
 mod sessions;
 mod limits;
 mod retry;
@@ -37,6 +38,8 @@ pub struct AppState {
     pub pi_bin: String,
     pub runtimes: Arc<runtime::Manager>,
     pub sessions: sessions::SessionIndex,
+    /// `--root`, resolved: the only folder (and below) this server works in.
+    pub root: Option<PathBuf>,
 }
 
 /// Browsers on another origin (a Tauri webview, a dev server) need explicit permission.
@@ -66,6 +69,15 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(2);
         }
     };
+    if let Some(r) = &cfg.root {
+        match r.canonicalize() {
+            Ok(p) if p.is_dir() => cfg.root = Some(p),
+            _ => {
+                eprintln!("pi-oven: --root: not a folder: {}", r.display());
+                std::process::exit(2);
+            }
+        }
+    }
     if !cfg.no_permission_ext {
         cfg.extension_path = config::install_extension();
     }
@@ -88,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
         pi_bin: cfg.pi_bin.clone(),
         runtimes: runtimes.clone(),
         sessions: Default::default(),
+        root: cfg.root.clone(),
     });
 
     let router = Router::new()
@@ -101,6 +114,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/runtimes/{id}/tasks/{task}/output", get(api::task_output))
         .route("/api/runtimes/{id}/restart", axum::routing::post(api::restart_runtime))
         .route("/api/fs", get(api::browse))
+        .route("/api/fs/mkdir", axum::routing::post(api::mkdir))
         .route("/api/runtimes/{id}/git", get(git::status))
         .route("/api/runtimes/{id}/git/diff", get(git::diff))
         .route("/api/runtimes/{id}/git/stage", axum::routing::post(git::stage))

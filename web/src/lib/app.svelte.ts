@@ -137,8 +137,9 @@ class App {
   }
 
   /** Sessions that are open in a tab belong to a running pi; close those first. */
-  canDelete(s: SessionSummary) {
-    return !this.chatFor(s.path);
+  /** Every saved session can go; an open one is closed first. */
+  canDelete(_s: SessionSummary) {
+    return true;
   }
 
   startSelect(first?: SessionSummary) {
@@ -166,16 +167,28 @@ class App {
     const doomed = list.filter((s) => this.canDelete(s));
     if (!doomed.length) return;
     const titles = doomed.map((s) => s.name || s.preview || S.untitled);
+    const open = doomed.flatMap((s) => this.chatFor(s.path) ?? []);
+    const dirty = open.flatMap((c) => c.editors.docs.filter((d) => d.dirty).map((d) => d.path));
+    if (dirty.length) {
+      const go = await this.ask({ title: t('appmsg.unsavedTitle'), body: t('appmsg.unsavedBody'), items: dirty, confirm: t('editor.discard'), danger: true });
+      if (!go) return;
+    }
     const ok = await this.ask({
       title: doomed.length === 1 ? t('appmsg.delOne') : t('appmsg.delMany', { n: doomed.length }),
-      body: t('appmsg.delBody'),
+      body: open.length ? `${t('appmsg.delBody')} ${t(open.some((c) => c.running) ? 'appmsg.delOpenRunning' : 'appmsg.delOpen', { n: open.length })}` : t('appmsg.delBody'),
       items: titles,
       confirm: doomed.length === 1 ? t('appmsg.del') : t('appmsg.delN', { n: doomed.length }),
       danger: true,
     });
     if (!ok) return;
 
-    const results = await Promise.allSettled(doomed.map((s) => api.deleteSession(s.path)));
+    // this page lets go of the open ones; the server stops their pi before it deletes the file
+    for (const chat of open) {
+      chat.dispose();
+      this.chats = this.chats.filter((c) => c !== chat);
+    }
+    if (open.some((c) => c.runtime.id === this.currentId)) this.select(this.chats[0]?.runtime.id ?? null);
+    const results = await Promise.allSettled(doomed.map((s) => api.deleteSession(s.path, true)));
     const gone = new Set(doomed.filter((_, i) => results[i].status === 'fulfilled').map((s) => s.path));
     this.sessions = this.sessions.filter((s) => !gone.has(s.path));
     this.picked = this.picked.filter((p) => !gone.has(p));

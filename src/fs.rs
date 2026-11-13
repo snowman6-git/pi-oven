@@ -16,7 +16,8 @@ pub struct Listing {
     pub is_git: bool,
 }
 
-pub fn list_dirs(path: &Path, hidden: bool) -> std::io::Result<Listing> {
+/// `root`: no way up from there.
+pub fn list_dirs(path: &Path, hidden: bool, root: Option<&Path>) -> std::io::Result<Listing> {
     let path: PathBuf = path.canonicalize()?;
     let mut entries: Vec<DirEntry> = std::fs::read_dir(&path)?
         .flatten()
@@ -28,7 +29,7 @@ pub fn list_dirs(path: &Path, hidden: bool) -> std::io::Result<Listing> {
         .collect();
     entries.sort_by_key(|e| e.name.to_lowercase());
     Ok(Listing {
-        parent: path.parent().map(|p| p.to_string_lossy().into_owned()),
+        parent: path.parent().filter(|_| root != Some(path.as_path())).map(|p| p.to_string_lossy().into_owned()),
         is_git: path.join(".git").exists(),
         path: path.to_string_lossy().into_owned(),
         entries,

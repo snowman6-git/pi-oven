@@ -155,7 +155,9 @@ export const api = {
   sessions: () => call<SessionSummary[]>('/api/sessions'),
   /** Name a session that is not open (an empty name clears it). An open one is renamed through its own pi. */
   renameSession: (path: string, name: string) => call<void>('/api/sessions/rename', { method: 'POST', body: JSON.stringify({ path, name }) }),
-  deleteSession: (path: string) => call<void>(`/api/sessions?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+  /** `close`: an open session is closed first (wherever it is open) instead of refused. */
+  deleteSession: (path: string, close = false) =>
+    call<void>(`/api/sessions?path=${encodeURIComponent(path)}${close ? '&close=true' : ''}`, { method: 'DELETE' }),
   runtimes: () => call<RuntimeInfo[]>('/api/runtimes'),
   openRuntime: (body: { cwd: string; sessionPath?: string }) =>
     call<RuntimeInfo>('/api/runtimes', { method: 'POST', body: JSON.stringify(body) }),
@@ -182,6 +184,8 @@ export const api = {
     return { text: await res.text(), total: Number(res.headers.get('x-total-bytes') ?? 0) };
   },
   closeRuntime: (id: string) => call<void>(`/api/runtimes/${id}`, { method: 'DELETE' }),
+  mkdir: (parent: string, name: string) =>
+    call<DirListing>('/api/fs/mkdir', { method: 'POST', body: JSON.stringify({ parent, name }) }),
   browse: (path?: string, hidden = false) =>
     call<DirListing>(`/api/fs?${new URLSearchParams({ ...(path ? { path } : {}), hidden: String(hidden) })}`),
   wsUrl(id: string) {
