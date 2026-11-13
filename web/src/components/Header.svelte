@@ -101,7 +101,7 @@
         {:else}{t('long.trying', { n: long.attempt, max: long.max })}{/if}
       </span>
       <span class="acts">
-        {#if long.at != null}<button class="btn" type="button" onclick={() => chat.longAct('now')}>{t('long.now')}</button>{/if}
+        {#if long.at != null}<button class="btn go" type="button" onclick={() => chat.longAct('now')}>{t('long.now')}</button>{/if}
         <button class="btn" type="button" onclick={() => chat.longAct('stop')}>{t('long.stop')}</button>
       </span>
     {:else if resume}
@@ -109,7 +109,7 @@
         {t(resume.known ? 'resume.short' : 'resume.shortGuess', { time: runClock(resume.at - now), text: resume.text })}
       </span>
       <span class="acts">
-        <button class="btn" type="button" onclick={() => chat.resumeAct('now')}>{t('resume.now')}</button>
+        <button class="btn go" type="button" onclick={() => chat.resumeAct('now')}>{t('resume.now')}</button>
         <button class="btn" type="button" onclick={() => chat.resumeAct('stop')}>{t('long.stop')}</button>
       </span>
     {:else}{S.retrying} {chat.retry}{/if}
@@ -243,10 +243,24 @@
     font-weight: inherit;
     margin-right: 6px;
   }
+  /* on the orange strip: the action in dark (the colors of a primary button, turned around), stop as a dark wash */
   .strip.long .btn {
-    background: transparent;
-    border-color: currentColor;
-    color: inherit;
+    border-color: transparent;
+    background: color-mix(in srgb, var(--accent-ink) 14%, transparent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .strip.long .btn.go {
+    background: var(--accent-ink);
+    color: var(--accent);
+  }
+  @media (hover: hover) {
+    .strip.long .btn:hover {
+      background: color-mix(in srgb, var(--accent-ink) 24%, transparent);
+    }
+    .strip.long .btn.go:hover {
+      background: color-mix(in srgb, var(--accent-ink) 85%, transparent);
+    }
   }
   .acts {
     display: inline-flex;
