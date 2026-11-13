@@ -75,7 +75,7 @@
             <li class="none">{t('meta.none')}</li>
           {/each}
         </ul>
-        <button class="addmodel" type="button" onclick={() => ((menu = null), (app.modelDialog = true))}><Icon name="plus" size={14} />{t('meta.add')}</button>
+        <button class="addmodel" type="button" onclick={() => ((menu = null), app.openSettings('models'))}><Icon name="plus" size={14} />{t('meta.add')}</button>
       </div>
     {/if}
   </div>

@@ -4,9 +4,10 @@
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
-  import { api, auth, HttpError, type LongMode, type ModelsConfig } from '../lib/api';
+  import { api, auth, type LongMode } from '../lib/api';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
+  import ModelManager from './ModelManager.svelte';
   import type { IconName } from '../lib/icons';
   import Icon from './Icon.svelte';
   import { serverUrl, settings, type FontSize, type StreamFx, type ToolImages } from '../lib/settings.svelte';
@@ -35,17 +36,6 @@
     catch (e) { box.checked = !box.checked; longError = (e as Error).message; }
   }
 
-  // what is already in pi's models.json, read when the tab is first shown
-  let models = $state<ModelsConfig | null>(null);
-  let modelsError = $state('');
-  let modelsAsked = false;
-  $effect(() => {
-    if (tab !== 'models' || modelsAsked) return;
-    modelsAsked = true;
-    api.modelsConfig().then((c) => (models = c))
-      .catch((e) => (modelsError = e instanceof HttpError && e.status === 422 ? e.message : t('models.loadFailed')));
-  });
-  const manageModels = () => ((app.settingsOpen = false), (app.modelDialog = true));
 
   const TAB_KEY = 'pi-oven.settings-tab';
   let tab = $state<Tab>(((): Tab => {
@@ -252,21 +242,7 @@
       <section>
         <h3>{t('settings.models.title')}</h3>
         <p class="note">{t('settings.models.note')}</p>
-        {#if modelsError}<p class="note err" role="alert">{modelsError}</p>
-        {:else if !models}<p class="note">{S.loading}</p>
-        {:else if models.providers.length}
-          <ul class="provs">
-            {#each models.providers as p (p.name)}
-              <li>
-                <div class="ptop"><b>{p.name}</b>{#if p.key.kind !== 'none'}<small data-priv="secrets">{t('models.keyHint', { hint: p.key.hint ?? '' })}</small>{/if}</div>
-                <span class="mono addr" data-priv="hosts" title={showcase.tip('hosts', p.baseUrl)}>{p.baseUrl ? showcase.text(p.baseUrl) : t('models.noAddress')}</span>
-                <small class="mono mlist">{p.models.length ? p.models.map((m) => m.name || m.id).join(' · ') : t('models.noModels')}</small>
-              </li>
-            {/each}
-          </ul>
-        {:else}<p class="note">{t('settings.models.none')}</p>{/if}
-        <button class="btn" type="button" onclick={manageModels}>{models?.providers.length ? t('settings.models.manage') : t('settings.models.open')}</button>
-        {#if models}<p class="note mono path" data-priv="paths">{showcase.text(models.path)}</p>{/if}
+        <ModelManager chat={app.current} />
       </section>
       {:else if tab === 'showcase'}
       <section>
@@ -449,12 +425,6 @@
   .rules li .row { flex: 1; min-width: 0; }
   .rules li .row span { min-width: 0; overflow: hidden; }
   .rules li .btn { flex: none; }
-  .provs { list-style: none; margin: 0 0 10px; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .provs li { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: 8px 12px; display: grid; gap: 2px; min-width: 0; }
-  .ptop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .addr, .mlist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
-  .mlist { color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; }
-  .path { font-size: 11.5px; overflow-wrap: anywhere; margin-top: 8px; }
   .rules small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note + .btn, .note + .newrule, .note + .rules { margin-top: 8px; }
   .newrule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; }

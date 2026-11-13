@@ -6,12 +6,10 @@
   import type { Chat } from '../lib/chat.svelte';
   import Icon from './Icon.svelte';
 
-  // Adding a model to pi: an address, the style of API it speaks, a key, and the model's id. It is written into pi's
-  // own models.json (this page never sees a saved key again, only a hint of it). Without an open session (from
-  // Settings) it still works: new sessions read the file when they start.
+  // Settings → Models: what is in pi's models.json, and adding to it: an address, the style of API it speaks, a key, and
+  // the model's id (this page never sees a saved key again, only a hint of it). The open session, if any, is told to
+  // read the list again; sessions opened later read the file when they start.
   let { chat }: { chat?: Chat } = $props();
-
-  let dlg: HTMLDialogElement;
   const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   let cfg = $state<ModelsConfig | null>(null);
   let loadError = $state<string | null>(null);
@@ -56,7 +54,6 @@
   }
 
   $effect(() => {
-    dlg.showModal();
     void load();
   });
 
@@ -149,18 +146,13 @@
   }
 
   async function reopen() {
-    dlg.close();
-    if (chat) await app.restartChat(chat);
+    if (!chat) return;
+    app.settingsOpen = false;
+    await app.restartChat(chat);
   }
 </script>
 
-<dialog bind:this={dlg} onclose={() => (app.modelDialog = false)} aria-labelledby="md-title">
-  <div class="box">
-    <header>
-      <h2 id="md-title">{t('models.title')}</h2>
-      <button class="btn quiet" type="button" onclick={() => dlg.close()}>{S.close}</button>
-    </header>
-
+<div class="box">
     {#if loadError}<p class="err" role="alert">{loadError}</p>{/if}
 
     {#if cfg && cfg.providers.length}
@@ -259,24 +251,10 @@
       </div>
       {#if cfg}<p class="path mono" data-priv="paths">{cfg.path}</p>{/if}
     </form>
-  </div>
-</dialog>
+</div>
 
 <style>
-  dialog {
-    border: 1px solid var(--rule);
-    border-radius: 14px;
-    background: var(--raised);
-    color: var(--ink);
-    padding: 0;
-    width: min(620px, calc(100vw - 24px));
-    max-height: min(820px, calc(100dvh - 24px));
-    box-shadow: var(--shadow);
-  }
-  dialog::backdrop { background: var(--scrim); }
-  .box { padding: 0 20px 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  header { display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; padding: 16px 0 6px; background: var(--raised); z-index: 1; }
-  h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+  .box { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; }
   h3 { margin: 0 0 4px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
   form { display: grid; gap: 12px; min-width: 0; }
   label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink-2); min-width: 0; }
@@ -308,9 +286,6 @@
   .mchip button { width: 18px; height: 18px; border-radius: 50%; color: var(--ink-3); line-height: 1; }
   @media (hover: hover) { .mchip button:hover { background: var(--rule); color: var(--ink); } }
   @media (max-width: 720px) {
-    dialog { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
-    .box { padding: 0 16px calc(20px + env(safe-area-inset-bottom)); }
-    header { padding-top: calc(14px + env(safe-area-inset-top)); }
     .nums { grid-template-columns: minmax(0, 1fr); }
   }
 </style>

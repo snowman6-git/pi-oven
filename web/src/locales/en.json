@@ -159,10 +159,7 @@
     },
     "models": {
       "title": "Models",
-      "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs.",
-      "open": "Add a model…",
-      "none": "No models added yet. pi's own models and the providers you signed in to are in the model list under the message box.",
-      "manage": "Add or manage…"
+      "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs."
     },
     "showcase": {
       "title": "Showcase mode",
@@ -677,7 +674,6 @@
     "remove": "Remove",
     "removed": "Removed",
     "removeFailed": "Could not remove.",
-    "title": "Add model",
     "providers": "Your providers",
     "editHint": "Add more models to this provider or change its address",
     "noAddress": "(no address)",

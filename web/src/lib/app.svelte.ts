@@ -41,7 +41,6 @@ class App {
     this.settingsOpen = true;
   }
   /** The dialog for adding models and their endpoints. */
-  modelDialog = $state(false);
   /** The session whose branches are being looked at; works for sessions that are not open. */
   treeTarget = $state<{ path: string; cwd: string; title: string } | null>(null);
   /** Phones and small tablets: panels are drawers instead of columns. */
