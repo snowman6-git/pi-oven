@@ -17,8 +17,12 @@ use std::{path::PathBuf, sync::Arc, sync::Mutex};
 use crate::{api::fail, AppState};
 
 pub const DEFAULT_TEXT: &str = "계속해";
-/// After the reset the provider may still need a moment.
-const MARGIN_MS: u64 = 60_000;
+/// After the reset: just enough for the provider's clock to agree. The point is not to lose a minute.
+const MARGIN_MS: u64 = 10_000;
+/// Sent a little too early (the limit still holds right after the reset): try again soon, not after a whole window.
+pub const EARLY_RETRY_MS: u64 = 60_000;
+/// A limit hit this soon after our own message counts as "a little too early".
+pub const EARLY_WINDOW_MS: u64 = 10 * 60_000;
 /// When nothing says when the limit resets: look again in an hour.
 const FALLBACK_MS: u64 = 60 * 60_000;
 /// A message that runs into the limit again waits again, but not forever.

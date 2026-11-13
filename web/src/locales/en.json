@@ -868,11 +868,12 @@
   },
   "long": {
     "name": "100h mode",
-    "next": "Next try in {time} ({n}/{max})",
     "trying": "Trying again ({n}/{max})",
     "now": "Try now",
     "stop": "Stop",
-    "gaveUp": "100h mode: the request failed all 100 tries. Send a message to try again."
+    "gaveUp": "100h mode: the request failed all 100 tries. Send a message to try again.",
+    "nextPre": "Next try in",
+    "nextPost": "({n}/{max})"
   },
   "limits": {
     "title": "Plan limits",
@@ -906,10 +907,11 @@
     "default": "계속해",
     "now": "Send now",
     "gaveUp": "Continue after the limit: the limit was still hit after resetting, so it stopped.",
-    "short": "Limit reached · \"{text}\" in {time}",
-    "shortGuess": "Limit reached · \"{text}\" in about {time}",
     "tipWindow": "Sent when the {window} limit resets at {clock}",
     "tip": "Sent when the limit resets at {clock}",
-    "tipGuess": "Reset time unknown: tries in an hour"
+    "tipGuess": "Reset time unknown: tries in an hour",
+    "reached": "Limit reached",
+    "about": "about",
+    "then": "then \"{text}\""
   }
 }

@@ -156,6 +156,8 @@ pub struct Runtime {
     resume: Mutex<Option<crate::resume::Pending>>,
     /// How many times in a row the continue message ran into the limit again.
     resume_tries: std::sync::atomic::AtomicU32,
+    /// When our continue message was last sent (0: never).
+    resume_fired_at: std::sync::atomic::AtomicU64,
     resume_cfg: Arc<crate::resume::Resume>,
     /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
     session_file: Mutex<Option<String>>,
@@ -217,7 +219,13 @@ impl Runtime {
             self.resume_publish(true);
             return;
         }
-        let (at, window, known) = crate::resume::due(error, culprit, now_ms());
+        let now = now_ms();
+        let fired = self.resume_fired_at.load(Ordering::Relaxed);
+        let (at, window, known) = if tries > 1 && fired > 0 && now.saturating_sub(fired) < crate::resume::EARLY_WINDOW_MS {
+            (now + crate::resume::EARLY_RETRY_MS, culprit.map(|c| c.1), true)
+        } else {
+            crate::resume::due(error, culprit, now)
+        };
         let pending = crate::resume::Pending { at, tries, window, known };
         let begun = self.resume.lock().unwrap().replace(pending).is_none();
         self.resume_publish(false);
@@ -258,6 +266,7 @@ impl Runtime {
                 }
                 if now_ms() >= p.at {
                     self.resume_tries.store(p.tries, std::sync::atomic::Ordering::Relaxed);
+                    self.resume_fired_at.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
                     *g = None;
                     true
                 } else {
@@ -565,6 +574,7 @@ impl Manager {
             session_file: Mutex::new(None),
             resume: Mutex::new(None),
             resume_tries: Default::default(),
+            resume_fired_at: Default::default(),
             resume_cfg: self.resume.clone(),
         });
         self.pet.attach(rt.clone());

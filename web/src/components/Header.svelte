@@ -97,7 +97,7 @@
     {:else if long}
       <span title={showcase.tip('hosts', long.error)}>
         <b>{t('long.name')}</b>
-        {#if long.at != null}{t('long.next', { time: runClock(long.at - now), n: long.attempt, max: long.max })}
+        {#if long.at != null}{t('long.nextPre')} <b class="clock">{runClock(long.at - now)}</b> {t('long.nextPost', { n: long.attempt, max: long.max })}
         {:else}{t('long.trying', { n: long.attempt, max: long.max })}{/if}
       </span>
       <span class="acts">
@@ -106,7 +106,7 @@
       </span>
     {:else if resume}
       <span title={resume.known ? (resume.window ? t('resume.tipWindow', { window: windowName(resume.window), clock: clock(resume.at) }) : t('resume.tip', { clock: clock(resume.at) })) : t('resume.tipGuess')}>
-        {t(resume.known ? 'resume.short' : 'resume.shortGuess', { time: runClock(resume.at - now), text: resume.text })}
+        {t('resume.reached')} · {#if !resume.known}{t('resume.about')} {/if}<b class="clock">{runClock(resume.at - now)}</b> {t('resume.then', { text: resume.text })}
       </span>
       <span class="acts">
         <button class="btn go" type="button" onclick={() => chat.resumeAct('now')}>{t('resume.now')}</button>
@@ -242,6 +242,13 @@
   .strip.long b {
     font-weight: inherit;
     margin-right: 6px;
+  }
+  /* the countdown: heavy, fixed-width digits, so it ticks without the line moving */
+  .strip.long .clock {
+    margin: 0;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
   /* on the orange strip: the action in dark (the colors of a primary button, turned around), stop as a dark wash */
   .strip.long .btn {
