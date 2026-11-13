@@ -914,5 +914,16 @@
     "about": "about",
     "then": "then \"{text}\"",
     "skippedLong": "The {window} limit was hit. It resets {date}, too far off for Zero-Standby to wait."
+  },
+  "oven": {
+    "check": "Check for updates",
+    "checking": "Checking…",
+    "upToDate": "Up to date ({tag})",
+    "available": "A new build is out ({tag})",
+    "apply": "Update and restart",
+    "applying": "Downloading and replacing…",
+    "applyNote": "The server file from the GitHub release is checked against SHA256SUMS, put in place, and the server starts again with the same arguments. pi in open sessions restarts too.",
+    "restarting": "Restarting… the page reloads when the server is back.",
+    "notBack": "The server did not come back as the new build within 90 seconds. Check the server itself."
   }
 }

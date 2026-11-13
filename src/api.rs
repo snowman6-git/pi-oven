@@ -17,6 +17,7 @@ pub fn fail(code: StatusCode, msg: impl ToString) -> Response {
 pub async fn info(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "build": crate::selfupdate::build_id(),
         "home": home_dir(),
         "sessionsDir": app.sessions_dir,
         "piBin": app.pi_bin,

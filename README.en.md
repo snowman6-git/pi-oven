@@ -114,6 +114,7 @@ Each part appears only when its package is installed.
 | `--allow-origin <origin>` | Another browser origin allowed to call the API (repeatable) |
 | `--pi-bin <path>`, `--pi-arg <arg>` | The pi to run, and an argument for every pi process |
 | `--sessions-dir <dir>` | pi's session folder (default `~/.pi/agent/sessions`) |
+| `pi-oven update [--check]` | Replace this binary with the newest GitHub release's server file, checked against SHA256SUMS (`--check` only looks). In the web UI: Settings → About, "Check for updates" → "Update and restart" |
 | `--root <dir>` | Work only in this folder and below (browsing, new folders, starting pi, listed sessions). Does not stop pi's tools from reading outside |
 | `--no-permission-ext` | Turn off the built-in permission (auto/manual) extension |
 

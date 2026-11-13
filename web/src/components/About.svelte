@@ -2,6 +2,7 @@
   import { api, type About } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import { t } from '../lib/i18n.svelte';
+  import OvenUpdate from './OvenUpdate.svelte';
 
   // Settings → About: pi first and large, then what it runs with.
   let info = $state<About | null>(null);
@@ -24,7 +25,7 @@
       <span class="ver mono">{info.pi ?? '—'}</span>
       {#if offer?.pi}<span class="new">{t('about.newVersion', { v: offer.pi[1] })}</span>{/if}
     </div>
-    <p class="sub">pi-oven <span class="mono">{info.oven}</span></p>
+    <OvenUpdate version={info.oven} />
 
     <h3>{t('about.packages')} <span class="n">{info.packages.length}</span></h3>
     {#if info.packages.length}
@@ -79,11 +80,6 @@
     font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1.1;
-  }
-  .sub {
-    margin: 4px 0 18px;
-    font-size: 12.5px;
-    color: var(--ink-3);
   }
   h3 {
     margin: 16px 0 6px;

@@ -114,6 +114,7 @@ cargo build --release
 | `--allow-origin <출처>` | API를 호출해도 되는 다른 브라우저 출처 (여러 번 가능) |
 | `--pi-bin <경로>`, `--pi-arg <인자>` | 실행할 pi와, 모든 pi 프로세스에 넘길 인자 |
 | `--sessions-dir <폴더>` | pi 세션 폴더 (기본 `~/.pi/agent/sessions`) |
+| `pi-oven update [--check]` | 최신 GitHub 릴리즈의 서버 파일을 SHA256SUMS로 확인해 지금 바이너리와 바꿈(`--check`는 확인만). 웹에서는 설정 → 정보의 "업데이트 확인" → "업데이트 후 재시작" |
 | `--root <폴더>` | 이 폴더와 그 아래에서만 작업(폴더 탐색, 새 폴더, pi 시작, 보이는 세션). pi의 도구가 바깥을 읽는 것은 막지 않음 |
 | `--no-permission-ext` | 내장 권한(자동/수동) 확장을 끔 |
 

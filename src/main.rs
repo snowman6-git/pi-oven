@@ -12,6 +12,7 @@ mod models;
 mod pet;
 mod runtime;
 mod scope;
+mod selfupdate;
 mod sessions;
 mod limits;
 mod resume;
@@ -41,6 +42,7 @@ pub struct AppState {
     pub sessions: sessions::SessionIndex,
     /// `--root`, resolved: the only folder (and below) this server works in.
     pub root: Option<PathBuf>,
+    pub self_update: Arc<selfupdate::SelfUpdate>,
 }
 
 /// Browsers on another origin (a Tauri webview, a dev server) need explicit permission.
@@ -62,6 +64,11 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("update") {
+        std::process::exit(selfupdate::cli(&argv[2..]).await);
+    }
+    selfupdate::init();
     let mut cfg = config::parse_args();
     let (given_token, password) = match cfg.secrets() {
         Ok(v) => v,
@@ -102,10 +109,12 @@ async fn main() -> anyhow::Result<()> {
         runtimes: runtimes.clone(),
         sessions: Default::default(),
         root: cfg.root.clone(),
+        self_update: Default::default(),
     });
 
     let router = Router::new()
         .route("/api/info", get(api::info))
+        .route("/api/oven/update", get(selfupdate::check).post(selfupdate::apply))
         .route("/api/limits", get(limits::get))
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))

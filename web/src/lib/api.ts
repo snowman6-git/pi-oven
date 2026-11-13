@@ -68,6 +68,9 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+/** The newest release's server binary against the one running (first 12 hex digits of SHA-256). */
+export interface OvenRelease { tag: string; current: string | null; latest: string; upToDate: boolean; updatedAt: string }
+
 export interface About {
   pi: string | null;
   oven: string;
@@ -155,7 +158,9 @@ export const api = {
   statFiles: (id: string, paths: string[]) =>
     call<Record<string, FileStat | null>>(`/api/runtimes/${id}/files/stat`, { method: 'POST', body: JSON.stringify({ paths }) }),
   gitDiff: (id: string, path: string) => callText(`/api/runtimes/${id}/git/diff?path=${encodeURIComponent(path)}`),
-  info: () => call<{ version: string; home: string; sessionsDir: string }>('/api/info'),
+  info: () => call<{ version: string; build?: string | null; home: string; sessionsDir: string }>('/api/info'),
+  ovenCheck: () => call<OvenRelease>('/api/oven/update'),
+  ovenApply: () => call<{ restarting: boolean; latest: string }>('/api/oven/update', { method: 'POST' }),
   sessions: () => call<SessionSummary[]>('/api/sessions'),
   /** Name a session that is not open (an empty name clears it). An open one is renamed through its own pi. */
   renameSession: (path: string, name: string) => call<void>('/api/sessions/rename', { method: 'POST', body: JSON.stringify({ path, name }) }),

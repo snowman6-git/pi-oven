@@ -207,12 +207,14 @@ pub fn install_limits_extension() -> Option<PathBuf> {
     install("oven-limits.ts", LIMITS_EXT)
 }
 
+/// pi-oven's own cache folder (`$XDG_CACHE_HOME/pi-oven`, else `~/.cache/pi-oven`).
+pub fn cache_dir() -> PathBuf {
+    std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).unwrap_or_else(|| home_dir().join(".cache")).join("pi-oven")
+}
+
 /// Writes a bundled pi extension next to the user's cache so `pi --extension` can load it.
 fn install(name: &str, body: &str) -> Option<PathBuf> {
-    let dir = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".cache"))
-        .join("pi-oven");
+    let dir = cache_dir();
     std::fs::create_dir_all(&dir).ok()?;
     let path = dir.join(name);
     std::fs::write(&path, body).ok()?;
