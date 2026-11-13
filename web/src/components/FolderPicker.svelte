@@ -34,7 +34,7 @@
     dlg.showModal();
     // Typing a path is optional; don't pop the on-screen keyboard just because the dialog opened.
     (document.activeElement as HTMLElement | null)?.blur();
-    void go(app.chats.find((c) => c.runtime.id === app.currentId)?.runtime.cwd);
+    void go(app.moveTarget?.cwd ?? app.chats.find((c) => c.runtime.id === app.currentId)?.runtime.cwd);
   });
 
   function startNew() {
@@ -57,18 +57,21 @@
 
   function close() {
     app.folderPicker = false;
+    app.moveTarget = null;
   }
   function start() {
     if (!listing) return;
-    void app.openFolder(listing.path);
+    const move = app.moveTarget;
+    if (move) void app.moveSession(move, listing.path);
+    else void app.openFolder(listing.path);
     close();
   }
 </script>
 
 <dialog bind:this={dlg} onclose={close} aria-labelledby="fp-title">
   <form method="dialog" class="box" onsubmit={(e) => e.preventDefault()}>
-    <h2 id="fp-title">{S.chooseFolder}</h2>
-    <p class="help">{S.chooseFolderHelp}</p>
+    <h2 id="fp-title">{app.moveTarget ? t('picker.moveTitle') : S.chooseFolder}</h2>
+    <p class="help">{app.moveTarget ? t('picker.moveHelp') : S.chooseFolderHelp}</p>
 
     <div class="path">
       <button class="icon-btn" type="button" disabled={!listing?.parent} aria-label={S.parentFolder} title={S.parentFolder} onclick={() => listing?.parent && go(listing.parent)}>
@@ -109,7 +112,7 @@
       <span class="grow"></span>
       <button class="btn quiet" type="button" onclick={() => dlg.close()}>{S.cancel}</button>
       <button class="btn primary" type="button" disabled={!listing} onclick={start}>
-        {S.startHere}{#if listing?.isGit}<span class="git">git</span>{/if}
+        {app.moveTarget ? t('picker.moveHere') : S.startHere}{#if listing?.isGit}<span class="git">git</span>{/if}
       </button>
     </div>
   </form>

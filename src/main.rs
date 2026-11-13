@@ -131,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sessions/state", get(branch::state))
         .route("/api/sessions/tail", get(branch::tail))
         .route("/api/sessions/branch", axum::routing::post(branch::branch))
+        .route("/api/sessions/move", axum::routing::post(branch::move_session))
         .route("/api/sessions/rename", axum::routing::post(branch::rename))
         .route("/api/pet/stream", get(api::pet_stream))
         .route("/api/about", get(about::about))

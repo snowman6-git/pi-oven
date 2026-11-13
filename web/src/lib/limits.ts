@@ -7,8 +7,9 @@ export type LimitWire = { provider: string; plan: string | null; ageMs: number; 
 export type LimitWindow = { minutes: number; used: number; resetAt: number | null };
 export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; windows: LimitWindow[] };
 
-/** A window as it stands now: past its reset it starts again from nothing. */
-export type WindowNow = { minutes: number; used: number; resetAt: number | null; reached: boolean; level: 'ok' | 'warm' | 'full' };
+/** A window as it stands now: past its reset it starts again from nothing. Providers send what is used; the page
+ * shows what is left (`left`), which is what one wants to know before sending more. */
+export type WindowNow = { minutes: number; used: number; left: number; resetAt: number | null; reached: boolean; level: 'ok' | 'warm' | 'full' };
 
 export function fromWire(w: LimitWire, now: number): Limit {
   return {
@@ -24,7 +25,8 @@ function windowNow(w: LimitWindow, now: number): WindowNow {
   const over = w.resetAt != null && now >= w.resetAt;
   const used = over ? 0 : Math.max(0, Math.min(100, w.used));
   const reached = used >= 99.5;
-  return { minutes: w.minutes, used, resetAt: over ? null : w.resetAt, reached, level: reached ? 'full' : used > 75 ? 'warm' : 'ok' };
+  const left = 100 - used;
+  return { minutes: w.minutes, used, left, resetAt: over ? null : w.resetAt, reached, level: reached ? 'full' : left < 25 ? 'warm' : 'ok' };
 }
 
 /** The short window (5 hours) and the long one (a week): the ring's right and left halves. */

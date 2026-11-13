@@ -22,6 +22,18 @@
   let expanded = $state<Record<string, boolean>>({});
   const LIMIT = 6;
 
+  // Folded folders show only their open sessions; the rest wait until the folder is unfolded. Folded is the default,
+  // and the unfolded ones are remembered in this browser.
+  const OPEN_KEY = 'pi-oven.folders-open';
+  let unfolded = $state<string[]>((() => {
+    try { const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
+  })());
+  const isOpen = (cwd: string) => unfolded.includes(cwd);
+  function toggleFold(cwd: string) {
+    unfolded = isOpen(cwd) ? unfolded.filter((c) => c !== cwd) : [...unfolded, cwd];
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(unfolded)); } catch { /* private mode */ }
+  }
+
   const groups = $derived.by<Group[]>(() => {
     const q = query.trim().toLowerCase();
     const byCwd = new Map<string, Entry[]>();
@@ -71,6 +83,7 @@
       { label: t('sidebar.newIn', { folder: shortName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
       'sep',
       { label: t('sidebar.tree'), icon: 'fork', disabled: !file, run: () => file && (app.treeTarget = { path: file, cwd: g.cwd, title: e.title }) },
+      { label: t('sidebar.move'), icon: 'folderOpen', disabled: !e.session, run: () => e.session && app.startMove(e.session) },
       'sep',
       { label: t('sidebar.copyFolder'), icon: 'folder', run: () => app.copy(g.cwd) },
       { label: t('sidebar.copyFile'), icon: 'link', disabled: !file, run: () => app.copy(file ?? '') },
@@ -87,6 +100,7 @@
       ]
     : [
         { label: t('sidebar.newIn', { folder: shortName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
+        { label: isOpen(g.cwd) ? t('sidebar.fold') : t('sidebar.unfold'), icon: isOpen(g.cwd) ? 'up' : 'down', run: () => toggleFold(g.cwd) },
         { label: t('sidebar.copyFolder'), icon: 'folder', run: () => app.copy(g.cwd) },
         'sep',
         { label: t('sidebar.deleteInFolder'), icon: 'select', danger: true, disabled: deletable(g).length === 0, run: () => { app.startSelect(); app.pickMany(deletable(g), false); } },
@@ -235,7 +249,10 @@
 
   <nav aria-label={t('sidebar.sessions')}>
     {#each groups as g (g.cwd)}
-      {@const shown = expanded[g.cwd] || query ? g.entries : g.entries.slice(0, LIMIT)}
+      {@const all = !!query || app.selecting || isOpen(g.cwd)}
+      {@const visible = all ? g.entries : g.entries.filter((e) => e.chat)}
+      {@const hiddenN = g.entries.length - visible.length}
+      {@const shown = expanded[g.cwd] || query || !all ? visible : visible.slice(0, LIMIT)}
       <section>
         <div class="gh" use:contextMenu={() => groupItems(g)}>
           {#if app.selecting}
@@ -246,10 +263,10 @@
               {#if st === 'all'}<Icon name="check" size={12} />{:else if st === 'some'}<span class="dash"></span>{/if}
             </button>
           {/if}
-          <div class="gt" title={showcase.tip('paths', g.cwd)}>
-            <span class="gname" data-priv="paths">{baseName(g.cwd)}</span>
+          <button class="gt" type="button" title={showcase.tip('paths', g.cwd)} aria-expanded={all} disabled={!!query || app.selecting} onclick={() => toggleFold(g.cwd)}>
+            <span class="gname" data-priv="paths"><span class="chev" class:open={all} aria-hidden="true"><Icon name="right" size={12} /></span>{baseName(g.cwd)}{#if hiddenN > 0}<span class="hidden-n" aria-label={t('sidebar.hiddenN', { n: hiddenN })}>{hiddenN}</span>{/if}</span>
             <span class="gpath mono" data-priv="paths">{tildePath(g.cwd, app.home)}</span>
-          </div>
+          </button>
           <button class="icon-btn sm" class:hide={app.selecting} type="button" title="{S.newSession} ({baseName(g.cwd)})" aria-label={t('sidebar.newIn', { folder: baseName(g.cwd) })} onclick={() => app.openFolder(g.cwd)}>
             <Icon name="plus" size={16} />
           </button>
@@ -288,7 +305,7 @@
             </li>
           {/each}
         </ul>
-        {#if !query && g.entries.length > LIMIT}
+        {#if !query && all && g.entries.length > LIMIT}
           <button class="more" type="button" onclick={() => (expanded[g.cwd] = !expanded[g.cwd])}>
             {expanded[g.cwd] ? S.showLess : `${S.showMore} (${g.entries.length - LIMIT})`}
           </button>
@@ -494,6 +511,46 @@
     min-width: 0;
     display: grid;
     line-height: 1.3;
+    text-align: left;
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-radius: 6px;
+    color: inherit;
+  }
+  .gt:disabled {
+    cursor: default;
+  }
+  @media (hover: hover) {
+    .gt:not(:disabled):hover {
+      background: var(--paper-sunk);
+    }
+  }
+  .chev {
+    display: inline-grid;
+    place-items: center;
+    width: 14px;
+    margin-right: 3px;
+    vertical-align: -1px;
+    color: var(--ink-3);
+    transition: transform 0.15s;
+  }
+  .chev.open {
+    transform: rotate(90deg);
+  }
+  .hidden-n {
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--rule);
+    color: var(--ink-2);
+    font-size: 11px;
+    font-weight: 560;
+    vertical-align: 1px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chev {
+      transition: none;
+    }
   }
   .gname {
     font-weight: 680;

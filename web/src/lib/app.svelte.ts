@@ -26,6 +26,8 @@ class App {
   currentId = $state<string | null>(null);
   error = $state<string | null>(null);
   folderPicker = $state(false);
+  /** Set while the folder picker chooses where a session goes, instead of where a new one starts. */
+  moveTarget = $state<SessionSummary | null>(null);
   flashText = $state<string | null>(null);
   /** A question that needs a yes/no (replaces the browser's confirm()). */
   dialog = $state<{ title: string; body?: string; items?: string[]; confirm: string; danger?: boolean; resolve: (ok: boolean) => void } | null>(null);
@@ -349,6 +351,43 @@ class App {
     try {
       const rt = await api.openRuntime({ cwd: s.cwd, sessionPath: s.path });
       this.select(this.#attach(rt).runtime.id);
+    } catch (e) { this.#fail(e); }
+  }
+
+  /** Pick a folder for this session (the picker calls `moveSession` with it). */
+  startMove(s: SessionSummary) {
+    // a run in flight would still be writing to the original while it is copied
+    if (this.chatFor(s.path)?.running) return this.flash(t('appmsg.moveBusy'));
+    this.moveTarget = s;
+    this.folderPicker = true;
+  }
+
+  /** Copy the session into `cwd`, open the copy, then ask whether the original should go. */
+  async moveSession(s: SessionSummary, cwd: string) {
+    let b: Branched;
+    try {
+      b = await api.moveSession(s.path, cwd);
+    } catch (e) { return this.#fail(e); }
+    try {
+      const rt = await api.openRuntime({ cwd: b.cwd, sessionPath: b.path });
+      const chat = this.#attach(rt);
+      this.select(chat.runtime.id);
+      // The history still names the old folder; say so before the model works from it.
+      chat.prefill = { text: t('appmsg.movedNote', { from: s.cwd, to: b.cwd }), n: Date.now() };
+    } catch (e) { this.#fail(e); }
+    void this.refreshSessions();
+    const title = s.name || s.preview || S.untitled;
+    const drop = await this.ask({ title: t('appmsg.moveDelTitle'), body: t('appmsg.moveDelBody', { folder: s.cwd }), items: [title], confirm: t('appmsg.del'), danger: true });
+    if (!drop) return this.flash(t('appmsg.moved'));
+    const open = this.chatFor(s.path);
+    if (open) {
+      open.dispose();
+      this.chats = this.chats.filter((c) => c !== open);
+    }
+    try {
+      await api.deleteSession(s.path, true);
+      this.sessions = this.sessions.filter((x) => x.path !== s.path);
+      this.flash(t('appmsg.movedDeleted'));
     } catch (e) { this.#fail(e); }
   }
 

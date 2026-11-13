@@ -276,12 +276,12 @@
       "one": "{n} package",
       "other": "{n} packages"
     },
-    "unfold": "Expand sidebar",
+    "unfold": "Show all sessions",
     "openChats": "Open sessions",
     "session": "Session",
     "settings": "Settings",
     "settingsShowcase": "Settings (showcase mode on)",
-    "fold": "Collapse sidebar",
+    "fold": "Hide closed sessions",
     "closeList": "Close list",
     "sessions": "Sessions",
     "sessionName": "Session name",
@@ -296,7 +296,12 @@
     "endSelectEsc": "Leave selection mode (Esc)",
     "showcaseOn": "Showcase mode is on. Click to open Settings.",
     "showcase": "Showcase",
-    "language": "Language: {name}"
+    "language": "Language: {name}",
+    "hiddenN": {
+      "one": "{n} hidden session",
+      "other": "{n} hidden sessions"
+    },
+    "move": "Move to another folder"
   },
   "header": {
     "tree": "Session tree",
@@ -330,7 +335,10 @@
     "newFolder": "New folder",
     "newFolderName": "New folder name",
     "create": "Create",
-    "outside": "This server works only inside one folder. Choose a folder within it."
+    "outside": "This server works only inside one folder. Choose a folder within it.",
+    "moveTitle": "Move the session to",
+    "moveHelp": "The conversation is copied into a new session that works in the folder you choose.",
+    "moveHere": "Move here"
   },
   "turn": {
     "viewOutput": "View output",
@@ -806,7 +814,13 @@
     "delOpenRunning": {
       "one": "The open session is closed first, and its running work stops.",
       "other": "The {n} open sessions are closed first, and their running work stops."
-    }
+    },
+    "movedNote": "This session's working folder moved from {from} to {to}. Paths earlier in the history refer to the old folder; work from the new one from now on.",
+    "moveDelTitle": "Delete the original session?",
+    "moveDelBody": "The session is open in its new folder. Deleting the original file left in {folder} cannot be undone.",
+    "moved": "Session moved. The original is kept",
+    "movedDeleted": "Session moved and the original deleted",
+    "moveBusy": "Move it once the current run is done"
   },
   "chatmsg": {
     "noFork": "Cannot branch from this message.",
@@ -878,7 +892,9 @@
     "reached": "Limit reached",
     "asOf": "As of a reply {time}",
     "showInfo": "Show in Info",
-    "chip": "Plan limits: {text}",
-    "inUse": "in use"
+    "chip": "Plan limit left: {text}",
+    "inUse": "in use",
+    "leftOf": "{name} left",
+    "leftPct": "{n}% left"
   }
 }

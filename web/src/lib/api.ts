@@ -128,6 +128,9 @@ export const api = {
     call<{ ids: string[] }>('/api/models/probe', { method: 'POST', body: JSON.stringify(body) }),
   sessionTree: (path: string) => call<SessionTree>(`/api/sessions/tree?path=${encodeURIComponent(path)}`),
   /** A new session file holding only the way from the start to `leaf` (null: nothing before the message). */
+  /** A copy of the session that belongs to another folder (the original stays). */
+  moveSession: (path: string, cwd: string) =>
+    call<Branched>('/api/sessions/move', { method: 'POST', body: JSON.stringify({ path, cwd }) }),
   branchSession: (path: string, leaf: string | null, textOf?: string) =>
     call<Branched>('/api/sessions/branch', { method: 'POST', body: JSON.stringify({ path, leaf, textOf }) }),
   git: (id: string) => call<GitOverview>(`/api/runtimes/${id}/git`),

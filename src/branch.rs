@@ -529,6 +529,80 @@ fn tail_lines(file: &Path, n: u32, custom: Option<&str>) -> Result<Vec<String>, 
     Ok(out)
 }
 
+/// pi's folder for a working directory's sessions: `/home/me/proj` → `--home-me-proj--`.
+pub fn folder_for(cwd: &str) -> String {
+    let trimmed = cwd.strip_prefix(['/', '\\']).unwrap_or(cwd);
+    format!("--{}--", trimmed.replace(['/', '\\', ':'], "-"))
+}
+
+/// The whole session (every branch) as a new file that belongs to another folder. The original is left alone.
+pub fn make_moved(original: &Path, sessions: &Path, cwd: &Path) -> Result<Branched, (StatusCode, String)> {
+    let bad = |m: &str| (StatusCode::UNPROCESSABLE_ENTITY, m.to_string());
+    let lines = read_lines(&original.to_path_buf()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let header: Value = lines.first().and_then(|l| serde_json::from_slice(l).ok()).ok_or_else(|| bad("empty or unreadable session file"))?;
+    if header["type"] != "session" {
+        return Err(bad("not a pi session (no header)"));
+    }
+    let cwd_s = cwd.to_string_lossy().into_owned();
+    if header["cwd"].as_str() == Some(cwd_s.as_str()) {
+        return Err(bad("the session is already in that folder"));
+    }
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let (iso, stamp) = stamps(now);
+    let id = uuid7(now);
+    let mut new_header = header.clone();
+    new_header["id"] = id.clone().into();
+    new_header["timestamp"] = iso.into();
+    new_header["cwd"] = cwd_s.clone().into();
+    new_header["parentSession"] = original.to_string_lossy().into_owned().into();
+
+    let dir = sessions.join(folder_for(&cwd_s));
+    std::fs::create_dir_all(&dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let dest = dir.join(format!("{stamp}_{id}.jsonl"));
+    let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&dest).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let write = |out: &mut std::fs::File| -> std::io::Result<()> {
+        out.write_all(new_header.to_string().as_bytes())?;
+        out.write_all(b"\n")?;
+        for line in &lines[1..] {
+            out.write_all(line)?;
+            out.write_all(b"\n")?;
+        }
+        out.flush()
+    };
+    if let Err(e) = write(&mut out) {
+        let _ = std::fs::remove_file(&dest);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+    Ok(Branched { path: dest.to_string_lossy().into_owned(), id, cwd: cwd_s, entries: lines.len() - 1, text: None })
+}
+
+#[derive(Deserialize)]
+pub struct MoveReq {
+    path: String,
+    cwd: String,
+}
+
+/// "Move to another folder": a copy whose working folder is `cwd`. The page asks whether to delete the original.
+pub async fn move_session(State(app): State<Arc<AppState>>, Json(req): Json<MoveReq>) -> Response {
+    let file = match resolve(&app, &req.path) {
+        Ok(f) => f,
+        Err((code, msg)) => return fail(code, msg),
+    };
+    let Ok(cwd) = PathBuf::from(&req.cwd).canonicalize() else { return fail(StatusCode::NOT_FOUND, "folder not found") };
+    if !cwd.is_dir() {
+        return fail(StatusCode::BAD_REQUEST, "not a folder");
+    }
+    if !crate::scope::allows(app.root.as_deref(), &cwd) {
+        return fail(StatusCode::FORBIDDEN, "outside the allowed folder");
+    }
+    let sessions = app.sessions_dir.clone();
+    match tokio::task::spawn_blocking(move || make_moved(&file, &sessions, &cwd)).await {
+        Ok(Ok(b)) => Json(b).into_response(),
+        Ok(Err((code, msg))) => fail(code, msg),
+        Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
 pub async fn branch(State(app): State<Arc<AppState>>, Json(req): Json<BranchReq>) -> Response {
     let file = match resolve(&app, &req.path) {
         Ok(f) => f,
@@ -543,6 +617,36 @@ pub async fn branch(State(app): State<Arc<AppState>>, Json(req): Json<BranchReq>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn folders_are_named_like_pi_names_them() {
+        assert_eq!(super::folder_for("/home/me/my proj"), "--home-me-my proj--");
+        assert_eq!(super::folder_for("/a/.b/c"), "--a-.b-c--");
+        assert_eq!(super::folder_for("C:\\x\\y"), "--C--x-y--");
+    }
+
+    #[test]
+    fn a_moved_session_keeps_every_entry_and_only_the_header_changes() {
+        let dir = std::env::temp_dir().join(format!("oven-move-{}", std::process::id()));
+        let (sessions, to) = (dir.join("sessions"), dir.join("proj"));
+        std::fs::create_dir_all(sessions.join("--old--")).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        let orig = sessions.join("--old--").join("a.jsonl");
+        let body = "{\"type\":\"message\",\"id\":\"u1\",\"parentId\":null}\n{\"type\":\"message\",\"id\":\"u2\",\"parentId\":null}\n";
+        std::fs::write(&orig, format!("{{\"type\":\"session\",\"id\":\"old\",\"cwd\":\"/old\"}}\n{body}")).unwrap();
+        let b = super::make_moved(&orig, &sessions, &to).unwrap();
+        let moved = std::fs::read_to_string(&b.path).unwrap();
+        let (head, rest) = moved.split_once('\n').unwrap();
+        let h: serde_json::Value = serde_json::from_str(head).unwrap();
+        assert_eq!(h["cwd"], to.to_string_lossy().as_ref());
+        assert_ne!(h["id"], "old");
+        assert_eq!(rest, body);
+        assert!(b.path.contains(&super::folder_for(&to.to_string_lossy())));
+        assert!(orig.exists());
+        // moving into the folder it is already in is refused
+        assert!(super::make_moved(std::path::Path::new(&b.path), &sessions, &to).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     use super::*;
 
     #[test]

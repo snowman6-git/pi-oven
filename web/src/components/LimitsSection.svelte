@@ -38,10 +38,10 @@
             <div class="row" class:full={w.reached}>
               <div class="label">
                 <span>{windowName(w.minutes)}{#if w.reached} · {t('limits.reached')}{/if}</span>
-                <span class="num">{Math.round(w.used)}%</span>
+                <span class="num">{t('limits.leftPct', { n: Math.round(w.left) })}</span>
               </div>
-              <div class="meter" role="meter" aria-valuenow={Math.round(w.used)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(l.provider)} {windowName(w.minutes)}">
-                <i class={w.level} style="width:{w.used}%"></i>
+              <div class="meter" role="meter" aria-valuenow={Math.round(w.left)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(l.provider)} {windowName(w.minutes)}">
+                <i class={w.level} style="width:{w.left}%"></i>
               </div>
               {#if w.resetAt != null}<small>{resetText(w)}</small>{/if}
             </div>

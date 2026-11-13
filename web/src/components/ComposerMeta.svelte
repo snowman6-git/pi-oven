@@ -43,7 +43,7 @@
     const full = short?.reached ? short : long?.reached ? long : undefined;
     if (full) return { text: full.resetAt ? untilShort(full.resetAt, limits.now) : t('limits.reached'), level: 'full' };
     const w = short ?? long;
-    return w ? { text: `${Math.round(w.used)}%`, level: w.level } : null;
+    return w ? { text: `${Math.round(w.left)}%`, level: w.level } : null;
   });
   const resetText = (w: WindowNow) =>
     w.resetAt == null ? '' : w.minutes > 1440 ? t('limits.resetAt', { date: resetDate(w.resetAt, false) }) : t('limits.resetIn', { time: until(w.resetAt, limits.now) });
@@ -130,8 +130,8 @@
             {#each [half.long, half.short] as w, i (i)}
               {#if w}
                 <div class:full={w.reached}>
-                  <small>{windowName(w.minutes)}</small>
-                  <span class="pctbig">{w.reached ? t('limits.reached') : `${Math.round(w.used)}%`}</span>
+                  <small>{t('limits.leftOf', { name: windowName(w.minutes) })}</small>
+                  <span class="pctbig">{w.reached ? t('limits.reached') : `${Math.round(w.left)}%`}</span>
                   <small>{resetText(w)}</small>
                 </div>
               {/if}
