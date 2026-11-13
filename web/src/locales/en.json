@@ -904,8 +904,12 @@
     "hint": "When the 5-hour limit stops a run, the message below is sent once it resets so the work carries on. Runs on the server, with every window closed.",
     "textLabel": "Message to send",
     "default": "계속해",
-    "next": "sends \"{text}\" in {time}",
     "now": "Send now",
-    "gaveUp": "Continue after the limit: the limit was still hit after resetting, so it stopped."
+    "gaveUp": "Continue after the limit: the limit was still hit after resetting, so it stopped.",
+    "short": "Limit reached · \"{text}\" in {time}",
+    "shortGuess": "Limit reached · \"{text}\" in about {time}",
+    "tipWindow": "Sent when the {window} limit resets at {clock}",
+    "tip": "Sent when the limit resets at {clock}",
+    "tipGuess": "Reset time unknown: tries in an hour"
   }
 }

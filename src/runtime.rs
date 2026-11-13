@@ -206,7 +206,7 @@ impl Runtime {
     }
 
     /// A run ended on the usage limit: wait for the reset, then send the chosen message.
-    fn resume_begin(self: &Arc<Self>, error: &str, reset_at: Option<u64>) {
+    fn resume_begin(self: &Arc<Self>, error: &str, culprit: Option<(u64, u32)>) {
         use std::sync::atomic::Ordering;
         if !self.resume_cfg.get().enabled {
             return;
@@ -217,7 +217,8 @@ impl Runtime {
             self.resume_publish(true);
             return;
         }
-        let pending = crate::resume::Pending { at: crate::resume::due(error, reset_at, now_ms()), tries };
+        let (at, window, known) = crate::resume::due(error, culprit, now_ms());
+        let pending = crate::resume::Pending { at, tries, window, known };
         let begun = self.resume.lock().unwrap().replace(pending).is_none();
         self.resume_publish(false);
         if begun {
@@ -632,8 +633,11 @@ impl Manager {
                                 rt.long_event(e, &long);
                             }
                             if let Some((error, provider)) = limit {
-                                let reset_at = limits.reset_of(provider.as_deref(), now_ms());
-                                rt.resume_begin(&error, reset_at);
+                                let culprit = limits.culprit(provider.as_deref(), now_ms());
+                                if let (Some(p), Some((_, minutes))) = (provider.as_deref(), culprit) {
+                                    limits.mark_used_up(p, minutes);
+                                }
+                                rt.resume_begin(&error, culprit);
                             }
                         }
                     }

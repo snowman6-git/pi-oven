@@ -113,8 +113,10 @@ impl Limits {
         }
     }
 
-    /// When a used-up window of this provider resets (the latest, if more than one is used up).
-    pub fn reset_of(&self, provider: Option<&str>, now: u64) -> Option<u64> {
+    /// After a usage-limit error: the window that ran out and when it resets. That is the most used window that has
+    /// not reset yet (the numbers are from the last reply, so "98%" can be the one that ran out); between equals, the
+    /// later reset. Returns the reset time and the window's length in minutes.
+    pub fn culprit(&self, provider: Option<&str>, now: u64) -> Option<(u64, u32)> {
         let map = self.map.lock().unwrap();
         let entries: Vec<&Entry> = match provider {
             Some(p) => map.get(p).into_iter().collect(),
@@ -123,10 +125,36 @@ impl Limits {
         entries
             .iter()
             .flat_map(|e| e.windows.iter())
-            .filter(|w| w.used >= 99.5)
-            .filter_map(|w| w.reset_at)
-            .filter(|&t| t > now)
-            .max()
+            .filter_map(|w| w.reset_at.filter(|&t| t > now).map(|t| (w.used, t, w.minutes)))
+            .max_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+            .map(|(_, t, m)| (t, m))
+    }
+
+    /// The provider said the limit is reached: that window is used up, whatever the last reply's numbers were.
+    pub fn mark_used_up(&self, provider: &str, minutes: u32) {
+        let changed = {
+            let mut map = self.map.lock().unwrap();
+            let Some(e) = map.get_mut(provider) else { return };
+            e.limit_reached = true;
+            let mut hit = false;
+            for w in e.windows.iter_mut().filter(|w| w.minutes == minutes) {
+                w.used = 100.0;
+                hit = true;
+            }
+            hit
+        };
+        if changed {
+            self.save();
+        }
+    }
+
+    fn save(&self) {
+        let all: Vec<Entry> = self.map.lock().unwrap().values().cloned().collect();
+        let Some(file) = &self.file else { return };
+        let tmp = file.with_extension("tmp");
+        if serde_json::to_vec(&all).is_ok_and(|b| std::fs::write(&tmp, b).is_ok()) {
+            let _ = std::fs::rename(&tmp, file);
+        }
     }
 
     pub fn view(&self, now: u64) -> serde_json::Value {
@@ -168,6 +196,19 @@ mod tests {
         let e = read(&line(r#"{"provider":"x","plan":"<b>","at":1,"windows":[{"minutes":300,"used":250,"resetAt":null}]}"#)).unwrap();
         assert_eq!(e.plan, None);
         assert_eq!(e.windows[0].used, 100.0);
+    }
+
+    #[test]
+    fn the_most_used_window_is_the_one_that_ran_out() {
+        let l = Limits::default();
+        let w = |minutes, used, reset_at| Window { minutes, used, reset_at: Some(reset_at) };
+        l.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 98.0, 5000), w(10080, 15.0, 9000)] });
+        assert_eq!(l.culprit(Some("p"), 100), Some((5000, 300)));
+        // once the 5 hours have reset, the week is what is left to wait for
+        assert_eq!(l.culprit(Some("p"), 6000), Some((9000, 10080)));
+        assert_eq!(l.culprit(Some("other"), 100), None);
+        l.mark_used_up("p", 300);
+        assert_eq!(l.view(100)["items"][0]["windows"][0]["used"], 100.0);
     }
 
     #[test]

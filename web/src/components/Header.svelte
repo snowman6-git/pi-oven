@@ -6,8 +6,9 @@
   import type { Chat } from '../lib/chat.svelte';
   import { dismiss, autofocus } from '../lib/actions';
   import { S } from '../lib/strings';
-  import { runClock, tildePath } from '../lib/util';
+  import { clock, runClock, tildePath } from '../lib/util';
   import Icon from './Icon.svelte';
+  import { windowName } from '../lib/limits';
 
   let { chat }: { chat: Chat } = $props();
 
@@ -104,9 +105,8 @@
         <button class="btn" type="button" onclick={() => chat.longAct('stop')}>{t('long.stop')}</button>
       </span>
     {:else if resume}
-      <span>
-        <b>{t('resume.name')}</b>
-        {t('resume.next', { time: runClock(resume.at - now), text: resume.text })}
+      <span title={resume.known ? (resume.window ? t('resume.tipWindow', { window: windowName(resume.window), clock: clock(resume.at) }) : t('resume.tip', { clock: clock(resume.at) })) : t('resume.tipGuess')}>
+        {t(resume.known ? 'resume.short' : 'resume.shortGuess', { time: runClock(resume.at - now), text: resume.text })}
       </span>
       <span class="acts">
         <button class="btn" type="button" onclick={() => chat.resumeAct('now')}>{t('resume.now')}</button>

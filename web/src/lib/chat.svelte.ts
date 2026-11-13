@@ -80,7 +80,7 @@ export class Chat {
   /** The 100h mode's place for this session: `at` is when the next try is due, empty while one is under way. */
   long = $state<{ attempt: number; max: number; at: number | null; error: string } | null>(null);
   /** Waiting for a usage limit to reset, to send `text` then (kept by the server). */
-  resume = $state<{ at: number; text: string; tries: number } | null>(null);
+  resume = $state<{ at: number; text: string; tries: number; window: number | null; known: boolean } | null>(null);
   loaded = $state(false);
   queue = $state<{ steering: string[]; followUp: string[] }>({ steering: [], followUp: [] });
   commands = $state<SlashCommand[]>([]);
@@ -606,8 +606,8 @@ export class Chat {
     this.long = s ? { attempt: s.attempt, max: s.max, at: s.inMs == null ? null : Date.now() + s.inMs, error: s.error } : null;
   }
 
-  #setResume(s: { inMs: number; text: string; tries: number } | null | undefined) {
-    this.resume = s ? { at: Date.now() + s.inMs, text: s.text, tries: s.tries } : null;
+  #setResume(s: { inMs: number; text: string; tries: number; window?: number | null; known?: boolean } | null | undefined) {
+    this.resume = s ? { at: Date.now() + s.inMs, text: s.text, tries: s.tries, window: s.window ?? null, known: s.known ?? true } : null;
   }
 
   async resumeAct(action: 'now' | 'stop') {
@@ -627,6 +627,7 @@ export class Chat {
         break;
       case 'oven_resume':
         this.#setResume(rec.state);
+        void limits.refresh(); // a limit just hit marks its window as used up
         if (rec.gaveUp) this.notice('error', t('resume.gaveUp'));
         break;
       case 'oven_long':

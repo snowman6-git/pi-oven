@@ -73,12 +73,16 @@ impl Resume {
 pub struct Pending {
     pub at: u64,
     pub tries: u32,
+    /// Which window ran out (minutes), when the limits say so.
+    pub window: Option<u32>,
+    /// Whether the reset time is known (from the error or the limits) or only a guess.
+    pub known: bool,
 }
 
 impl Pending {
     /// For the page: the time left, since a phone's clock need not agree with the server's.
     pub fn view(&self, now: u64, text: &str) -> serde_json::Value {
-        serde_json::json!({ "inMs": self.at.saturating_sub(now), "text": text, "tries": self.tries })
+        serde_json::json!({ "inMs": self.at.saturating_sub(now), "text": text, "tries": self.tries, "window": self.window, "known": self.known })
     }
 }
 
@@ -109,14 +113,15 @@ fn minutes_in(error: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// When to send: the reset the error names, else the latest reset among the used-up windows, else in an hour.
-pub fn due(error: &str, reset_at: Option<u64>, now: u64) -> u64 {
+/// When to send: the reset the error names, else when the window that ran out resets, else in an hour.
+/// Returns the time, the window (minutes) and whether the time is known.
+pub fn due(error: &str, culprit: Option<(u64, u32)>, now: u64) -> (u64, Option<u32>, bool) {
     if let Some(m) = minutes_in(error) {
-        return now + m * 60_000 + MARGIN_MS;
+        return (now + m * 60_000 + MARGIN_MS, culprit.map(|c| c.1), true);
     }
-    match reset_at {
-        Some(t) if t > now => t + MARGIN_MS,
-        _ => now + FALLBACK_MS,
+    match culprit {
+        Some((t, w)) if t > now => (t + MARGIN_MS, Some(w), true),
+        _ => (now + FALLBACK_MS, None, false),
     }
 }
 
@@ -176,9 +181,10 @@ mod tests {
 
     #[test]
     fn waits_for_the_named_time_then_the_known_reset_then_an_hour() {
-        assert_eq!(due("… Try again in ~42 min.", Some(9_999_999), 1000), 1000 + 42 * 60_000 + MARGIN_MS);
-        assert_eq!(due("usage limit", Some(5000), 1000), 5000 + MARGIN_MS);
-        assert_eq!(due("usage limit", Some(500), 1000), 1000 + FALLBACK_MS);
-        assert_eq!(due("usage limit", None, 1000), 1000 + FALLBACK_MS);
+        assert_eq!(due("… Try again in ~42 min.", Some((9_999_999, 300)), 1000), (1000 + 42 * 60_000 + MARGIN_MS, Some(300), true));
+        // what Codex really says: no time in it
+        assert_eq!(due("Codex error: The usage limit has been reached", Some((5000, 300)), 1000), (5000 + MARGIN_MS, Some(300), true));
+        assert_eq!(due("usage limit", Some((500, 300)), 1000), (1000 + FALLBACK_MS, None, false));
+        assert_eq!(due("usage limit", None, 1000), (1000 + FALLBACK_MS, None, false));
     }
 }
