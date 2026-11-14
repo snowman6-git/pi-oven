@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { grow, shrink } from '../lib/sheet';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import type { Chat, Permission } from '../lib/chat.svelte';
@@ -58,7 +59,7 @@
         <Icon name="shield" size={14} />{permLabel}<Icon name="down" size={12} />
       </button>
       {#if menu === 'perm'}
-        <div class="sheet" role="menu">
+        <div class="sheet" in:grow out:shrink role="menu">
           {#each perms as p (p.id)}
             <button role="menuitemradio" aria-checked={chat.permission === p.id} type="button" class:on={chat.permission === p.id}
               onclick={() => ((menu = null), chat.setPermission(p.id))}>
@@ -78,7 +79,7 @@
       <span class="mname">{model?.name ?? model?.id ?? S.model}</span><Icon name="down" size={12} />
     </button>
     {#if menu === 'model'}
-      <div class="sheet wide">
+      <div class="sheet wide" in:grow out:shrink>
         {#if chat.models.length > 7}
           <input class="field" placeholder={t('meta.search')} bind:value={filter} use:autofocus />
         {/if}
@@ -104,7 +105,7 @@
         {chat.state?.thinkingLevel}<Icon name="down" size={12} />
       </button>
       {#if menu === 'think'}
-        <div class="sheet narrow">
+        <div class="sheet narrow" in:grow out:shrink>
           <ul role="listbox" aria-label={S.thinkingLevel}>
             {#each chat.levels as l}
               <li role="option" aria-selected={l === chat.state?.thinkingLevel}>
@@ -123,7 +124,7 @@
         <LimitRing short={half.short} long={half.long} />{#if settings.metaLimitText}{used.text}{/if}
       </button>
       {#if menu === 'limit'}
-        <div class="sheet limitsheet">
+        <div class="sheet limitsheet" in:grow out:shrink>
           <b>{t('limits.title')} <small>· {providerName(lim.provider)} {planName(lim.plan)}</small></b>
           <div class="halves">
             {#each [half.long, half.short] as w, i (i)}
@@ -148,7 +149,7 @@
       <ContextRing percent={pct} />
     </button>
     {#if menu === 'ctx'}
-      <div class="sheet ctxsheet">
+      <div class="sheet ctxsheet" in:grow out:shrink>
         <b>{S.context}</b>
         {#if ctx && pct != null}
           <span class="pctbig">{Math.round(pct)}%</span>
@@ -207,16 +208,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .meta .pop ~ .pop .sheet {
-    left: auto;
-    right: 0;
-  }
   .optlabel {
     display: grid;
     line-height: 1.35;
   }
   .ctxsheet {
-    min-width: 200px;
     gap: 4px;
     padding: 12px;
   }
@@ -238,7 +234,6 @@
     color: var(--bad);
   }
   .limitsheet {
-    min-width: 300px;
     gap: 8px;
     padding: 12px;
   }
@@ -282,14 +277,6 @@
     justify-content: center;
   }
   @media (max-width: 720px) {
-    .meta {
-      position: relative;
-    }
-    /* the menus open across the whole row (this rule is scoped here, so it must be undone here too) */
-    .meta .pop ~ .pop .sheet {
-      left: 0;
-      right: 0;
-    }
     .mname {
       max-width: 110px;
     }

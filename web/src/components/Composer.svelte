@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { grow, shrink } from '../lib/sheet';
   import { trackPopover } from '../lib/popover.svelte';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
@@ -166,9 +167,29 @@
     void addFiles(e.dataTransfer?.files ?? []);
   }
 
+  // Where the message box is inside .dock: the menus below it are laid over it and grow up out of it.
+  let dockEl = $state<HTMLElement>();
+  let boxEl = $state<HTMLElement>();
+  let cx = $state({ left: 0, width: 0, bottom: 0, h: 48 });
+  $effect(() => {
+    const dock = dockEl;
+    const box = boxEl;
+    if (!dock || !box) return;
+    const measure = () => {
+      const d = dock.getBoundingClientRect();
+      const b = box.getBoundingClientRect();
+      cx = { left: b.left - d.left, width: b.width, bottom: d.bottom - b.bottom, h: b.height };
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(dock);
+    ro.observe(box);
+    return () => ro.disconnect();
+  });
+  const cxStyle = $derived(`--cx-left:${cx.left}px;--cx-width:${cx.width}px;--cx-bottom:${cx.bottom}px;--cx-h:${cx.h}px`);
 </script>
 
-<div class="dock">
+<div class="dock" bind:this={dockEl} style={cxStyle}>
   <BgChips {chat} />
 
   <!-- Messages waiting for the agent: a card of their own above the task list, so the list stays against the
@@ -191,6 +212,7 @@
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
+    bind:this={boxEl}
     class="composer"
     class:hot={chat.running}
     class:dragging
@@ -241,7 +263,7 @@
           <Icon name="plus" />
         </button>
         {#if menu === 'plus'}
-          <div class="sheet narrow" role="menu">
+          <div class="sheet narrow" in:grow out:shrink role="menu">
             <button role="menuitem" type="button" onclick={() => ((menu = null), fileInput.click())}><Icon name="clip" size={16} />{t('composer.attachImage')}</button>
           </div>
         {/if}

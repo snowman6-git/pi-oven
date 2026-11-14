@@ -1,32 +1,58 @@
-/* The small menus that open above the message box (attach, permission, model, thinking, context). Composer and ComposerMeta share them, so they are global and live under .dock. */
-.dock .pop {
+/* The small menus of the message box (attach, permission, model, thinking, context, plan limits). They do not float
+   over the box: each is laid exactly over it, same width and bottom edge, and grows up out of it (lib/sheet.ts), so the
+   box seems to turn into the menu. Composer measures the box into --cx-* on .dock. Global, under .dock, because
+   Composer and ComposerMeta share them. */
+.dock {
   position: relative;
+}
+.dock .pop {
+  position: static;
 }
 .dock .sheet {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  min-width: 260px;
-  max-height: min(380px, 60vh);
+  left: var(--cx-left, 0);
+  width: var(--cx-width, 100%);
+  bottom: var(--cx-bottom, 0);
+  min-height: var(--cx-h, 48px);
+  max-height: min(420px, 60vh);
+  box-sizing: border-box;
   overflow: auto;
   z-index: 20;
-  padding: 6px;
+  padding: 8px;
   background: var(--raised);
   border: 1px solid var(--rule);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: var(--shadow);
   display: grid;
+  align-content: end;
   gap: 2px;
-}
-.dock .sheet.narrow {
-  min-width: 150px;
 }
 .dock .sheet.narrow button[role='menuitem'] {
   justify-content: flex-start;
   gap: 10px;
 }
-.dock .sheet.wide {
-  width: 320px;
+/* The attach menu lives inside the box itself: the box is the frame (its 1px border included), and the box's own
+   line (the + that closes it, the text, send) stays in view at the bottom while the menu grows above it. */
+.dock .composer .sheet {
+  left: -1px;
+  bottom: -1px;
+  width: calc(100% + 2px);
+  min-height: calc(var(--cx-h, 48px) + 40px);
+  padding-bottom: var(--cx-h, 48px);
+}
+.dock .composer .line {
+  position: relative;
+  z-index: 21;
+}
+/* inside the line, the menu sits under the line's own controls */
+.dock .composer .sheet {
+  z-index: 0;
+}
+.dock .composer .line > textarea,
+.dock .composer .line > button,
+.dock .composer .line .pop > button {
+  position: relative;
+  z-index: 1;
 }
 .dock .sheet ul {
   list-style: none;
@@ -80,19 +106,4 @@
     background: var(--paper-sunk);
   }
 }
-@media (max-width: 720px) {
-  /* Menus open across the whole row instead of hanging off whichever chip was tapped. */
-  .dock .pop {
-    position: static;
-  }
-  .dock .sheet,
-  .dock .sheet.wide,
-  .dock .sheet.narrow,
-  .dock .meta .pop ~ .pop .sheet {
-    left: 0;
-    right: 0;
-    width: auto;
-    min-width: 0;
-    bottom: calc(100% + 4px);
-  }
-}
+
