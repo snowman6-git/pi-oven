@@ -657,7 +657,7 @@ impl Manager {
                                 // ask ChatGPT for the numbers as they are now, then decide; without them, the last reply's
                                 let (rt, limits, usage, pi_bin) = (rt.clone(), limits.clone(), usage.clone(), pi_bin.clone());
                                 tokio::spawn(async move {
-                                    let fresh = provider.as_deref() == Some("openai-codex") && usage.poll(&pi_bin, &limits, true).await.unwrap_or(false);
+                                    let fresh = provider.as_deref() == Some(crate::usage::chatgpt::PROVIDER) && usage.poll(&pi_bin, &limits, true).await;
                                     let now = now_ms();
                                     let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
                                     let found = limits.culprit(provider.as_deref(), now, hint);

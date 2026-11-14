@@ -24,12 +24,18 @@ class Limits {
     });
   }
 
-  /** `ask`: have the server ask the provider now (it keeps that to once every 20 s); otherwise read what it has. */
+  #lastAsk = 0;
+
+  /** `ask`: have the server ask the provider now; otherwise read what it has. Opening the limits again and again asks
+      at most once a minute from here (and the server keeps all pages together to the same). */
   async refresh(ask = false) {
     if (this.#busy) return;
     this.#busy = true;
     try {
-      const r = ask ? await api.refreshLimits().catch(() => api.limits()) : await api.limits();
+      const now0 = Date.now();
+      const asking = ask && now0 - this.#lastAsk >= 60_000;
+      if (asking) this.#lastAsk = now0;
+      const r = asking ? await api.refreshLimits().catch(() => api.limits()) : await api.limits();
       const now = Date.now();
       this.now = now;
       this.items = Object.fromEntries(r.items.map((w) => [w.provider, fromWire(w, now)]));
