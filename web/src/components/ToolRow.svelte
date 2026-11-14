@@ -155,11 +155,23 @@
   [data-status='running'] .dot {
     background: var(--heat);
     border-color: var(--heat);
+    position: relative;
+  }
+  [data-status='running'] .dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
     animation: ember 1.1s ease-in-out infinite;
   }
+  /* the glow is a fixed ring that only fades (composited): animating box-shadow itself repaints every frame */
   @keyframes ember {
     50% {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+      opacity: 1;
     }
   }
   .name {

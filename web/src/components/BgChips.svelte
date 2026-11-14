@@ -168,14 +168,26 @@
   }
   .bgchip.run .dot {
     background: var(--heat);
+    position: relative;
+  }
+  .bgchip.run .dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
     animation: bg-ember 1.2s ease-in-out infinite;
   }
   .bgchip.bad .dot {
     background: var(--bad);
   }
+  /* the glow is a fixed ring that only fades (composited): animating box-shadow itself repaints every frame */
   @keyframes bg-ember {
     50% {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+      opacity: 1;
     }
   }
 </style>

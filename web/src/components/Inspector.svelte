@@ -67,7 +67,7 @@
     <h3>{S.context}</h3>
     {#if ctx && pct != null}
       <div class="meter" role="meter" aria-valuenow={Math.round(pct)} aria-valuemin="0" aria-valuemax="100" aria-label={S.context}>
-        <i class:warm={pct > 75} style="width:{Math.min(100, pct)}%"></i>
+        <i class:warm={pct > 75} style="transform:scaleX({Math.min(100, pct) / 100})"></i>
       </div>
       <p class="big">{Math.round(pct)}%</p>
       <p class="sub">{compactNumber(ctx.tokens ?? 0)} / {compactNumber(ctx.contextWindow)} {S.tokens}</p>
@@ -181,11 +181,13 @@
     background: var(--rule);
     overflow: hidden;
   }
+  /* full width, scaled: a change moves on the compositor instead of laying the bar out every frame */
   .meter i {
     display: block;
     height: 100%;
     background: var(--accent);
-    transition: width 0.4s;
+    transform-origin: left;
+    transition: transform 0.4s;
   }
   .meter i.warm {
     background: var(--heat);

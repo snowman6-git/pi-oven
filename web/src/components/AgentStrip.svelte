@@ -72,10 +72,24 @@
   }
   .run .dot {
     background: var(--heat);
+    position: relative;
+  }
+  .run .dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
     animation: strip-ember 1.2s ease-in-out infinite;
   }
+  /* the glow is a fixed ring that only fades (composited): animating box-shadow itself repaints every frame */
   @keyframes strip-ember {
-    50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent); }
+    50% {
+      opacity: 1;
+    }
   }
   .t {
     flex: 1;

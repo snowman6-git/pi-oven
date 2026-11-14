@@ -39,7 +39,7 @@
                 <span class="num">{t('limits.leftPct', { n: Math.round(w.left) })}</span>
               </div>
               <div class="meter" role="meter" aria-valuenow={Math.round(w.left)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(l.provider)} {windowName(w.minutes)}">
-                <i class={w.level} style="width:{w.left}%"></i>
+                <i class={w.level} style="transform:scaleX({w.left / 100})"></i>
               </div>
               {#if w.resetAt != null}<small>{resetText(w)}</small>{/if}
             </div>
@@ -101,11 +101,13 @@
     background: var(--rule);
     overflow: hidden;
   }
+  /* full width, scaled: a change moves on the compositor instead of laying the bar out every frame */
   .meter i {
     display: block;
     height: 100%;
     background: var(--accent);
-    transition: width 0.4s;
+    transform-origin: left;
+    transition: transform 0.4s;
   }
   .meter i.warm {
     background: var(--heat);
