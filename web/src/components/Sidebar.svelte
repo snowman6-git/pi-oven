@@ -10,6 +10,7 @@
   import { baseName, relativeTime, tildePath } from '../lib/util';
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
+  import UpdateCard from './UpdateCard.svelte';
 
   type Entry = { key: string; title: string; when: number; turns: number; session?: SessionSummary; chat?: Chat };
   type Group = { cwd: string; entries: Entry[]; latest: number };
@@ -224,8 +225,8 @@
         </button>
       {/each}
     </div>
-    {#if upd.offer || upd.running}
-      <button class="icon-btn upd-rail" class:busy={upd.running} type="button" aria-label={S.updateAvailable} title="{S.updateAvailable}: {updSummary}"
+    {#if upd.offer || upd.running || app.ovenNotice}
+      <button class="icon-btn upd-rail" class:busy={upd.running || app.ovenPhase === 'applying' || app.ovenPhase === 'restarting'} type="button" aria-label={S.updateAvailable} title="{S.updateAvailable}: {updSummary}"
         onclick={() => { app.toggleSidebarFold(); }}><Icon name="update" size={20} /></button>
     {/if}
     <button class="icon-btn" class:showing={showcase.on} type="button" aria-label={t('sidebar.settings')} title={showcase.on ? t('sidebar.settingsShowcase') : t('sidebar.settings')} onclick={() => app.openSettings(showcase.on ? 'showcase' : undefined)}><Icon name={showcase.on ? 'eyeOff' : 'gear'} size={20} /></button>
@@ -330,42 +331,33 @@
     </div>
   {/if}
 
-  {#if showUpd}
-    <div class="upd" role="status">
-      {#if upd.running}
-        <span class="spin" aria-hidden="true"></span>
-        <div class="ut"><b>{S.updating}</b><span>{updSummary || 'pi update'}</span></div>
-      {:else if upd.result && !upd.result.ok}
-        <Icon name="update" size={18} />
-        <div class="ut"><b class="bad">{S.updateFailed}</b>
-          <details><summary>{S.updateOutput}</summary><pre>{upd.result.output || '—'}</pre></details></div>
-        <div class="ua row2">
-          {#if upd.offer}<button class="btn quiet" type="button" onclick={startUpdate}>{S.retry}</button>{/if}
-          <button class="icon-btn sm" type="button" aria-label={S.close} title={S.close} onclick={() => (app.updates.result = null)}><Icon name="x" size={15} /></button>
-        </div>
-      {:else if upd.result}
-        <Icon name="check" size={18} />
-        <div class="ut"><b>{S.updated}</b><span>{app.chats.length ? S.updatedRestart : S.updatedNew}</span></div>
-        <div class="ua row2">
-          {#if app.chats.length}<button class="btn primary" type="button" onclick={() => app.restartIdle()}><Icon name="refresh" size={14} />{S.restartSessions}</button>{/if}
-          <button class="icon-btn sm" type="button" aria-label={S.close} title={S.close} onclick={() => (app.updates.result = null)}><Icon name="x" size={15} /></button>
-        </div>
-      {:else if upd.offer}
-        <Icon name="update" size={18} />
-        <div class="ut"><b>{S.updateAvailable}</b><span title={[...(upd.offer.pi ? [`pi ${upd.offer.pi[0]} → ${upd.offer.pi[1]}`] : []), ...upd.offer.extensions].join('\n')}>{updSummary}</span></div>
-        <div class="ua"><button class="btn primary" type="button" onclick={startUpdate}>{S.update}</button></div>
+  {#if app.ovenNotice || showUpd}
+    <div class="cards">
+      {#if app.ovenNotice}
+        {#if app.ovenPhase === 'applying' || app.ovenPhase === 'restarting'}
+          <UpdateCard state="busy" title={app.ovenPhase === 'applying' ? t('oven.applying') : t('oven.restarting')} detail={app.oven?.latest ?? ''} mono />
+        {:else if app.ovenPhase === 'failed'}
+          <UpdateCard state="bad" title={t('oven.failed')} detail={app.ovenError} onopen={() => app.openSettings('about')} onclose={() => (app.ovenPhase = 'idle')} />
+        {:else if app.oven}
+          <UpdateCard title={t('oven.newBuild')} detail="{app.oven.current ?? '?'} → {app.oven.latest}" mono onopen={() => app.openSettings('about')}
+            action={{ label: S.update, run: () => app.ovenUpdate() }} onclose={() => app.dismissOven()} />
+        {/if}
       {/if}
-    </div>
-  {/if}
-
-  {#if app.ovenNotice && app.oven}
-    <div class="upd" role="status">
-      <Icon name="update" size={18} />
-      <div class="ut"><b>{t('oven.newBuild')}</b><span class="mono">{app.oven.current ?? '?'} → {app.oven.latest}</span></div>
-      <div class="ua row2">
-        <button class="btn primary" type="button" onclick={() => app.openSettings('about')}>{t('oven.see')}</button>
-        <button class="icon-btn sm" type="button" aria-label={S.close} title={S.close} onclick={() => app.dismissOven()}><Icon name="x" size={15} /></button>
-      </div>
+      {#if showUpd}
+        {#if upd.running}
+          <UpdateCard state="busy" title={S.updating} detail={updSummary || 'pi update'} />
+        {:else if upd.result && !upd.result.ok}
+          <UpdateCard state="bad" title={S.updateFailed} action={upd.offer ? { label: S.retry, run: startUpdate, primary: false } : undefined} onclose={() => (app.updates.result = null)}>
+            {#snippet extra()}<details class="out"><summary>{S.updateOutput}</summary><pre>{upd.result?.output || '—'}</pre></details>{/snippet}
+          </UpdateCard>
+        {:else if upd.result}
+          <UpdateCard state="done" title={S.updated} detail={app.chats.length ? S.updatedRestart : S.updatedNew}
+            action={app.chats.length ? { label: S.restartSessions, run: () => app.restartIdle(), icon: 'refresh' } : undefined} onclose={() => (app.updates.result = null)} />
+        {:else if upd.offer}
+          <UpdateCard title={S.updateAvailable} detail={updSummary} detailTitle={[...(upd.offer.pi ? [`pi ${upd.offer.pi[0]} → ${upd.offer.pi[1]}`] : []), ...upd.offer.extensions].join('\n')}
+            onopen={() => app.openSettings('about')} action={{ label: S.update, run: startUpdate }} />
+        {/if}
+      {/if}
     </div>
   {/if}
 
@@ -803,43 +795,17 @@
     white-space: nowrap;
     flex: none;
   }
-  .upd {
+  .cards {
     display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px;
+    gap: 8px;
     margin: 0 10px 10px;
-    padding: 10px 10px 10px 12px;
-    border: 1px solid var(--rule);
-    border-radius: 10px;
-    background: var(--raised);
-    color: var(--accent);
   }
-  .ut {
-    min-width: 0;
-    display: grid;
-    gap: 1px;
-    line-height: 1.35;
-    color: var(--ink);
-  }
-  .ut b {
-    font-size: 13.5px;
-    font-weight: 650;
-  }
-  .ut b.bad {
-    color: var(--bad);
-  }
-  .ut span,
-  .ut summary {
+  .out summary {
     font-size: 12px;
     color: var(--ink-3);
-    word-break: keep-all;
-    overflow-wrap: anywhere;
-  }
-  .ut summary {
     cursor: pointer;
   }
-  .ut pre {
+  .out pre {
     margin: 6px 0 0;
     max-height: 160px;
     overflow: auto;
@@ -849,47 +815,11 @@
     word-break: break-all;
     color: var(--ink-2);
   }
-  .ua {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .ua.row2 {
-    grid-column: 2 / -1;
-    margin-top: 2px;
-  }
-  .ua.row2 .icon-btn {
-    margin-left: auto;
-  }
-  .ua .btn {
-    height: 28px;
-    padding: 0 10px;
-    font-size: 12.5px;
-    gap: 5px;
-  }
-  .upd .spin {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    border: 2px solid color-mix(in srgb, var(--heat) 25%, transparent);
-    border-top-color: var(--heat);
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      rotate: 360deg;
-    }
-  }
   .upd-rail {
     color: var(--accent);
   }
   .upd-rail.busy {
     color: var(--heat);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .upd .spin {
-      animation-duration: 3s;
-    }
   }
   footer {
     gap: 4px;

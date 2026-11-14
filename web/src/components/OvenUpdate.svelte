@@ -10,7 +10,7 @@
 
   let build = $state<string | null>(null);
   let rel = $state<OvenRelease | null>(null);
-  let phase = $state<'idle' | 'checking' | 'applying' | 'restarting' | 'failed'>('idle');
+  let phase = $state<'idle' | 'checking' | 'failed'>('idle');
   let error = $state('');
 
   $effect(() => { api.info().then((i) => (build = i.build ?? null)).catch(() => {}); });
@@ -26,48 +26,29 @@
     catch (e) { error = (e as Error).message; phase = 'failed'; }
   }
 
-  async function apply() {
-    if (!rel) return;
-    phase = 'applying';
-    error = '';
-    const want = rel.latest;
-    try { await api.ovenApply(); }
-    catch (e) { error = (e as Error).message; phase = 'failed'; return; }
-    phase = 'restarting';
-    // the server goes away and comes back as the new build: wait for it, then load its page
-    // a restart takes well under a second, so do not wait to see it go down: a different build answering is enough
-    // (an older release does not say its build at all, which also differs)
-    const before = build;
-    const end = Date.now() + 90_000;
-    while (Date.now() < end) {
-      await new Promise((r) => setTimeout(r, 700));
-      const now = await api.info().catch(() => null);
-      if (now && (now.build === want || (now.build ?? null) !== before)) { location.reload(); return; }
-    }
-    error = t('oven.notBack');
-    phase = 'failed';
-  }
+  const phaseNow = $derived(app.ovenPhase === 'idle' ? phase : app.ovenPhase);
+  const apply = () => app.ovenUpdate(false);
 </script>
 
 <div class="oven">
   <p class="sub">pi-oven <span class="mono">{version}</span>{#if build}<span class="mono hash"> · {build}</span>{/if}</p>
-  {#if phase === 'restarting'}
+  {#if phaseNow === 'restarting'}
     <p class="state">{t('oven.restarting')}</p>
   {:else if rel && !rel.upToDate}
     <p class="state new">{t('oven.available', { tag: rel.tag })} <span class="mono">{rel.current ?? '?'} → {rel.latest}</span></p>
-    <button class="btn primary" type="button" disabled={phase === 'applying'} onclick={apply}>{phase === 'applying' ? t('oven.applying') : t('oven.apply')}</button>
+    <button class="btn primary" type="button" disabled={phaseNow === 'applying'} onclick={apply}>{phaseNow === 'applying' ? t('oven.applying') : t('oven.apply')}</button>
     <p class="note">{t('oven.applyNote')}</p>
   {:else}
     {#if rel?.upToDate}<p class="state">{t('oven.upToDate', { tag: rel.tag })}</p>{/if}
     <button class="btn" type="button" disabled={phase === 'checking'} onclick={check}>{phase === 'checking' ? t('oven.checking') : t('oven.check')}</button>
   {/if}
-  {#if rel?.notes && phase !== 'restarting'}
+  {#if rel?.notes && phaseNow !== 'restarting'}
     <details class="notes" open={!rel.upToDate}>
       <summary>{t('oven.notes')}{#if rel.updatedAt}<span class="when">{t('oven.builtAt', { date: new Date(rel.updatedAt).toLocaleDateString(), time: clock(Date.parse(rel.updatedAt)) })}</span>{/if}</summary>
       <div class="body"><Markdown source={rel.notes} /></div>
     </details>
   {/if}
-  {#if error}<p class="note err" role="alert">{error}</p>{/if}
+  {#if error || app.ovenError}<p class="note err" role="alert">{error || app.ovenError}</p>{/if}
   {#if app.oven}
     <label class="auto">
       <span>{t('oven.auto')}<small>{t('oven.autoHint')}</small></span>

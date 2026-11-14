@@ -279,7 +279,35 @@ class App {
   }
   get ovenNotice() {
     const o = this.oven;
-    return !!o?.available && o.latest !== this.ovenDismissed;
+    return this.ovenPhase !== 'idle' || (!!o?.available && o.latest !== this.ovenDismissed);
+  }
+  ovenPhase = $state<'idle' | 'applying' | 'restarting' | 'failed'>('idle');
+  ovenError = $state('');
+
+  /** Replace pi-oven with the newest release and restart it (same arguments); the page reloads when it is back. */
+  async ovenUpdate(confirm = true) {
+    if (this.ovenPhase === 'applying' || this.ovenPhase === 'restarting') return;
+    const o = this.oven;
+    if (confirm) {
+      const ok = await this.ask({ title: t('oven.askTitle'), body: t('oven.askBody'), items: o?.latest ? [`${o.current ?? '?'} → ${o.latest}`] : [], confirm: t('oven.apply') });
+      if (!ok) return;
+    }
+    this.ovenPhase = 'applying';
+    this.ovenError = '';
+    const before = (await api.info().catch(() => null))?.build ?? null;
+    let want: string;
+    try { want = (await api.ovenApply()).latest; }
+    catch (e) { this.ovenError = e instanceof Error ? e.message : String(e); this.ovenPhase = 'failed'; return; }
+    this.ovenPhase = 'restarting';
+    // a restart takes well under a second: a different build answering is the sign (an older release says none)
+    const end = Date.now() + 90_000;
+    while (Date.now() < end) {
+      await new Promise((r) => setTimeout(r, 700));
+      const now = await api.info().catch(() => null);
+      if (now && (now.build === want || (now.build ?? null) !== before)) { location.reload(); return; }
+    }
+    this.ovenError = t('oven.notBack');
+    this.ovenPhase = 'failed';
   }
 
   /** Runs `pi update` on the server. Open sessions keep the old pi until they are restarted. */
