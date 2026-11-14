@@ -178,7 +178,8 @@
     if (o.extensions.length) parts.push(o.extensions.length === 1 ? o.extensions[0] : t('sidebar.packagesN', { n: o.extensions.length }));
     return parts.join(' · ');
   });
-  const showUpd = $derived(!!upd.offer || upd.running || !!upd.result);
+  const offerShown = $derived(!!upd.offer && app.piOfferKey !== app.piDismissed);
+  const showUpd = $derived(offerShown || upd.running || !!upd.result);
 
   async function startUpdate() {
     const o = upd.offer;
@@ -225,7 +226,7 @@
         </button>
       {/each}
     </div>
-    {#if upd.offer || upd.running || app.ovenNotice}
+    {#if offerShown || upd.running || app.ovenNotice}
       <button class="icon-btn upd-rail" class:busy={upd.running || app.ovenPhase === 'applying' || app.ovenPhase === 'restarting'} type="button" aria-label={S.updateAvailable} title="{S.updateAvailable}: {updSummary}"
         onclick={() => { app.toggleSidebarFold(); }}><Icon name="update" size={20} /></button>
     {/if}
@@ -353,9 +354,9 @@
         {:else if upd.result}
           <UpdateCard state="done" title={S.updated} detail={app.chats.length ? S.updatedRestart : S.updatedNew}
             action={app.chats.length ? { label: S.restartSessions, run: () => app.restartIdle(), icon: 'refresh' } : undefined} onclose={() => (app.updates.result = null)} />
-        {:else if upd.offer}
+        {:else if upd.offer && offerShown}
           <UpdateCard title={S.updateAvailable} detail={updSummary} detailTitle={[...(upd.offer.pi ? [`pi ${upd.offer.pi[0]} → ${upd.offer.pi[1]}`] : []), ...upd.offer.extensions].join('\n')}
-            onopen={() => app.openSettings('about')} action={{ label: S.update, run: startUpdate }} />
+            onopen={() => app.openSettings('about')} action={{ label: S.update, run: startUpdate }} onclose={() => app.dismissPi()} />
         {/if}
       {/if}
     </div>

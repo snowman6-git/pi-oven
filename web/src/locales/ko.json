@@ -871,20 +871,20 @@
     "leftPct": "{n}% 남음"
   },
   "resume": {
-    "name": "Zero-Standby",
+    "name": "Zero-Waste",
     "title": "구독 한도",
     "hint": "5시간 한도에 걸려 멈추면 초기화된 뒤 아래 문구를 보내 이어서 진행합니다. 창을 닫아도 서버에서 계속합니다.",
     "textLabel": "보낼 문구",
     "default": "계속해",
     "now": "지금 보내기",
-    "gaveUp": "Zero-Standby: 초기화 뒤에도 계속 한도에 걸려 멈췄습니다.",
+    "gaveUp": "Zero-Waste: 초기화 뒤에도 계속 한도에 걸려 멈췄습니다.",
     "tipWindow": "{window} 한도가 {clock}에 초기화되면 보냅니다",
     "tip": "한도가 {clock}에 초기화되면 보냅니다",
     "tipGuess": "초기화 시각을 몰라 1시간 뒤 보내 봅니다",
     "reached": "한도 도달",
     "about": "약",
     "then": "뒤 \"{text}\"",
-    "skippedLong": "{window} 한도에 걸렸습니다. {date}에 풀리므로 Zero-Standby는 기다리지 않습니다."
+    "skippedLong": "{window} 한도에 걸렸습니다. {date}에 풀리므로 Zero-Waste는 기다리지 않습니다."
   },
   "oven": {
     "check": "업데이트 확인",

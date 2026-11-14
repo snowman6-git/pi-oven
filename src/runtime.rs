@@ -152,7 +152,7 @@ pub struct Runtime {
     pet: Arc<crate::pet::PetHub>,
     /// Where this session is in the 100h mode's schedule.
     long: Mutex<Option<Wait>>,
-    /// Waiting for a usage limit to reset ("Zero-Standby").
+    /// Waiting for a usage limit to reset ("Zero-Waste").
     resume: Mutex<Option<crate::resume::Pending>>,
     /// How many times in a row the continue message ran into the limit again.
     resume_tries: std::sync::atomic::AtomicU32,
@@ -629,7 +629,7 @@ impl Manager {
                             match &event {
                                 Some(Event::Started) => rt.resume_on_start(),
                                 Some(Event::Settled) => rt.resume_on_settled(),
-                                // a usage limit resets in hours: "Zero-Standby" waits for it, not 100h mode
+                                // a usage limit resets in hours: "Zero-Waste" waits for it, not 100h mode
                                 Some(Event::Failed(e)) if crate::resume::is_usage_limit(e) && rt.resume_cfg.get().enabled => event = None,
                                 _ => {}
                             }

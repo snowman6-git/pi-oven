@@ -1,4 +1,4 @@
-//! "Zero-Standby": when a subscription's usage limit stops a run, send a chosen message (default "계속해")
+//! "Zero-Waste": when a subscription's usage limit stops a run, send a chosen message (default "계속해")
 //! once the limit has reset, so the work carries on without anyone at the keyboard.
 //!
 //! pi does not retry a usage limit (it resets in hours), so the run just ends with that error. The server sees it,

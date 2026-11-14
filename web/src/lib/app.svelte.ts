@@ -271,6 +271,17 @@ class App {
 
   /** The newest pi-oven build the server knows of (its own background check). */
   oven = $state<OvenStatus | null>(null);
+  /** A pi/package update whose card was closed: hidden until the offer changes (a newer pi, other packages). */
+  piDismissed = $state<string | null>(load<string | null>('pi-oven.pi-dismissed', null));
+  get piOfferKey() {
+    const o = this.updates.offer;
+    return o ? JSON.stringify([o.pi?.[1] ?? null, [...o.extensions].sort()]) : null;
+  }
+  dismissPi() {
+    this.piDismissed = this.piOfferKey;
+    save('pi-oven.pi-dismissed', this.piDismissed);
+  }
+
   /** A build whose notice was closed: not shown again until a newer one. */
   ovenDismissed = $state<string | null>(load<string | null>('pi-oven.oven-dismissed', null));
   dismissOven() {
