@@ -521,11 +521,14 @@
     box-shadow: var(--shadow);
   }
   /* the command list is part of the box: it opens the box upward (in:rise) instead of floating over it */
+  /* rows run the full width of the box, so the picked one is a band across it; the top one is cut by the box's own
+     rounded corners (15px: the box's 16px less its border) */
   .slash {
     list-style: none;
     margin: 0;
-    padding: 6px 6px 4px;
+    padding: 0;
     border-bottom: 1px solid var(--rule);
+    border-radius: 15px 15px 0 0;
     max-height: 300px;
     overflow: auto;
   }
@@ -536,8 +539,8 @@
     gap: 12px;
     align-items: baseline;
     text-align: left;
-    padding: 7px 10px;
-    border-radius: 8px;
+    padding: 9px 16px;
+    border-radius: 0;
   }
   .slash button.on {
     background: var(--accent-wash);
