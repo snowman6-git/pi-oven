@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ring } from '../lib/ring';
   import { tick } from 'svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { beep, type Beep } from '../lib/notify';
@@ -78,10 +79,7 @@
       ],
       { duration: 700, easing: 'cubic-bezier(0.3, 1.4, 0.5, 1)' },
     );
-    chip.animate(
-      [{ boxShadow: `0 0 0 0 color-mix(in srgb, ${tone} 60%, transparent)` }, { boxShadow: `0 0 0 12px color-mix(in srgb, ${tone} 0%, transparent)` }],
-      { duration: 700, easing: 'ease-out' },
-    );
+    ring(chip, tone, 12, 700, 0.6);
   }
 
   /** An ember from one point to another: pops up out of its start, then arcs down to where `to()` says (asked each frame, so a target that moves is followed). Resolves when it arrives. */

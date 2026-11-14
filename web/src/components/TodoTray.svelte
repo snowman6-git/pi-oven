@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ring } from '../lib/ring';
+  const ok = () => getComputedStyle(document.documentElement).getPropertyValue('--ok').trim() || 'currentColor';
   import { t as tr } from '../lib/i18n.svelte';
   import { headline, summarize, unfinished, type Task } from '../addons/todo';
   import { beep } from '../lib/notify';
@@ -46,15 +48,12 @@
           [{ transform: 'scale(1)' }, { transform: 'scale(1.035)', offset: 0.28 }, { transform: 'scale(0.988)', offset: 0.52 }, { transform: 'scale(1.01)', offset: 0.74 }, { transform: 'scale(1)' }],
           { duration: 700, easing: 'cubic-bezier(0.3, 1.4, 0.5, 1)' },
         );
-        tray.animate(
-          [{ boxShadow: '0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent)' }, { boxShadow: '0 0 0 12px color-mix(in srgb, var(--ok) 0%, transparent)' }],
-          { duration: 700, easing: 'ease-out' },
-        );
+        ring(tray, ok(), 12, 700, 0.55);
       }
       for (const t of finished) {
         for (const el of document.querySelectorAll<HTMLElement>(`[data-todo-seg="${t.id}"]`)) {
           el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.7)', offset: 0.3 }, { transform: 'scale(0.9)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: 640, easing: 'cubic-bezier(0.3, 1.4, 0.5, 1)' });
-          el.animate([{ boxShadow: '0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent)' }, { boxShadow: '0 0 0 8px color-mix(in srgb, var(--ok) 0%, transparent)' }], { duration: 640, easing: 'ease-out' });
+          ring(el, ok(), 8, 640, 0.6);
         }
       }
     });
