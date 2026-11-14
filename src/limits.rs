@@ -29,6 +29,9 @@ pub struct Entry {
     #[serde(default)]
     pub limit_reached: bool,
     pub windows: Vec<Window>,
+    /// "Rate limit reset credits" the plan has left (ChatGPT's usage answer only).
+    #[serde(default)]
+    pub resets: Option<u32>,
 }
 
 impl Entry {
@@ -55,6 +58,7 @@ impl Entry {
             "plan": self.plan,
             "ageMs": now.saturating_sub(self.at),
             "limitReached": self.limit_reached,
+            "resets": self.resets,
             "windows": self.windows.iter().map(|w| serde_json::json!({
                 "minutes": w.minutes,
                 "used": w.used,
@@ -100,8 +104,14 @@ impl Limits {
     pub fn record(&self, e: Entry) {
         let all: Vec<Entry> = {
             let mut map = self.map.lock().unwrap();
-            if map.get(&e.provider).is_some_and(|old| old.at > e.at) {
+            let old = map.get(&e.provider);
+            if old.is_some_and(|old| old.at > e.at) {
                 return;
+            }
+            // replies do not carry the reset credits; keep what the usage answer said
+            let mut e = e;
+            if e.resets.is_none() {
+                e.resets = old.and_then(|o| o.resets);
             }
             map.insert(e.provider.clone(), e);
             map.values().cloned().collect()
@@ -213,7 +223,7 @@ mod tests {
     fn the_most_used_window_is_the_one_that_ran_out() {
         let l = Limits::default();
         let w = |minutes, used, reset_at| Window { minutes, used, reset_at: Some(reset_at) };
-        l.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 98.0, 5000), w(10080, 15.0, 9000)] });
+        l.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 98.0, 5000), w(10080, 15.0, 9000)], resets: None });
         assert_eq!(l.culprit(Some("p"), 100, None), Some((5000, 300, true)));
         // once the 5 hours have reset, the week is what is left to wait for
         assert_eq!(l.culprit(Some("p"), 6000, None), Some((9000, 10080, false)));
@@ -221,12 +231,12 @@ mod tests {
         // what really happened: old numbers (5 h at 26%, week at 49%), and the error says ~182 min, which is the 5 h reset
         let m = 60_000;
         let l2 = Limits::default();
-        l2.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 49.0, 9000 * m)] });
+        l2.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 49.0, 9000 * m)], resets: None });
         assert_eq!(l2.culprit(Some("p"), 0, Some(182 * m)), Some((200 * m, 300, true)));
         // and without a time the 5 hours are still the better guess than the week
         assert_eq!(l2.culprit(Some("p"), 0, None), Some((200 * m, 300, false)));
         // a week that really is nearly used up wins
-        l2.record(Entry { provider: "p".into(), plan: None, at: 2, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 99.0, 9000 * m)] });
+        l2.record(Entry { provider: "p".into(), plan: None, at: 2, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 99.0, 9000 * m)], resets: None });
         assert_eq!(l2.culprit(Some("p"), 0, None), Some((9000 * m, 10080, true)));
         l.mark_used_up("p", 300);
         assert_eq!(l.view(100)["items"][0]["windows"][0]["used"], 100.0);
@@ -237,7 +247,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pi-oven-limits-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ext = dir.join("oven-limits.ts");
-        let e = |at: u64, used: f64| Entry { provider: "p".into(), plan: None, at, limit_reached: false, windows: vec![Window { minutes: 300, used, reset_at: None }] };
+        let e = |at: u64, used: f64| Entry { provider: "p".into(), plan: None, at, limit_reached: false, windows: vec![Window { minutes: 300, used, reset_at: None }], resets: None };
         let l = Limits::load(Some(&ext));
         l.record(e(2, 20.0));
         l.record(e(1, 10.0));

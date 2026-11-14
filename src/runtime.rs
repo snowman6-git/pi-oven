@@ -389,6 +389,7 @@ pub struct Manager {
     pub long: Arc<Long>,
     pub limits: Arc<crate::limits::Limits>,
     pub resume: Arc<crate::resume::Resume>,
+    pub usage: Arc<crate::usage::Usage>,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -419,7 +420,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -593,6 +594,8 @@ impl Manager {
             let updates = self.updates.clone();
             let long = self.long.clone();
             let limits = self.limits.clone();
+            let usage = self.usage.clone();
+            let pi_bin = self.cfg.pi_bin.clone();
             tokio::spawn(async move {
                 let mut rd = BufReader::new(stdout);
                 let mut buf = Vec::new();
@@ -651,14 +654,19 @@ impl Manager {
                                 rt.long_event(e, &long);
                             }
                             if let Some((error, provider)) = limit {
-                                let now = now_ms();
-                                let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
-                                let found = limits.culprit(provider.as_deref(), now, hint);
-                                // only a window we are sure of is marked used up; a guess would show wrong numbers
-                                if let (Some(p), Some((_, minutes, true))) = (provider.as_deref(), found) {
-                                    limits.mark_used_up(p, minutes);
-                                }
-                                rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
+                                // ask ChatGPT for the numbers as they are now, then decide; without them, the last reply's
+                                let (rt, limits, usage, pi_bin) = (rt.clone(), limits.clone(), usage.clone(), pi_bin.clone());
+                                tokio::spawn(async move {
+                                    let fresh = provider.as_deref() == Some("openai-codex") && usage.poll(&pi_bin, &limits, true).await.unwrap_or(false);
+                                    let now = now_ms();
+                                    let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
+                                    let found = limits.culprit(provider.as_deref(), now, hint);
+                                    // only a window we are sure of is marked used up; fresh numbers already say so
+                                    if let (false, Some(p), Some((_, minutes, true))) = (fresh, provider.as_deref(), found) {
+                                        limits.mark_used_up(p, minutes);
+                                    }
+                                    rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
+                                });
                             }
                         }
                     }

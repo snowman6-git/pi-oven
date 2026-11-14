@@ -30,6 +30,11 @@
   let longMode = $state<LongMode | null>(null);
   let longError = $state('');
   $effect(() => { api.longMode().then((m) => (longMode = m)).catch((e) => (longError = (e as Error).message)); });
+  let pollOn = $state<boolean | null>(null);
+  $effect(() => { api.limitsPoll().then((p) => (pollOn = p.enabled)).catch(() => {}); });
+  async function setPoll(on: boolean) {
+    try { pollOn = (await api.setLimitsPoll(on)).enabled; } catch (e) { resumeError = (e as Error).message; }
+  }
   let resumeSet = $state<ResumeSettings | null>(null);
   let resumeText = $state('');
   let resumeError = $state('');
@@ -244,6 +249,12 @@
       </section>
       <section>
         <h3>{t('resume.title')}</h3>
+        {#if pollOn != null}
+          <label class="row">
+            <span>{t('limits.pollName')}<small>{t('limits.pollHint')}</small></span>
+            <input class="switch" type="checkbox" role="switch" checked={pollOn} onchange={(e) => setPoll(e.currentTarget.checked)} />
+          </label>
+        {/if}
         <label class="row">
           <span>{t('resume.name')}<small>{t('resume.hint')}</small></span>
           <input class="switch" type="checkbox" role="switch" disabled={!resumeSet} checked={resumeSet?.enabled ?? false} onchange={(e) => saveResume(e.currentTarget.checked, resumeText)} />

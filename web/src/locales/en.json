@@ -892,12 +892,18 @@
     "resetIn": "resets in {time}",
     "resetAt": "resets {date}",
     "reached": "Limit reached",
-    "asOf": "As of a reply {time}",
+    "asOf": "Checked {time}",
     "showInfo": "Show in Info",
     "chip": "Plan limit left: {text}",
     "inUse": "in use",
     "leftOf": "{name} left",
-    "leftPct": "{n}% left"
+    "leftPct": "{n}% left",
+    "resetCredits": {
+      "one": "{n} limit reset credit",
+      "other": "{n} limit reset credits"
+    },
+    "pollName": "Ask ChatGPT directly",
+    "pollHint": "Without sending a message, asks ChatGPT what is left every 5 minutes while the page is open and whenever the limits are opened. When a limit is hit it asks at once and uses the exact reset time."
   },
   "resume": {
     "name": "Zero-Waste",

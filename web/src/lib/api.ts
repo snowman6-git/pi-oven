@@ -183,6 +183,10 @@ export const api = {
   runUpdate: (target: UpdateTarget) =>
     call<UpdateResult>('/api/update', { method: 'POST', body: JSON.stringify({ target }) }),
   limits: () => call<{ items: LimitWire[] }>('/api/limits'),
+  /** Ask the provider now (the server keeps it to once every 20 s) and get the store back. */
+  refreshLimits: () => call<{ items: LimitWire[] }>('/api/limits/refresh', { method: 'POST' }),
+  limitsPoll: () => call<{ enabled: boolean }>('/api/limits/poll'),
+  setLimitsPoll: (enabled: boolean) => call<{ enabled: boolean }>('/api/limits/poll', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   resumeSettings: () => call<ResumeSettings>('/api/resume'),
   setResumeSettings: (s: ResumeSettings) => call<ResumeSettings>('/api/resume', { method: 'PUT', body: JSON.stringify(s) }),
   resumeAct: (id: string, action: 'now' | 'stop') =>

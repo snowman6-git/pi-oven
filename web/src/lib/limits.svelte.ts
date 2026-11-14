@@ -13,22 +13,23 @@ class Limits {
   ensure() {
     if (this.#started) return;
     this.#started = true;
-    void this.refresh();
+    void this.refresh(true);
     setInterval(() => (this.now = Date.now()), 30_000);
-    // other devices' sessions bring new numbers too
+    // while in view, ask the provider itself every 5 minutes (no message needed); coming back asks at once
     setInterval(() => {
-      if (document.visibilityState === 'visible') void this.refresh();
+      if (document.visibilityState === 'visible') void this.refresh(true);
     }, 5 * 60_000);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') void this.refresh();
+      if (document.visibilityState === 'visible') void this.refresh(true);
     });
   }
 
-  async refresh() {
+  /** `ask`: have the server ask the provider now (it keeps that to once every 20 s); otherwise read what it has. */
+  async refresh(ask = false) {
     if (this.#busy) return;
     this.#busy = true;
     try {
-      const r = await api.limits();
+      const r = ask ? await api.refreshLimits().catch(() => api.limits()) : await api.limits();
       const now = Date.now();
       this.now = now;
       this.items = Object.fromEntries(r.items.map((w) => [w.provider, fromWire(w, now)]));

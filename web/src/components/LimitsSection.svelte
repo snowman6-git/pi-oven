@@ -7,7 +7,10 @@
   // The info tab's "plan limits": one card per subscription that has sent its numbers, the model's own first.
   let { provider }: { provider?: string } = $props();
 
-  $effect(() => limits.ensure());
+  $effect(() => {
+    limits.ensure();
+    void limits.refresh(true); // looking at the cards: ask now
+  });
   const cards = $derived(
     Object.values(limits.items)
       .sort((a, b) => Number(b.provider === provider) - Number(a.provider === provider) || a.provider.localeCompare(b.provider))
@@ -46,6 +49,7 @@
               {#if w.resetAt != null}<small>{resetText(w)}</small>{/if}
             </div>
           {/each}
+          {#if l.resets != null}<small>{t('limits.resetCredits', { n: l.resets })}</small>{/if}
           {#if l.at < newest - 60 * 60_000}<small class="old">{t('limits.asOf', { time: relativeTime(l.at) })}</small>{/if}
         </div>
       {/each}

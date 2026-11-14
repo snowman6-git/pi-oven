@@ -120,7 +120,7 @@
 
   {#if lim && used && settings.metaLimits}
     <div class="pop" use:dismiss={() => { if (menu === 'limit') menu = null; }}>
-      <button class="chip limit {used.level}" type="button" aria-label={t('limits.chip', { text: used.text })} aria-expanded={menu === 'limit'} onclick={() => toggle('limit')}>
+      <button class="chip limit {used.level}" type="button" aria-label={t('limits.chip', { text: used.text })} aria-expanded={menu === 'limit'} onclick={() => { if (menu !== 'limit') void limits.refresh(true); toggle('limit'); }}>
         <LimitRing short={half.short} long={half.long} />{#if settings.metaLimitText}{used.text}{/if}
       </button>
       {#if menu === 'limit'}

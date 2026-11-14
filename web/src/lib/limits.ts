@@ -2,10 +2,10 @@
 import { locale, t } from './i18n';
 
 export type LimitWindowWire = { minutes: number; used: number; resetInMs: number | null };
-export type LimitWire = { provider: string; plan: string | null; ageMs: number; limitReached: boolean; windows: LimitWindowWire[] };
+export type LimitWire = { provider: string; plan: string | null; ageMs: number; limitReached: boolean; resets?: number | null; windows: LimitWindowWire[] };
 
 export type LimitWindow = { minutes: number; used: number; resetAt: number | null };
-export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; windows: LimitWindow[] };
+export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; resets: number | null; windows: LimitWindow[] };
 
 /** A window as it stands now: past its reset it starts again from nothing. Providers send what is used; the page
  * shows what is left (`left`), which is what one wants to know before sending more. */
@@ -17,6 +17,7 @@ export function fromWire(w: LimitWire, now: number): Limit {
     plan: w.plan,
     at: now - w.ageMs,
     limitReached: w.limitReached,
+    resets: w.resets ?? null,
     windows: w.windows.map((x) => ({ minutes: x.minutes, used: x.used, resetAt: x.resetInMs == null ? null : now + x.resetInMs })),
   };
 }
