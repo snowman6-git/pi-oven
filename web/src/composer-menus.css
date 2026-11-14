@@ -32,7 +32,8 @@
   gap: 10px;
 }
 /* The attach menu lives inside the box itself: the box is the frame (its 1px border included), and the box's own
-   line (the + that closes it, the text, send) stays in view at the bottom while the menu grows above it. */
+   line (the + that closes it, the text, send) stays in view at the bottom while the menu grows above it. Only then is
+   the line lifted (.lifted): the other menus lie over the whole box, line included. */
 .dock .composer .sheet {
   left: -1px;
   bottom: -1px;
@@ -40,7 +41,7 @@
   min-height: calc(var(--cx-h, 48px) + 40px);
   padding-bottom: var(--cx-h, 48px);
 }
-.dock .composer .line {
+.dock .composer .line.lifted {
   position: relative;
   z-index: 21;
 }
@@ -48,9 +49,9 @@
 .dock .composer .sheet {
   z-index: 0;
 }
-.dock .composer .line > textarea,
-.dock .composer .line > button,
-.dock .composer .line .pop > button {
+.dock .composer .line.lifted > textarea,
+.dock .composer .line.lifted > button,
+.dock .composer .line.lifted .pop > button {
   position: relative;
   z-index: 1;
 }

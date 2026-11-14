@@ -1,5 +1,6 @@
 import { api } from './api';
 import { limits } from './limits.svelte';
+import { settings } from './settings.svelte';
 import { resetDate, windowName } from './limits';
 import { orderBatch } from './bgorder';
 import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, fromDetails as todoFromDetails, latestFromItems as todoFromItems, type Task as TodoTask } from '../addons/todo';
@@ -564,6 +565,10 @@ export class Chat {
     this.items.push({ kind: 'notice', key: nextKey(), level, text, ts: Date.now() });
   }
 
+  dismissToast(id: number) {
+    this.toasts = this.toasts.filter((t) => t.id !== id);
+  }
+
   toast(text: string, level: Toast['level'] = 'info') {
     const id = ++this.#toastSeq;
     this.toasts.push({ id, text, level });
@@ -885,7 +890,8 @@ export class Chat {
         if ('timeout' in r && r.timeout) setTimeout(() => (this.dialogs = this.dialogs.filter((d) => d.id !== r.id)), r.timeout + 500);
         break;
       case 'notify':
-        this.toast(stripAnsi(r.message), r.notifyType ?? 'info');
+        // extensions' own notices ("… loaded"); errors still show even with the banners turned off
+        if (settings.extNotices || r.notifyType === 'error') this.toast(stripAnsi(r.message), r.notifyType ?? 'info');
         break;
       case 'setStatus': {
         if (r.statusKey === 'background-tasks') {

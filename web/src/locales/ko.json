@@ -197,7 +197,9 @@
       "limits": "구독 한도",
       "limitsHint": "ChatGPT·Claude 구독 모델일 때만 나옵니다.",
       "limitText": "구독 한도 숫자"
-    }
+    },
+    "extNotices": "확장 알림 배너",
+    "extNoticesHint": "확장이 띄우는 알림(예: \"… loaded\")을 보여 줍니다. 꺼도 오류 알림은 보입니다."
   },
   "showcase": {
     "paths": {

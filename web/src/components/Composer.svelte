@@ -257,7 +257,7 @@
       </div>
     {/if}
 
-    <div class="line">
+    <div class="line" class:lifted={menu === 'plus'}>
       <div class="pop" use:dismiss={() => { if (menu === 'plus') menu = null; }}>
         <button class="round" type="button" aria-label={t('composer.attachMenu')} aria-haspopup="menu" aria-expanded={menu === 'plus'} onclick={() => toggle('plus')}>
           <Icon name="plus" />

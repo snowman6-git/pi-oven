@@ -5,8 +5,8 @@ export type ToolImages = 'always' | 'expanded';
 
 const KEY = 'pi-oven.settings';
 
-interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean }
-const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true };
+interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean; extNotices: boolean }
+const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true, extNotices: true };
 
 function read(): Saved {
   try {
@@ -30,6 +30,8 @@ class Settings {
   get metaContext() { return this.#s.metaContext !== false; }
   get metaLimits() { return this.#s.metaLimits !== false; }
   get metaLimitText() { return this.#s.metaLimitText !== false; }
+  /** Banners extensions show for their own news ("… loaded"). */
+  get extNotices() { return this.#s.extNotices !== false; }
 
   set<K extends keyof Saved>(key: K, value: Saved[K]) {
     this.#s[key] = value;

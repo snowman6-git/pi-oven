@@ -218,6 +218,10 @@
           <input class="switch" type="checkbox" role="switch" checked={settings.thinkingOpen} onchange={(e) => settings.set('thinkingOpen', e.currentTarget.checked)} />
         </label>
         <label class="row">
+          <span>{t('settings.extNotices')}<small>{t('settings.extNoticesHint')}</small></span>
+          <input class="switch" type="checkbox" role="switch" checked={settings.extNotices} onchange={(e) => settings.set('extNotices', e.currentTarget.checked)} />
+        </label>
+        <label class="row">
           <span>{t('settings.notify')}</span>
           <input class="switch" type="checkbox" role="switch" checked={app.notifyOn} onchange={toggleNotify} />
         </label>

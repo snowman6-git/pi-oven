@@ -197,7 +197,9 @@
       "limits": "Plan limits",
       "limitsHint": "Shown only for ChatGPT or Claude subscription models.",
       "limitText": "Plan limit number"
-    }
+    },
+    "extNotices": "Extension notice banners",
+    "extNoticesHint": "Shows the banners extensions raise (e.g. \"… loaded\"). Errors still show when this is off."
   },
   "showcase": {
     "paths": {

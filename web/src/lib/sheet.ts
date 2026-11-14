@@ -44,7 +44,7 @@ function move(node: Element, open: boolean): TransitionConfig {
   const total = (node as HTMLElement).offsetHeight;
   const hidden = Math.max(0, total - boxHeight(node));
   return {
-    duration: reduced() ? 0 : open ? 560 : 170,
+    duration: reduced() ? 0 : open ? 280 : 85,
     easing: open ? spring : easeIn,
     // t: 0 → 1 takes the height from the box's to the menu's (the items sit at the bottom, so the top ones come into
     // view as it grows). Past 1, the overshoot, it really stands a little taller for a moment, then settles.
@@ -57,7 +57,7 @@ function move(node: Element, open: boolean): TransitionConfig {
 export function rise(node: Element): TransitionConfig {
   const h = (node as HTMLElement).offsetHeight;
   return {
-    duration: reduced() ? 0 : 520,
+    duration: reduced() ? 0 : 260,
     easing: spring,
     // max-height lifted while it moves, or a list at its cap could not overshoot
     css: (t) => `height: ${toward(0, h, t)}px; max-height: none; overflow: hidden`,
@@ -68,7 +68,7 @@ export function rise(node: Element): TransitionConfig {
 export function sink(node: Element): TransitionConfig {
   const h = (node as HTMLElement).offsetHeight;
   return {
-    duration: reduced() ? 0 : 150,
+    duration: reduced() ? 0 : 75,
     easing: easeIn,
     css: (t) => `height: ${t * h}px; overflow: hidden`,
   };

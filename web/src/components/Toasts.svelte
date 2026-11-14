@@ -1,11 +1,16 @@
 <script lang="ts">
   import type { Chat } from '../lib/chat.svelte';
+  import { S } from '../lib/strings';
+  import Icon from './Icon.svelte';
   let { chat }: { chat: Chat } = $props();
 </script>
 
 <div class="toasts" role="status" aria-live="polite">
-  {#each chat.toasts as t (t.id)}
-    <p class={t.level}>{t.text}</p>
+  {#each chat.toasts as n (n.id)}
+    <p class={n.level}>
+      <span class="txt">{n.text}</span>
+      <button class="x" type="button" aria-label={S.close} title={S.close} onclick={() => chat.dismissToast(n.id)}><Icon name="x" size={14} /></button>
+    </p>
   {/each}
 </div>
 
@@ -35,6 +40,26 @@
     box-shadow: var(--shadow);
     overflow-wrap: anywhere;
     animation: in 0.18s ease-out;
+  }
+  .txt {
+    flex: 1;
+    min-width: 0;
+  }
+  .x {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin: -2px -6px -2px 0;
+    border-radius: 6px;
+    color: var(--ink-3);
+  }
+  @media (hover: hover) {
+    .x:hover {
+      background: var(--paper-sunk);
+      color: var(--ink);
+    }
   }
   p::before {
     content: '';
