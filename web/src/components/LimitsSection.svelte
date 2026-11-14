@@ -24,9 +24,7 @@
 
 {#if cards.length}
   <section>
-    <div class="head">
-      <h3>{t('limits.title')}</h3>
-    </div>
+    <h3>{t('limits.title')}</h3>
     <div class="cards">
       {#each cards as { l, rows } (l.provider)}
         <div class="card">
@@ -54,15 +52,8 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
   h3 {
-    margin: 0;
+    margin: 0 0 8px;
     font-size: 13px;
     font-weight: 700;
     color: var(--ink-2);
