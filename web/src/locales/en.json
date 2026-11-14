@@ -892,7 +892,6 @@
     "resetIn": "resets in {time}",
     "resetAt": "resets {date}",
     "reached": "Limit reached",
-    "asOf": "Checked {time}",
     "showInfo": "Show in Info",
     "chip": "Plan limit left: {text}",
     "inUse": "in use",

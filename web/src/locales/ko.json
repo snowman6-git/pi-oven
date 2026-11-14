@@ -863,7 +863,6 @@
     "resetIn": "{time} 뒤 초기화",
     "resetAt": "{date} 초기화",
     "reached": "한도 도달",
-    "asOf": "{time} 확인",
     "showInfo": "정보 탭에서 보기",
     "chip": "구독 한도 남은 양: {text}",
     "inUse": "사용 중",

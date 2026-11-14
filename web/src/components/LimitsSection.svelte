@@ -2,7 +2,6 @@
   import { t } from '../lib/i18n.svelte';
   import { limits } from '../lib/limits.svelte';
   import { halves, planName, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
-  import { relativeTime } from '../lib/util';
 
   // The info tab's "plan limits": one card per subscription that has sent its numbers, the model's own first.
   let { provider }: { provider?: string } = $props();
@@ -19,7 +18,6 @@
         return { l, rows: [short, long].filter((w): w is WindowNow => !!w) };
       }),
   );
-  const newest = $derived(Math.max(0, ...cards.map((c) => c.l.at)));
   const resetText = (w: WindowNow) =>
     w.resetAt == null ? '' : w.minutes > 1440 ? resetDate(w.resetAt) : t('limits.resetIn', { time: until(w.resetAt, limits.now) });
 </script>
@@ -28,7 +26,6 @@
   <section>
     <div class="head">
       <h3>{t('limits.title')}</h3>
-      <small>{t('limits.asOf', { time: relativeTime(newest) })}</small>
     </div>
     <div class="cards">
       {#each cards as { l, rows } (l.provider)}
@@ -50,7 +47,6 @@
             </div>
           {/each}
           {#if l.resets != null}<small>{t('limits.resetCredits', { n: l.resets })}</small>{/if}
-          {#if l.at < newest - 60 * 60_000}<small class="old">{t('limits.asOf', { time: relativeTime(l.at) })}</small>{/if}
         </div>
       {/each}
     </div>

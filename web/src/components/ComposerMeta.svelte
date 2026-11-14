@@ -11,7 +11,6 @@
   import { settings } from '../lib/settings.svelte';
   import { limits } from '../lib/limits.svelte';
   import { halves, planName, providerName, resetDate, until, untilShort, windowName, type WindowNow } from '../lib/limits';
-  import { relativeTime } from '../lib/util';
   import Icon from './Icon.svelte';
 
   type Menu = 'plus' | 'perm' | 'model' | 'think' | 'ctx' | 'limit' | null;
@@ -137,7 +136,6 @@
               {/if}
             {/each}
           </div>
-          <small>{t('limits.asOf', { time: relativeTime(lim.at) })}</small>
           <button class="btn" type="button" onclick={() => ((menu = null), app.openInspector('info'))}>{t('limits.showInfo')}</button>
         </div>
       {/if}
