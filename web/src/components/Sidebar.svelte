@@ -339,7 +339,7 @@
         {:else if app.ovenPhase === 'failed'}
           <UpdateCard state="bad" title={t('oven.failed')} detail={app.ovenError} onopen={() => app.openSettings('about')} onclose={() => (app.ovenPhase = 'idle')} />
         {:else if app.oven}
-          <UpdateCard title={t('oven.newBuild')} detail="{app.oven.current ?? '?'} → {app.oven.latest}" mono onopen={() => app.openSettings('about')}
+          <UpdateCard title={t('oven.newBuild')} detail={t('oven.cardDetail', { from: app.oven.current?.slice(0, 7) ?? '?', to: app.oven.latest?.slice(0, 7) ?? '' })} detailTitle="{app.oven.current ?? '?'} → {app.oven.latest}" mono onopen={() => app.openSettings('about')}
             action={{ label: S.update, run: () => app.ovenUpdate() }} onclose={() => app.dismissOven()} />
         {/if}
       {/if}

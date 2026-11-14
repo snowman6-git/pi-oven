@@ -5,7 +5,7 @@
   import { S } from '../lib/strings';
 
   // One card under the session list, for anything that can be updated (pi and its packages, pi-oven itself).
-  // The text opens the matching section; the button is that card's own action. Several cards stack: pi-oven's own first, then pi's.
+  // The text opens the matching section; the button on the right is that card's own action (× after it). Several cards stack: pi-oven's own first, then pi's.
   let {
     title,
     detail = '',
@@ -41,7 +41,7 @@
     <div class="ut"><b class:bad={state === 'bad'}>{title}</b>{#if detail}<span class:mono title={detailTitle}>{detail}</span>{/if}{@render extra?.()}</div>
   {/if}
   {#if action || onclose}
-    <div class="ua row2">
+    <div class="ua">
       {#if action}
         <button class="btn" class:primary={action.primary !== false} class:quiet={action.primary === false} type="button" onclick={action.run}>
           {#if action.icon}<Icon name={action.icon} size={14} />{/if}{action.label}
@@ -96,6 +96,12 @@
     word-break: keep-all;
     overflow-wrap: anywhere;
   }
+  /* hashes and versions stay on one line and get cut, so the button keeps its place on the right */
+  .ut span.mono {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .ut span.mono {
     font-family: var(--font-mono);
     font-size: 11.5px;
@@ -108,13 +114,6 @@
     display: flex;
     align-items: center;
     gap: 2px;
-  }
-  .ua.row2 {
-    grid-column: 2 / -1;
-    margin-top: 2px;
-  }
-  .ua.row2 .icon-btn {
-    margin-left: auto;
   }
   .ua .btn {
     height: 28px;

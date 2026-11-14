@@ -932,6 +932,7 @@
     "autoHint": "The server checks the GitHub release every 6 hours and shows a notice under the list when there is a new build.",
     "askTitle": "Update pi-oven?",
     "askBody": "It switches to the new build and starts again with the same arguments. pi in open sessions restarts too, and the page reloads once the server is back.",
-    "failed": "pi-oven update failed"
+    "failed": "pi-oven update failed",
+    "cardDetail": "{to} (now {from})"
   }
 }
