@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { grow, shrink } from '../lib/sheet';
+  import { grow, rise, shrink, sink } from '../lib/sheet';
   import { trackPopover } from '../lib/popover.svelte';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
@@ -221,7 +221,7 @@
     {ondrop}
   >
     {#if slash.length}
-      <ul class="slash" role="listbox" aria-label={S.slashCommands}>
+      <ul class="slash" role="listbox" aria-label={S.slashCommands} in:rise out:sink>
         {#each slash as c, i (c.name)}
           <li role="option" aria-selected={i === pick}>
             <button type="button" class:on={i === pick} onmousedown={(e) => { e.preventDefault(); accept(i); }}>
@@ -233,7 +233,7 @@
     {/if}
 
     {#if ctxChip}
-      <div class="ctxrow">
+      <div class="ctxrow" in:rise out:sink>
         <span class="ctx" class:auto={ctxChip.auto}>
           <button class="main" type="button" aria-pressed={ctxChip.auto} title={ctxChip.auto ? t('composer.ctxAuto') : t('composer.ctxFile')}
             onclick={() => { if (!ctxChip.auto) chat.editors.attachFile = true; }}>
@@ -247,7 +247,7 @@
     {/if}
 
     {#if images.length}
-      <div class="thumbs">
+      <div class="thumbs" in:rise out:sink>
         {#each images as img, i}
           <div class="th">
             <img alt="" src={`data:${img.mimeType};base64,${img.data}`} />
@@ -520,21 +520,14 @@
     color: var(--ink-2);
     box-shadow: var(--shadow);
   }
+  /* the command list is part of the box: it opens the box upward (in:rise) instead of floating over it */
   .slash {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 0;
-    right: 0;
     list-style: none;
     margin: 0;
-    padding: 4px;
-    background: var(--raised);
-    border: 1px solid var(--rule);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
+    padding: 6px 6px 4px;
+    border-bottom: 1px solid var(--rule);
     max-height: 300px;
     overflow: auto;
-    z-index: 5;
   }
   .slash button {
     width: 100%;

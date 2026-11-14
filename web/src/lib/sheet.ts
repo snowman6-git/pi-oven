@@ -26,6 +26,11 @@ export function bezier(x1: number, y1: number, x2: number, y2: number): (t: numb
 export const spring = bezier(0.3, 1.5, 0.5, 1);
 const easeIn = bezier(0.4, 0, 1, 1);
 
+/** However tall the thing, the spring goes at most this far past and back (a tall list would otherwise bounce far). */
+const MAX_PAST = 12;
+/** A height on the way to `full`: the spring's overshoot past `full` is kept to MAX_PAST px. */
+const toward = (from: number, full: number, t: number) => (t <= 1 ? from + (full - from) * t : full + Math.min(MAX_PAST, (full - from) * (t - 1)));
+
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** Height of the message box the menu grows out of (set on .dock by Composer). */
@@ -43,7 +48,29 @@ function move(node: Element, open: boolean): TransitionConfig {
     easing: open ? spring : easeIn,
     // t: 0 → 1 takes the height from the box's to the menu's (the items sit at the bottom, so the top ones come into
     // view as it grows). Past 1, the overshoot, it really stands a little taller for a moment, then settles.
-    css: (t) => `height: ${total - (1 - t) * hidden}px; overflow: hidden`,
+    css: (t) => `height: ${toward(total - hidden, total, t)}px; max-height: none; overflow: hidden`,
+  };
+}
+
+/** `in:rise`: something added inside the message box (attached images, the file chip, the command list) opens
+    the box upward from nothing, with the spring, instead of appearing at once. */
+export function rise(node: Element): TransitionConfig {
+  const h = (node as HTMLElement).offsetHeight;
+  return {
+    duration: reduced() ? 0 : 520,
+    easing: spring,
+    // max-height lifted while it moves, or a list at its cap could not overshoot
+    css: (t) => `height: ${toward(0, h, t)}px; max-height: none; overflow: hidden`,
+  };
+}
+
+/** `out:sink`: and closes again, quickly. */
+export function sink(node: Element): TransitionConfig {
+  const h = (node as HTMLElement).offsetHeight;
+  return {
+    duration: reduced() ? 0 : 150,
+    easing: easeIn,
+    css: (t) => `height: ${t * h}px; overflow: hidden`,
   };
 }
 

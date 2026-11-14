@@ -3,7 +3,7 @@
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/app.svelte';
   import type { Chat, Permission } from '../lib/chat.svelte';
-  import { dismiss, autofocus } from '../lib/actions';
+  import { dismiss } from '../lib/actions';
   import type { ModelInfo, ThinkingLevel } from '../lib/protocol';
   import { S } from '../lib/strings';
   import { compactNumber } from '../lib/util';
@@ -81,7 +81,7 @@
     {#if menu === 'model'}
       <div class="sheet wide" in:grow out:shrink>
         {#if chat.models.length > 7}
-          <input class="field" placeholder={t('meta.search')} bind:value={filter} use:autofocus />
+          <input class="field" placeholder={t('meta.search')} bind:value={filter} />
         {/if}
         <ul role="listbox" aria-label={S.model}>
           {#each models as m (m.provider + m.id)}
