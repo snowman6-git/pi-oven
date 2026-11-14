@@ -113,21 +113,32 @@ impl Limits {
         }
     }
 
-    /// After a usage-limit error: the window that ran out and when it resets. That is the most used window that has
-    /// not reset yet (the numbers are from the last reply, so "98%" can be the one that ran out); between equals, the
-    /// later reset. Returns the reset time and the window's length in minutes.
-    pub fn culprit(&self, provider: Option<&str>, now: u64) -> Option<(u64, u32)> {
+    /// After a usage-limit error: the window that ran out, when it resets, and whether that is known rather than
+    /// guessed. The stored numbers can be hours old, so "most used" is not enough (a week at 49% beat five hours at 26%
+    /// that had since run out):
+    /// 1. the error names a time ("Try again in ~182 min"): the window whose reset is closest to it (within 30 min);
+    /// 2. a window at 90% or more: the shortest such;
+    /// 3. else the shortest window: a fresh limit is far more often the 5 hours than the week.
+    pub fn culprit(&self, provider: Option<&str>, now: u64, hint: Option<u64>) -> Option<(u64, u32, bool)> {
         let map = self.map.lock().unwrap();
         let entries: Vec<&Entry> = match provider {
             Some(p) => map.get(p).into_iter().collect(),
             None => map.values().collect(),
         };
-        entries
+        let ws: Vec<(f64, u64, u32)> = entries
             .iter()
             .flat_map(|e| e.windows.iter())
             .filter_map(|w| w.reset_at.filter(|&t| t > now).map(|t| (w.used, t, w.minutes)))
-            .max_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
-            .map(|(_, t, m)| (t, m))
+            .collect();
+        if let Some(h) = hint {
+            if let Some(w) = ws.iter().filter(|w| w.1.abs_diff(h) <= 30 * 60_000).min_by_key(|w| w.1.abs_diff(h)) {
+                return Some((w.1, w.2, true));
+            }
+        }
+        if let Some(w) = ws.iter().filter(|w| w.0 >= 90.0).min_by_key(|w| w.2) {
+            return Some((w.1, w.2, true));
+        }
+        ws.iter().min_by_key(|w| w.2).map(|w| (w.1, w.2, false))
     }
 
     /// The provider said the limit is reached: that window is used up, whatever the last reply's numbers were.
@@ -203,10 +214,20 @@ mod tests {
         let l = Limits::default();
         let w = |minutes, used, reset_at| Window { minutes, used, reset_at: Some(reset_at) };
         l.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 98.0, 5000), w(10080, 15.0, 9000)] });
-        assert_eq!(l.culprit(Some("p"), 100), Some((5000, 300)));
+        assert_eq!(l.culprit(Some("p"), 100, None), Some((5000, 300, true)));
         // once the 5 hours have reset, the week is what is left to wait for
-        assert_eq!(l.culprit(Some("p"), 6000), Some((9000, 10080)));
-        assert_eq!(l.culprit(Some("other"), 100), None);
+        assert_eq!(l.culprit(Some("p"), 6000, None), Some((9000, 10080, false)));
+        assert_eq!(l.culprit(Some("other"), 100, None), None);
+        // what really happened: old numbers (5 h at 26%, week at 49%), and the error says ~182 min, which is the 5 h reset
+        let m = 60_000;
+        let l2 = Limits::default();
+        l2.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 49.0, 9000 * m)] });
+        assert_eq!(l2.culprit(Some("p"), 0, Some(182 * m)), Some((200 * m, 300, true)));
+        // and without a time the 5 hours are still the better guess than the week
+        assert_eq!(l2.culprit(Some("p"), 0, None), Some((200 * m, 300, false)));
+        // a week that really is nearly used up wins
+        l2.record(Entry { provider: "p".into(), plan: None, at: 2, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 99.0, 9000 * m)] });
+        assert_eq!(l2.culprit(Some("p"), 0, None), Some((9000 * m, 10080, true)));
         l.mark_used_up("p", 300);
         assert_eq!(l.view(100)["items"][0]["windows"][0]["used"], 100.0);
     }

@@ -651,11 +651,14 @@ impl Manager {
                                 rt.long_event(e, &long);
                             }
                             if let Some((error, provider)) = limit {
-                                let culprit = limits.culprit(provider.as_deref(), now_ms());
-                                if let (Some(p), Some((_, minutes))) = (provider.as_deref(), culprit) {
+                                let now = now_ms();
+                                let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
+                                let found = limits.culprit(provider.as_deref(), now, hint);
+                                // only a window we are sure of is marked used up; a guess would show wrong numbers
+                                if let (Some(p), Some((_, minutes, true))) = (provider.as_deref(), found) {
                                     limits.mark_used_up(p, minutes);
                                 }
-                                rt.resume_begin(&error, culprit);
+                                rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
                             }
                         }
                     }

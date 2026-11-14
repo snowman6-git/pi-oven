@@ -113,7 +113,7 @@ pub fn is_usage_limit(error: &str) -> bool {
 }
 
 /// "… Try again in ~42 min." → 42 minutes.
-fn minutes_in(error: &str) -> Option<u64> {
+pub fn minutes_in(error: &str) -> Option<u64> {
     let i = error.find("again in")?;
     let digits: String = error[i + 8..].chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit()).take(6).collect();
     digits.parse().ok()

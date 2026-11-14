@@ -5,7 +5,9 @@
  * (`oven-limits`, JSON) that the server keeps per provider. Nothing is asked of the provider: the numbers come with
  * replies the user's own messages caused, so they are as fresh as the last reply.
  *
- * - ChatGPT (openai-codex): a `codex.rate_limits` event at the start of each response (WebSocket and SSE alike).
+ * - ChatGPT (openai-codex) over WebSocket: a `codex.rate_limits` event at the start of each response.
+ * - ChatGPT over HTTP (SSE): pi falls back to it when a WebSocket closes, and then the same numbers come as
+ *   `x-codex-primary-*` / `x-codex-secondary-*` response headers instead.
  * - Claude (anthropic, subscription sign-in): `anthropic-ratelimit-unified-<window>-utilization` / `-reset` headers.
  *   API-key use sends other headers and is left alone.
  */
@@ -60,8 +62,31 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("after_provider_response", (event, ctx) => {
-		const h = event.headers ?? {};
+		const h: Record<string, string> = {};
+		for (const [k, v] of Object.entries(event.headers ?? {})) h[k.toLowerCase()] = String(v);
 		const now = Date.now();
+
+		// ChatGPT over HTTP: x-codex-{primary,secondary}-{used-percent,window-minutes,reset-at,reset-after-seconds}
+		const codex: Window[] = [];
+		for (const slot of ["primary", "secondary"]) {
+			const used = num(h[`x-codex-${slot}-used-percent`]);
+			const minutes = num(h[`x-codex-${slot}-window-minutes`]);
+			if (used == null || minutes == null) continue;
+			const at = num(h[`x-codex-${slot}-reset-at`]);
+			const after = num(h[`x-codex-${slot}-reset-after-seconds`]);
+			codex.push({ minutes, used, resetAt: at != null ? at * 1000 : after != null ? now + after * 1000 : null });
+		}
+		if (codex.length) {
+			send(ctx, {
+				provider: ctx.model?.provider ?? "openai-codex",
+				plan: h["x-codex-plan-type"] ?? null,
+				at: now,
+				limitReached: event.status === 429,
+				windows: codex,
+			});
+			return;
+		}
+
 		const windows: Window[] = [];
 		for (const [k, v] of Object.entries(h)) {
 			const m = /^anthropic-ratelimit-unified-([0-9a-z]{1,8})-utilization$/.exec(k.toLowerCase());
