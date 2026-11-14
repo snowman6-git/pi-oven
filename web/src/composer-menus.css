@@ -26,6 +26,8 @@
   display: grid;
   align-content: end;
   gap: 2px;
+  /* its growing redraws only itself */
+  contain: layout paint;
 }
 .dock .sheet.narrow button[role='menuitem'] {
   justify-content: flex-start;
