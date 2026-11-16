@@ -9,6 +9,7 @@
 //! 15 minutes. However many pages are open and however often the limits are looked at, the server asks for all.
 
 pub mod chatgpt;
+pub mod claude;
 
 use axum::{extract::State, http::StatusCode, response::{IntoResponse, Response}, Json};
 use std::sync::{
@@ -17,6 +18,52 @@ use std::sync::{
 };
 
 use crate::{api::fail, limits::Entry, runtime::now_ms, AppState};
+use std::process::Stdio;
+use tokio::{io::AsyncWriteExt, process::Command};
+
+/// A fresh sign-in token for `provider` from pi (it refreshes an expired one). `None`: not signed in there.
+pub(crate) async fn token(pi_bin: &str, provider: &str) -> Result<Option<String>, String> {
+    let out = Command::new(pi_bin)
+        .args(["auth", "print-bearer-token", "--provider", provider])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output()
+        .await
+        .map_err(|e| format!("pi auth: {e}"))?;
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let t = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if t.is_empty() || t.contains(['\r', '\n']) {
+        return Err("unexpected token".into());
+    }
+    Ok(Some(t))
+}
+
+/// GET `url` with `headers` ("Name: value" lines) given on curl's standard input, never on its command line (where
+/// `ps` would show a token). Returns the status and the body.
+pub(crate) async fn get(url: &str, headers: &str) -> Result<(u16, String), String> {
+    let mut child = Command::new("curl")
+        .args(["-sS", "--proto", "=https", "--max-time", "20", "-H", "@-", "-H", "Accept: application/json", "-H", "User-Agent: pi-oven", "-w", "\n%{http_code}", url])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("curl: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(headers.as_bytes()).await.map_err(|e| e.to_string())?;
+    }
+    let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let (body, code) = text.rsplit_once('\n').unwrap_or(("", text.as_str()));
+    match code.trim().parse::<u16>().unwrap_or(0) {
+        0 => Err(format!("usage: {}", String::from_utf8_lossy(&out.stderr).trim())),
+        c => Ok((c, body.to_owned())),
+    }
+}
 
 /// The least time between two questions when nothing is wrong.
 const MIN_GAP_MS: u64 = 60_000;
@@ -33,33 +80,20 @@ pub enum Asked {
     Failed(String),
 }
 
-pub struct Usage {
-    /// The switch (Settings → Chat → Plan limits), on unless turned off.
-    pub on: AtomicBool,
+/// One provider's pacing: when it was last asked, and how long to keep quiet after failures.
+#[derive(Default)]
+pub struct Gate {
     last: AtomicU64,
     /// No question before this time (after failures, or a 429).
     quiet_until: AtomicU64,
     failures: AtomicU32,
-    busy: tokio::sync::Mutex<()>,
 }
 
-impl Default for Usage {
-    fn default() -> Self {
-        let off = std::fs::read_to_string(crate::config::cache_dir().join("usage-poll")).is_ok_and(|v| v.trim() == "off");
-        Self { on: AtomicBool::new(!off), last: AtomicU64::new(0), quiet_until: AtomicU64::new(0), failures: AtomicU32::new(0), busy: Default::default() }
-    }
-}
-
-/// How long to stay quiet after `n` failures in a row: 1, 2, 4 … minutes, at most 30.
-pub fn backoff(n: u32) -> u64 {
-    (60_000u64 << n.saturating_sub(1).min(5)).min(BACKOFF_MAX_MS)
-}
-
-impl Usage {
+impl Gate {
     /// May a question go out now? `forced`: right after a usage-limit error.
     pub fn may_ask(&self, now: u64, forced: bool) -> bool {
         let gap = if forced { MIN_GAP_FORCED_MS } else { MIN_GAP_MS };
-        self.on.load(Ordering::Relaxed) && now >= self.quiet_until.load(Ordering::Relaxed) && now.saturating_sub(self.last.load(Ordering::Relaxed)) >= gap
+        now >= self.quiet_until.load(Ordering::Relaxed) && now.saturating_sub(self.last.load(Ordering::Relaxed)) >= gap
     }
 
     fn note(&self, asked: &Asked, now: u64) {
@@ -78,40 +112,103 @@ impl Usage {
             }
         }
     }
+}
 
-    /// Ask (if allowed now) and store the answer. True when fresh numbers came in.
-    pub async fn poll(&self, pi_bin: &str, limits: &crate::limits::Limits, forced: bool) -> bool {
-        let Ok(_one) = self.busy.try_lock() else { return false };
-        let now = now_ms();
-        if !self.may_ask(now, forced) {
+pub struct Usage {
+    /// The switch (Settings → Plan limits), on unless turned off.
+    pub on: AtomicBool,
+    chatgpt: Gate,
+    claude: Gate,
+    busy: tokio::sync::Mutex<()>,
+    /// When the recommended reasoning levels were last fetched, and what they were.
+    recommended: std::sync::Mutex<(u64, std::collections::BTreeMap<String, String>)>,
+}
+
+impl Default for Usage {
+    fn default() -> Self {
+        let off = std::fs::read_to_string(crate::config::cache_dir().join("usage-poll")).is_ok_and(|v| v.trim() == "off");
+        Self { on: AtomicBool::new(!off), chatgpt: Gate::default(), claude: Gate::default(), busy: Default::default(), recommended: Default::default() }
+    }
+}
+
+/// How long to stay quiet after `n` failures in a row: 1, 2, 4 … minutes, at most 30.
+pub fn backoff(n: u32) -> u64 {
+    (60_000u64 << n.saturating_sub(1).min(5)).min(BACKOFF_MAX_MS)
+}
+
+impl Usage {
+    /// Ask the providers that may be asked now (only `provider`, when given) and store the answers. True when fresh
+    /// numbers came in. A provider without a sign-in is a quiet no.
+    pub async fn poll(&self, pi_bin: &str, limits: &crate::limits::Limits, forced: bool, provider: Option<&str>) -> bool {
+        if !self.on.load(Ordering::Relaxed) {
             return false;
         }
-        self.last.store(now, Ordering::Relaxed);
-        let asked = chatgpt::ask(pi_bin, now).await;
-        self.note(&asked, now_ms());
-        match asked {
-            Asked::Got(e) => {
-                limits.record(e);
-                true
+        // one question round at a time; a later caller waits its turn (the gates then keep it from asking twice)
+        // instead of giving up, which used to drop the question for a model just switched to
+        let _one = self.busy.lock().await;
+        let mut fresh = false;
+        for (id, gate) in [(chatgpt::PROVIDER, &self.chatgpt), (claude::PROVIDER, &self.claude)] {
+            if provider.is_some_and(|p| p != id) {
+                continue;
             }
-            Asked::NoSignIn => false,
-            Asked::TooMany => {
-                tracing::info!("usage: ChatGPT said too many requests; asking again in 15 minutes");
-                false
+            let now = now_ms();
+            if !gate.may_ask(now, forced) {
+                continue;
             }
-            Asked::Failed(e) => {
-                tracing::debug!("usage: {e}");
-                false
+            gate.last.store(now, Ordering::Relaxed);
+            let asked = if id == chatgpt::PROVIDER { chatgpt::ask(pi_bin, now).await } else { claude::ask(pi_bin).await };
+            gate.note(&asked, now_ms());
+            let next = gate.quiet_until.load(Ordering::Relaxed);
+            match asked {
+                Asked::Got(e) => {
+                    limits.record(e);
+                    limits.note_problem(id, None);
+                    fresh = true;
+                }
+                Asked::NoSignIn => limits.note_problem(id, None),
+                Asked::TooMany => {
+                    tracing::info!("usage: {id} said too many requests; asking again in 15 minutes");
+                    limits.note_problem(id, Some(("HTTP 429".into(), next)));
+                }
+                Asked::Failed(e) => {
+                    tracing::info!("usage {id}: {e}");
+                    limits.note_problem(id, Some((e.chars().take(120).collect(), next)));
+                }
             }
         }
+        fresh
     }
 }
 
 /// POST: ask now if allowed (the page does this when it opens, every few minutes while it is in view, and when the
 /// limits are looked at). Answers with the store, whatever happened.
 pub async fn refresh(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    app.runtimes.usage.poll(&app.pi_bin, &app.runtimes.limits, false).await;
+    app.runtimes.usage.poll(&app.pi_bin, &app.runtimes.limits, false, None).await;
     Json(app.runtimes.limits.view(now_ms()))
+}
+
+/// GET: the reasoning level each model's provider recommends, where the provider says (ChatGPT does; others do not,
+/// and nothing is made up for them). Asked at most once an hour.
+pub async fn recommended(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let u = &app.runtimes.usage;
+    let now = now_ms();
+    {
+        let c = u.recommended.lock().unwrap();
+        if c.0 > 0 && now.saturating_sub(c.0) < 3_600_000 {
+            return Json(serde_json::json!({ (chatgpt::PROVIDER): c.1 }));
+        }
+    }
+    match chatgpt::recommended(&app.pi_bin).await {
+        Ok(m) => {
+            *u.recommended.lock().unwrap() = (now, m.clone());
+            Json(serde_json::json!({ (chatgpt::PROVIDER): m }))
+        }
+        Err(e) => {
+            tracing::debug!("recommended levels: {e}");
+            let c = u.recommended.lock().unwrap();
+            Json(serde_json::json!({ (chatgpt::PROVIDER): c.1 }))
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -138,7 +235,7 @@ mod tests {
 
     #[test]
     fn asks_at_most_once_a_minute_and_backs_off_after_failures() {
-        let u = Usage { on: AtomicBool::new(true), last: AtomicU64::new(0), quiet_until: AtomicU64::new(0), failures: AtomicU32::new(0), busy: Default::default() };
+        let u = Gate::default();
         let t = 10_000_000;
         assert!(u.may_ask(t, false));
         u.last.store(t, Ordering::Relaxed);
@@ -160,8 +257,6 @@ mod tests {
         // a good answer clears it
         u.note(&Asked::NoSignIn, t);
         assert!(u.may_ask(t + 60_000, false));
-        // and the switch is the switch
-        u.on.store(false, Ordering::Relaxed);
-        assert!(!u.may_ask(t + 99_000_000, false));
     }
+
 }

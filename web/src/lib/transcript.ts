@@ -22,7 +22,7 @@ export type Block = { type: 'text'; text: string } | { type: 'thinking'; text: s
 
 export type Item =
   | { kind: 'user'; key: number; text: string; images: ImagePart[]; skills: string[]; ts?: number }
-  | { kind: 'assistant'; key: number; blocks: Block[]; live: boolean; ts?: number; model?: string; usage?: Usage; stop?: string; error?: string; speed?: Speed }
+  | { kind: 'assistant'; key: number; blocks: Block[]; live: boolean; ts?: number; model?: string; usage?: Usage; stop?: string; error?: string; errorAt?: number; speed?: Speed }
   | { kind: 'bash'; key: number; command: string; output: string; exitCode?: number; cancelled: boolean; truncated: boolean; running: boolean; ts?: number }
   | { kind: 'summary'; key: number; label: string; text: string; ts?: number }
   /** A background task ended (pi's own notification, shown as a bubble that says so). */

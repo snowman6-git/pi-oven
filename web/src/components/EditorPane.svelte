@@ -10,6 +10,7 @@
   import { api } from '../lib/api';
   import { compactNumber } from '../lib/util';
   import Icon from './Icon.svelte';
+  import Markdown from './Markdown.svelte';
 
   let { chat, splitOn = false }: { chat: Chat; splitOn?: boolean } = $props();
   const editors = $derived(chat.editors);
@@ -170,7 +171,35 @@
     if (cm && view) view.dispatch({ effects: cm.wrapping.reconfigure(wrap ? cm.EditorView.lineWrapping : []) });
   }
 
+  // Markdown can be read rendered, by the same component as replies: the same sanitiser (DOMPurify: no scripts, no
+  // event attributes, no javascript: links; pictures from elsewhere become links), so a file cannot run anything here.
+  const isMd = $derived(!!doc && /\.(md|markdown|mdx)$/i.test(doc.path));
+  const previewing = $derived(!!doc && isMd && editors.previewing.includes(doc.path));
+  let rendered = $state('');
+  let renderTimer: ReturnType<typeof setTimeout> | undefined;
+  function renderNow() {
+    rendered = doc && view ? view.state.doc.toString() : '';
+  }
+  $effect(() => {
+    if (!previewing) return;
+    doc?.version;
+    untrack(renderNow);
+  });
+  function togglePreview() {
+    if (!doc) return;
+    const p = doc.path;
+    editors.previewing = editors.previewing.includes(p) ? editors.previewing.filter((x) => x !== p) : [...editors.previewing, p];
+    if (editors.previewing.includes(p)) {
+      clearTimeout(renderTimer);
+      renderNow();
+    }
+  }
+
   function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && editors.full && visible && !e.defaultPrevented) {
+      editors.full = false;
+      return;
+    }
     // Ctrl/Cmd+S saves the file in view even when the cursor is not in the editor
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's' && doc && visible) {
       e.preventDefault();
@@ -180,6 +209,13 @@
 </script>
 
 <svelte:window onkeydown={onKey} />
+
+{#snippet fullBtn()}
+  <button class="icon-btn full" type="button" aria-pressed={editors.full} onclick={() => (editors.full = !editors.full)}
+    title={editors.full ? t('editor.fullOff') : t('editor.fullOn')} aria-label={editors.full ? t('editor.fullOff') : t('editor.fullOn')}>
+    <Icon name={editors.full ? 'collapse' : 'expand'} size={16} />
+  </button>
+{/snippet}
 
 <section class="pane" class:hidden={!visible} aria-hidden={!visible} aria-label={t('editor.label')}>
   {#if doc?.conflict === 'changed'}
@@ -198,7 +234,10 @@
   {/if}
 
   <div class="body">
-    <div class="cm" bind:this={host} class:off={!ready}></div>
+    <div class="cm" bind:this={host} class:off={!ready || previewing}></div>
+    {#if ready && previewing}
+      <div class="md-view" data-priv="files"><Markdown source={rendered} /></div>
+    {/if}
     {#if doc && picture}
       <div class="pic" data-priv="files">
         {#if broken}
@@ -226,6 +265,7 @@
       <span class="grow"></span>
       {#if dims}<span class="stat">{dims.w} × {dims.h}</span>{/if}
       {#if doc.size != null}<span class="stat">{compactNumber(doc.size)}B</span>{/if}
+      {@render fullBtn()}
     </footer>
   {/if}
 
@@ -235,7 +275,9 @@
       <span class="grow"></span>
       <span class="stat">{t('editor.pos', { line: pos.line, col: pos.col })}</span>
       <span class="stat">{doc.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
+      {#if isMd}<button class="chip" type="button" aria-pressed={previewing} onclick={togglePreview}>{t('editor.preview')}</button>{/if}
       <button class="chip" type="button" aria-pressed={wrap} onclick={toggleWrap} title={t('editor.wrapHint')}>{t('editor.wrap')}</button>
+      {@render fullBtn()}
       <button class="btn save" type="button" disabled={!doc.dirty || doc.saving} onclick={() => editors.save(doc.path)} title="Ctrl+S">
         {doc.saving ? t('editor.saving') : doc.dirty ? t('editor.save') : t('editor.saved')}
       </button>
@@ -346,6 +388,19 @@
   }
   .stat {
     white-space: nowrap;
+  }
+  .md-view {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    padding: 20px max(20px, calc((100% - 760px) / 2));
+    font-size: 14.5px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .full {
+    width: 28px;
+    height: 28px;
   }
   .chip {
     padding: 2px 9px;

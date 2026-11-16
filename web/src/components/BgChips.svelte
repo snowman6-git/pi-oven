@@ -150,7 +150,7 @@
   }
   .stack.run {
     color: var(--ink);
-    border-color: color-mix(in srgb, var(--heat) 50%, var(--rule));
+    border-color: var(--heat-edge);
   }
   .stack.bad {
     border-color: color-mix(in srgb, var(--bad) 60%, var(--rule));
@@ -164,7 +164,7 @@
   }
   .bgchip.run {
     color: var(--ink);
-    border-color: color-mix(in srgb, var(--heat) 50%, var(--rule));
+    border-color: var(--heat-edge);
   }
   .bgchip.run .dot {
     background: var(--heat);
@@ -175,7 +175,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+    box-shadow: 0 0 0 4px var(--heat-ring);
     opacity: 0;
     pointer-events: none;
     will-change: opacity;

@@ -2,10 +2,14 @@
 import { locale, t } from './i18n';
 
 export type LimitWindowWire = { minutes: number; used: number; resetInMs: number | null };
-export type LimitWire = { provider: string; plan: string | null; ageMs: number; limitReached: boolean; resets?: number | null; windows: LimitWindowWire[] };
+export type LimitWire = { provider: string; plan: string | null; ageMs: number; limitReached: boolean; resets?: number | null; resetKinds?: string[]; windows: LimitWindowWire[] };
+
+/** A provider whose direct question failed: why, and in how long the server tries again. */
+export type LimitProblemWire = { provider: string; why: string; retryInMs: number };
+export type LimitProblem = { provider: string; why: string; retryAt: number };
 
 export type LimitWindow = { minutes: number; used: number; resetAt: number | null };
-export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; resets: number | null; windows: LimitWindow[] };
+export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; resets: number | null; resetKinds: string[]; windows: LimitWindow[] };
 
 /** A window as it stands now: past its reset it starts again from nothing. Providers send what is used; the page
  * shows what is left (`left`), which is what one wants to know before sending more. */
@@ -18,6 +22,7 @@ export function fromWire(w: LimitWire, now: number): Limit {
     at: now - w.ageMs,
     limitReached: w.limitReached,
     resets: w.resets ?? null,
+    resetKinds: w.resetKinds ?? [],
     windows: w.windows.map((x) => ({ minutes: x.minutes, used: x.used, resetAt: x.resetInMs == null ? null : now + x.resetInMs })),
   };
 }
@@ -74,4 +79,15 @@ export function untilShort(resetAt: number, now: number): string {
 export function resetDate(resetAt: number, time = true): string {
   const o: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', weekday: 'short' };
   return new Date(resetAt).toLocaleString(locale(), time ? { ...o, hour: '2-digit', minute: '2-digit', hour12: false } : o);
+}
+
+/** Reset credits grouped by what they reset (the server's "5h" / "week" / "model:<name>" / "other"), for the icons. */
+export function creditGroups(kinds: string[]): { icon: 'reset5h' | 'resetWeek' | 'resetModel' | 'resetAny'; kind: string; model: string | null; n: number }[] {
+  const by = new Map<string, number>();
+  for (const k of kinds) by.set(k, (by.get(k) ?? 0) + 1);
+  return [...by].map(([kind, n]) => {
+    const model = kind.startsWith('model:') ? kind.slice(6) : null;
+    const icon = model ? 'resetModel' : kind === '5h' ? 'reset5h' : kind === 'week' ? 'resetWeek' : 'resetAny';
+    return { icon, kind: model ? 'model' : kind === '5h' || kind === 'week' ? kind : 'other', model, n };
+  });
 }

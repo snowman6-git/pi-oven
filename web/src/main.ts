@@ -5,6 +5,9 @@ import { mount } from 'svelte';
 import { settings } from './lib/settings.svelte';
 import './lib/i18n.svelte';
 import App from './App.svelte';
+import { phoneLinks } from './lib/phonelinks';
+
+phoneLinks();
 
 settings.apply();
 

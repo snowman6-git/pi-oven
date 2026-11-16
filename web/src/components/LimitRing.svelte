@@ -41,8 +41,9 @@
   .track {
     stroke: var(--rule);
   }
+  /* used up: white, not red (red sat too close to the orange of a half still in use) */
   .track.full {
-    stroke: var(--bad);
+    stroke: var(--ink);
   }
   .arc {
     stroke: var(--accent);
@@ -52,7 +53,7 @@
     stroke: var(--heat);
   }
   text {
-    fill: var(--bad);
+    fill: var(--ink);
     font: 800 9.5px system-ui, sans-serif;
   }
   @media (prefers-reduced-motion: reduce) {

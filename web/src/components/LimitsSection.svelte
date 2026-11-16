@@ -1,50 +1,193 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { t } from '../lib/i18n.svelte';
   import { limits } from '../lib/limits.svelte';
-  import { halves, planName, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
+  import Icon from './Icon.svelte';
+  import LimitRing from './LimitRing.svelte';
+  import { creditGroups, halves, planName, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
+  import { arcPoints, barPoints, play, reducedMotion, ROLL_UP, springHeights, UNROLL, type Item } from '../lib/unroll';
 
-  // The info tab's "plan limits": one card per subscription that has sent its numbers, the model's own first.
+  // The info tab's "plan limits". The plan behind the chosen model is a card at the top; every other plan is one line
+  // with its split ring, opened by a tap. Opening unrolls the ring into the rows' bars; folding rolls them back.
+  // When the model changes to another plan, the old card folds, the new plan's line lifts over it into first place
+  // ("overhead swap"), and opens there.
   let { provider }: { provider?: string } = $props();
 
   $effect(() => {
     limits.ensure();
     void limits.refresh(true); // looking at the cards: ask now
   });
+
+  /** The plan shown as in use: follows `provider`, but only once the swap has run. */
+  let shown = $state('');
+  /** Which plans are open (the one in use always is). */
+  let open = $state<Record<string, boolean>>({});
+  const folds: Record<string, HTMLElement> = {};
+
   const cards = $derived(
     Object.values(limits.items)
-      .sort((a, b) => Number(b.provider === provider) - Number(a.provider === provider) || a.provider.localeCompare(b.provider))
+      .sort((a, b) => Number(b.provider === shown) - Number(a.provider === shown) || a.provider.localeCompare(b.provider))
       .map((l) => {
         const { short, long } = halves(l, limits.now);
-        return { l, rows: [short, long].filter((w): w is WindowNow => !!w) };
+        return { l, short, long, rows: [short, long].filter((w): w is WindowNow => !!w) };
       }),
   );
   const resetText = (w: WindowNow) =>
     w.resetAt == null ? '' : w.minutes > 1440 ? resetDate(w.resetAt) : t('limits.resetIn', { time: until(w.resetAt, limits.now) });
+  const ringTip = (rows: WindowNow[]) => rows.map((w) => `${windowName(w.minutes)} ${t('limits.leftPct', { n: Math.round(w.left) })}`).join(' · ');
+
+  // one motion at a time, in the order asked
+  let chain: Promise<void> = Promise.resolve();
+  const queue = (f: () => Promise<void>) => (chain = chain.then(f).catch(() => {}));
+
+  function parts(id: string) {
+    const f = folds[id];
+    if (!f?.isConnected) return null;
+    const line = f.querySelector<HTMLElement>('.sum')!;
+    const ring = f.querySelector<SVGElement>('.ringbox svg');
+    const meters = [...f.querySelectorAll<HTMLElement>('.meter[data-side]')];
+    const words = [...f.querySelectorAll<HTMLElement>('.more .label, .more .row > small, .more .credits')];
+    return { f, line, ring, meters, words };
+  }
+  const itemsOf = (p: NonNullable<ReturnType<typeof parts>>): Item[] =>
+    p.ring ? p.meters.map((m) => ({ arc: arcPoints(p.ring!, m.dataset.side as 'short' | 'long'), bar: barPoints(m), left: Number(m.dataset.left) })) : [];
+
+  async function expand(id: string) {
+    const p0 = parts(id);
+    if (!p0 || open[id]) {
+      open[id] = true;
+      return;
+    }
+    const from = p0.f.offsetHeight;
+    open[id] = true;
+    await tick();
+    const p = parts(id);
+    if (!p || reducedMotion()) return;
+    const to = p.f.offsetHeight;
+    const items = itemsOf(p);
+    for (const m of p.meters) m.style.visibility = 'hidden';
+    p.f.animate(springHeights(from, to, 280, 12), { duration: 280, easing: 'linear' });
+    p.words.forEach((w, i) =>
+      w.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], {
+        duration: 240,
+        delay: 90 + i * 45,
+        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        fill: 'backwards',
+      }),
+    );
+    await play(items, UNROLL, p.f);
+    for (const m of p.meters) m.style.visibility = '';
+  }
+
+  async function collapse(id: string) {
+    const p = parts(id);
+    if (!p || !open[id] || reducedMotion()) {
+      open[id] = false;
+      return;
+    }
+    const from = p.f.offsetHeight;
+    const to = p.line.offsetHeight + 2; // the line and the card's border
+    const items = itemsOf(p);
+    for (const m of p.meters) m.style.visibility = 'hidden';
+    // the words go first; the bars shrink and set off for the ring; only then does the card fold (spring, 6 px past)
+    for (const w of p.words) w.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: 'linear', fill: 'forwards' });
+    const fold = p.f.animate(springHeights(from, to, 280, 6), { duration: 280, delay: 230, easing: 'linear', fill: 'backwards' });
+    await play(items, ROLL_UP, p.f);
+    if (p.ring) p.ring.style.opacity = '1'; // the halves are home: the ring shows while the card folds round it
+    await fold.finished.catch(() => {});
+    open[id] = false;
+    await tick();
+    if (p.ring) p.ring.style.opacity = '';
+    for (const w of p.words) w.getAnimations().forEach((a) => a.cancel());
+    for (const m of p.meters) m.style.visibility = '';
+  }
+
+  /** The model moved to another plan: fold the old card, lift the new line over it into first place, open it. */
+  async function swapTo(id: string) {
+    if (id === shown) return;
+    if (!shown) {
+      // the first time: nothing to swap from
+      shown = id;
+      open[id] = true;
+      return;
+    }
+    await Promise.all(Object.keys(open).filter((k) => open[k]).map(collapse));
+    const before = new Map(Object.entries(folds).filter(([, f]) => f?.isConnected).map(([k, f]) => [k, f.getBoundingClientRect().top]));
+    shown = id;
+    await tick();
+    if (!reducedMotion()) {
+      await Promise.all(
+        Object.entries(folds).map(([k, f]) => {
+          const was = before.get(k);
+          if (was == null || !f?.isConnected) return;
+          const dy = was - f.getBoundingClientRect().top;
+          if (!dy) return;
+          const up = k === id;
+          f.style.zIndex = up ? '2' : '1';
+          // going up: a touch larger with a shadow, passing over; going down: a touch smaller, slipping under
+          const mid: Keyframe = up
+            ? { transform: `translateY(${dy / 2}px) scale(1.04)`, boxShadow: 'var(--shadow)', opacity: 1, offset: 0.45 }
+            : { transform: `translateY(${dy / 2}px) scale(0.96)`, boxShadow: 'none', opacity: 0.75, offset: 0.45 };
+          const a = f.animate(
+            [{ transform: `translateY(${dy}px)`, boxShadow: 'none', opacity: 1 }, mid, { transform: 'none', boxShadow: 'none', opacity: 1 }],
+            { duration: 460, easing: 'cubic-bezier(0.3, 1.2, 0.5, 1)' },
+          );
+          return a.finished.catch(() => {}).then(() => (f.style.zIndex = ''));
+        }),
+      );
+    }
+    await expand(id); // a plan whose numbers have not come yet just opens when they do
+  }
+
+  $effect(() => {
+    const p = provider ?? '';
+    if (p && p !== shown) queue(() => swapTo(p));
+  });
+
+  function toggle(id: string) {
+    if (id === shown) return;
+    queue(() => (open[id] ? collapse(id) : expand(id)));
+  }
 </script>
 
 {#if cards.length}
   <section>
     <h3>{t('limits.title')}</h3>
     <div class="cards">
-      {#each cards as { l, rows } (l.provider)}
-        <div class="card">
-          <div class="name">
-            <span>{providerName(l.provider)}</span>
-            <small>{planName(l.plan)}{#if l.provider === provider}{l.plan ? ' · ' : ''}{t('limits.inUse')}{/if}</small>
+      {#each cards as { l, short, long, rows } (l.provider)}
+        {@const id = l.provider}
+        {@const isOn = id === shown}
+        <div class="fold" class:open={open[id]} class:on={isOn} bind:this={folds[id]}>
+          <button class="sum" type="button" aria-expanded={!!open[id]} aria-disabled={isOn} onclick={() => toggle(id)}>
+            <span class="arr" aria-hidden="true"><Icon name="right" size={12} /></span>
+            <span class="who">{providerName(id)} <small>{planName(l.plan)}</small>{#if isOn}<em>{t('limits.inUse')}</em>{/if}</span>
+            <span class="ringbox" title={ringTip(rows)}><LimitRing {short} {long} size={18} /></span>
+          </button>
+          <div class="more" hidden={!open[id]}>
+            {#each rows as w (w.minutes)}
+              <div class="row" class:full={w.reached}>
+                <div class="label">
+                  <span>{windowName(w.minutes)}{#if w.reached} · {t('limits.reached')}{/if}</span>
+                  <span class="num">{t('limits.leftPct', { n: Math.round(w.left) })}</span>
+                </div>
+                <div class="meter" role="meter" aria-valuenow={Math.round(w.left)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(id)} {windowName(w.minutes)}"
+                  data-side={w === short ? 'short' : 'long'} data-left={w.left / 100}>
+                  <i class={w.level} style="transform:scaleX({w.left / 100})"></i>
+                </div>
+                {#if w.resetAt != null}<small>{resetText(w)}</small>{/if}
+              </div>
+            {/each}
+            {#if l.resets != null}
+              <div class="credits">
+                <small>{t('limits.resetCredits', { n: l.resets })}</small>
+                {#each creditGroups(l.resetKinds) as g (g.kind + (g.model ?? ''))}
+                  <span class="credit" title={g.model ? t('limits.creditModel', { model: g.model }) : t(`limits.credit.${g.kind === 'other' ? 'any' : (g.kind as '5h' | 'week')}`)}>
+                    <Icon name={g.icon} size={14} /><b>{g.n}</b>
+                  </span>
+                {/each}
+              </div>
+            {/if}
           </div>
-          {#each rows as w (w.minutes)}
-            <div class="row" class:full={w.reached}>
-              <div class="label">
-                <span>{windowName(w.minutes)}{#if w.reached} · {t('limits.reached')}{/if}</span>
-                <span class="num">{t('limits.leftPct', { n: Math.round(w.left) })}</span>
-              </div>
-              <div class="meter" role="meter" aria-valuenow={Math.round(w.left)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(l.provider)} {windowName(w.minutes)}">
-                <i class={w.level} style="transform:scaleX({w.left / 100})"></i>
-              </div>
-              {#if w.resetAt != null}<small>{resetText(w)}</small>{/if}
-            </div>
-          {/each}
-          {#if l.resets != null}<small>{t('limits.resetCredits', { n: l.resets })}</small>{/if}
         </div>
       {/each}
     </div>
@@ -66,18 +209,65 @@
     display: grid;
     gap: 10px;
   }
-  .card {
-    display: grid;
-    gap: 10px;
-    padding: 12px;
+  /* one plan: a line that grows into its card */
+  .fold {
+    position: relative;
     border: 1px solid var(--rule);
     border-radius: 10px;
+    overflow: hidden;
+    background: var(--paper);
   }
-  .name {
+  .sum {
+    width: 100%;
     display: flex;
-    justify-content: space-between;
+    align-items: center;
     gap: 8px;
+    padding: 9px 12px;
     font-size: 13px;
+    text-align: left;
+    border-radius: 0;
+  }
+  .fold.on .sum {
+    cursor: default;
+  }
+  @media (hover: hover) {
+    .fold:not(.on) .sum:hover {
+      background: var(--paper-sunk);
+    }
+  }
+  .arr {
+    display: inline-flex;
+    color: var(--ink-3);
+    transition: transform 0.16s, opacity 0.16s;
+  }
+  .fold.open .arr {
+    transform: rotate(90deg);
+  }
+  .fold.on .arr {
+    opacity: 0;
+  }
+  .who em {
+    margin-left: 6px;
+    font-style: normal;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .ringbox {
+    margin-left: auto;
+    display: inline-flex;
+  }
+  /* open: the ring has become the bars */
+  .fold.open .ringbox :global(svg) {
+    opacity: 0;
+  }
+  .more {
+    display: grid;
+    gap: 10px;
+    padding: 2px 12px 12px;
+  }
+  .more[hidden] {
+    display: none;
   }
   .row {
     display: grid;
@@ -115,8 +305,47 @@
   .meter i.full {
     background: var(--bad);
   }
+  .credits {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+  .credit {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+  .credit b {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  /* the lines on their way between ring and bars (lib/unroll.ts) */
+  :global(.unroll-stage) {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 50;
+    overflow: visible;
+  }
+  :global(.unroll-stage polyline) {
+    fill: none;
+    stroke-linecap: butt;
+    stroke-linejoin: round;
+  }
+  :global(.unroll-stage .trk) {
+    stroke: var(--rule);
+  }
+  :global(.unroll-stage .arc) {
+    stroke: var(--accent);
+  }
   @media (prefers-reduced-motion: reduce) {
-    .meter i {
+    .meter i,
+    .arr {
       transition: none;
     }
   }

@@ -37,7 +37,18 @@
   // The subscription behind the chosen model, when the provider has sent its limits (none for local or API-key models).
   $effect(() => limits.ensure());
   const lim = $derived(model ? limits.items[model.provider] : undefined);
+  // another model's plan: ask for its limits at once, so the chip follows the switch
+  let lastProvider = '';
+  $effect(() => {
+    const p = model?.provider ?? '';
+    if (p && p !== lastProvider) {
+      const first = lastProvider === '';
+      lastProvider = p;
+      if (!first) void limits.refresh(true, true);
+    }
+  });
   const half = $derived(lim ? halves(lim, limits.now) : {});
+  const problem = $derived(model ? limits.problems[model.provider] : undefined);
   const used = $derived.by(() => {
     const { short, long } = half;
     const full = short?.reached ? short : long?.reached ? long : undefined;
@@ -141,6 +152,11 @@
         </div>
       {/if}
     </div>
+  {:else if problem && settings.metaLimits}
+    <!-- the subscription's limits could not be fetched: say so instead of showing nothing (or the last model's) -->
+    <span class="chip limit off" role="status" title={t('limits.cannotFetch', { why: problem.why, time: until(problem.retryAt, limits.now) })}>
+      <LimitRing />{#if settings.metaLimitText}?{/if}
+    </span>
   {/if}
 
   {#if settings.metaContext}
@@ -231,7 +247,7 @@
     color: var(--heat);
   }
   .chip.limit.full {
-    color: var(--bad);
+    color: var(--ink);
   }
   .limitsheet {
     gap: 8px;
@@ -285,5 +301,9 @@
     .mname {
       max-width: 72px;
     }
+  }
+  .chip.limit.off {
+    color: var(--ink-3);
+    cursor: help;
   }
 </style>

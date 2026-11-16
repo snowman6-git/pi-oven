@@ -98,7 +98,9 @@
       "models": "Models",
       "showcase": "Showcase",
       "server": "Connection",
-      "about": "About"
+      "about": "About",
+      "composer": "Message box",
+      "auto": "Automation"
     },
     "theme": {
       "dark": "Dark",
@@ -563,7 +565,10 @@
       "one": "{name}: applied {n} changed line",
       "other": "{name}: applied {n} changed lines"
     },
-    "imageBroken": "This image cannot be shown. The file is damaged or too large (up to 30 MB)."
+    "imageBroken": "This image cannot be shown. The file is damaged or too large (up to 30 MB).",
+    "preview": "Preview",
+    "fullOn": "Fill the view (over the message box)",
+    "fullOff": "Back to normal size (Esc)"
   },
   "bg": {
     "status": {
@@ -733,7 +738,30 @@
     "saving": "Saving…",
     "addModel": "Add model",
     "saveProvider": "Save provider",
-    "newSessions": "It appears in the model list of sessions you open from now on."
+    "newSessions": "It appears in the model list of sessions you open from now on.",
+    "ctxUse": {
+      "1K": "Quick tests, a short news summary",
+      "4K": "Short chats, simple Q&A",
+      "8K": "Everyday chat, a short document summary",
+      "16K": "One or two long documents, a small script",
+      "32K": "Coding across several files, a long report",
+      "64K": "A whole small project, long meeting notes",
+      "128K": "A mid-size repository, a book's worth of text",
+      "200K": "Exploring a large repository, long work sessions",
+      "256K": "Big sets of documents, long-running agent work",
+      "400K": "Analysing a large codebase",
+      "1M": "Large refactors, big projects"
+    },
+    "outUse": {
+      "4K": "Short answers",
+      "8K": "Ordinary answers, small code snippets",
+      "16K": "Long answers, writing one file",
+      "32K": "Writing several files, long documents",
+      "64K": "A large refactor in one go",
+      "128K": "Reasoning models with very long output",
+      "256K": "The maximum of some local models (e.g. 262,144)"
+    },
+    "presets": "Common values for {what}"
   },
   "time": {
     "now": "just now",
@@ -904,7 +932,15 @@
       "other": "{n} limit reset credits"
     },
     "pollName": "Ask ChatGPT directly",
-    "pollHint": "Without sending a message, asks ChatGPT what is left every 5 minutes while the page is open and whenever the limits are opened. When a limit is hit it asks at once and uses the exact reset time."
+    "pollHint": "Without sending a message, asks ChatGPT what is left every 5 minutes while the page is open and whenever the limits are opened. When a limit is hit it asks at once and uses the exact reset time.",
+    "creditModel": "Reset for the {model} model limit",
+    "credit": {
+      "5h": "Resets the 5-hour limit",
+      "week": "Resets the weekly limit",
+      "any": "Resets a limit"
+    },
+    "pollSection": "Checking limits",
+    "cannotFetch": "Could not fetch the limits ({why}). Trying again in {time}."
   },
   "resume": {
     "name": "Zero-Waste",

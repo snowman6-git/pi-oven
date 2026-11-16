@@ -23,8 +23,11 @@
   border: 1px solid var(--rule);
   border-radius: 16px;
   box-shadow: var(--shadow);
-  display: grid;
-  align-content: end;
+  /* items sit at the bottom (the top ones show as it grows): the first one's auto top margin takes the free space.
+     When the list is taller than the menu that margin is 0, so it scrolls all the way to its first item. (Aligning
+     to the end instead pushes the overflow above the top, where no scrolling reaches; "safe end" did not help.) */
+  display: flex;
+  flex-direction: column;
   gap: 2px;
   /* its growing redraws only itself */
   contain: layout paint;
@@ -56,6 +59,12 @@
 .dock .composer .line.lifted .pop > button {
   position: relative;
   z-index: 1;
+}
+.dock .sheet > * {
+  flex-shrink: 0;
+}
+.dock .sheet > :first-child {
+  margin-top: auto;
 }
 .dock .sheet ul {
   list-style: none;

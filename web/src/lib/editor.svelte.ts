@@ -67,6 +67,10 @@ export class Editors {
   /** Chat and editor side by side (when there is room) instead of one at a time in tabs. */
   split = $state(read('pi-oven.split', true));
   /** How much of the width the conversation gets in a split. */
+  /** The file fills the conversation area, over the message box too (the toggle in the file's footer, or Esc). */
+  full = $state(false);
+  /** Paths of markdown files shown rendered instead of as text. */
+  previewing = $state<string[]>([]);
   splitFrac = $state(Math.min(0.7, Math.max(0.3, read('pi-oven.split-frac', 0.5))));
   /** The file that was last in view: what a split keeps showing when no tab is picked. */
   last = $state<string | null>(null);

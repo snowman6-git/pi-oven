@@ -656,7 +656,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+    box-shadow: 0 0 0 4px var(--heat-ring);
     opacity: 0;
     pointer-events: none;
     will-change: opacity;
@@ -674,7 +674,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 28%, transparent);
+    box-shadow: 0 0 0 4px var(--heat-ring);
     opacity: 0;
     pointer-events: none;
     will-change: opacity;

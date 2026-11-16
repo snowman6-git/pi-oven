@@ -52,6 +52,10 @@
     overflow-wrap: anywhere;
     line-height: 1.72;
   }
+  /* an <svg> with nothing left in it after sanitising would hold a blank 300×150 box */
+  .md :global(svg:empty) {
+    display: none;
+  }
   .md :global(> :first-child) {
     margin-top: 0;
   }

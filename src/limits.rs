@@ -32,6 +32,9 @@ pub struct Entry {
     /// "Rate limit reset credits" the plan has left (ChatGPT's usage answer only).
     #[serde(default)]
     pub resets: Option<u32>,
+    /// What those credits reset, one per credit ("5h", "week", "model:<name>", "other"), when the provider lists them.
+    #[serde(default)]
+    pub reset_kinds: Vec<String>,
 }
 
 impl Entry {
@@ -48,6 +51,8 @@ impl Entry {
             w.used = w.used.clamp(0.0, 100.0);
         }
         self.windows.sort_by_key(|w| w.minutes);
+        self.reset_kinds.retain(|k| k.len() <= 80 && !k.contains(['<', '>', '\n']));
+        self.reset_kinds.truncate(20);
         (!self.windows.is_empty()).then_some(self)
     }
 
@@ -59,6 +64,7 @@ impl Entry {
             "ageMs": now.saturating_sub(self.at),
             "limitReached": self.limit_reached,
             "resets": self.resets,
+            "resetKinds": self.reset_kinds,
             "windows": self.windows.iter().map(|w| serde_json::json!({
                 "minutes": w.minutes,
                 "used": w.used,
@@ -84,6 +90,9 @@ pub fn read(line: &str) -> Option<Entry> {
 pub struct Limits {
     map: Mutex<BTreeMap<String, Entry>>,
     file: Option<PathBuf>,
+    /// Providers whose last direct question failed: why, and when the next may go out. Shown, so a chip that does not
+    /// follow a model switch has a reason on screen instead of looking stuck.
+    problems: Mutex<BTreeMap<String, (String, u64)>>,
 }
 
 impl Limits {
@@ -98,7 +107,7 @@ impl Limits {
             .filter_map(Entry::clean)
             .map(|e| (e.provider.clone(), e))
             .collect();
-        Self { map: Mutex::new(map), file }
+        Self { map: Mutex::new(map), file, problems: Default::default() }
     }
 
     pub fn record(&self, e: Entry) {
@@ -112,6 +121,7 @@ impl Limits {
             let mut e = e;
             if e.resets.is_none() {
                 e.resets = old.and_then(|o| o.resets);
+                e.reset_kinds = old.map(|o| o.reset_kinds.clone()).unwrap_or_default();
             }
             map.insert(e.provider.clone(), e);
             map.values().cloned().collect()
@@ -178,9 +188,22 @@ impl Limits {
         }
     }
 
+    /// `Some`: asking `provider` failed (`why`), next try at `retry_at`. `None`: it answered.
+    pub fn note_problem(&self, provider: &str, problem: Option<(String, u64)>) {
+        let mut p = self.problems.lock().unwrap();
+        match problem {
+            Some(x) => p.insert(provider.to_owned(), x),
+            None => p.remove(provider),
+        };
+    }
+
     pub fn view(&self, now: u64) -> serde_json::Value {
         let map = self.map.lock().unwrap();
-        serde_json::json!({ "items": map.values().map(|e| e.view(now)).collect::<Vec<_>>() })
+        let problems = self.problems.lock().unwrap();
+        serde_json::json!({
+            "items": map.values().map(|e| e.view(now)).collect::<Vec<_>>(),
+            "problems": problems.iter().map(|(k, (why, at))| serde_json::json!({ "provider": k, "why": why, "retryInMs": at.saturating_sub(now) })).collect::<Vec<_>>(),
+        })
     }
 }
 
@@ -223,7 +246,7 @@ mod tests {
     fn the_most_used_window_is_the_one_that_ran_out() {
         let l = Limits::default();
         let w = |minutes, used, reset_at| Window { minutes, used, reset_at: Some(reset_at) };
-        l.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 98.0, 5000), w(10080, 15.0, 9000)], resets: None });
+        l.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 98.0, 5000), w(10080, 15.0, 9000)], resets: None, reset_kinds: vec![] });
         assert_eq!(l.culprit(Some("p"), 100, None), Some((5000, 300, true)));
         // once the 5 hours have reset, the week is what is left to wait for
         assert_eq!(l.culprit(Some("p"), 6000, None), Some((9000, 10080, false)));
@@ -231,12 +254,12 @@ mod tests {
         // what really happened: old numbers (5 h at 26%, week at 49%), and the error says ~182 min, which is the 5 h reset
         let m = 60_000;
         let l2 = Limits::default();
-        l2.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 49.0, 9000 * m)], resets: None });
+        l2.record(Entry { provider: "p".into(), plan: None, at: 1, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 49.0, 9000 * m)], resets: None, reset_kinds: vec![] });
         assert_eq!(l2.culprit(Some("p"), 0, Some(182 * m)), Some((200 * m, 300, true)));
         // and without a time the 5 hours are still the better guess than the week
         assert_eq!(l2.culprit(Some("p"), 0, None), Some((200 * m, 300, false)));
         // a week that really is nearly used up wins
-        l2.record(Entry { provider: "p".into(), plan: None, at: 2, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 99.0, 9000 * m)], resets: None });
+        l2.record(Entry { provider: "p".into(), plan: None, at: 2, limit_reached: false, windows: vec![w(300, 26.0, 200 * m), w(10080, 99.0, 9000 * m)], resets: None, reset_kinds: vec![] });
         assert_eq!(l2.culprit(Some("p"), 0, None), Some((9000 * m, 10080, true)));
         l.mark_used_up("p", 300);
         assert_eq!(l.view(100)["items"][0]["windows"][0]["used"], 100.0);
@@ -247,7 +270,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pi-oven-limits-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ext = dir.join("oven-limits.ts");
-        let e = |at: u64, used: f64| Entry { provider: "p".into(), plan: None, at, limit_reached: false, windows: vec![Window { minutes: 300, used, reset_at: None }], resets: None };
+        let e = |at: u64, used: f64| Entry { provider: "p".into(), plan: None, at, limit_reached: false, windows: vec![Window { minutes: 300, used, reset_at: None }], resets: None, reset_kinds: vec![] };
         let l = Limits::load(Some(&ext));
         l.record(e(2, 20.0));
         l.record(e(1, 10.0));

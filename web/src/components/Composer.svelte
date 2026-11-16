@@ -56,12 +56,21 @@
   const ctxChip = $derived(chat.editors.context);
   const canSend = $derived((text.trim().length > 0 || images.length > 0) && chat.link === 'open');
   const queued = $derived(chat.queue.steering.length + chat.queue.followUp.length);
-  // One line to start, growing with content up to 40% of the viewport.
+  // One line to start, growing with content up to 40% of the viewport. A change of line count glides (a short
+  // height animation) instead of jumping, and the box's corners ease from the one-line capsule to a gentler curve
+  // as it does (`tall`), so the shape never snaps.
+  let tall = $state(false);
+  let lastH = 0;
   $effect(() => {
     text;
     if (!area) return;
     area.style.height = 'auto';
-    area.style.height = Math.min(area.scrollHeight, window.innerHeight * 0.4) + 'px';
+    const h = Math.min(area.scrollHeight, window.innerHeight * 0.4);
+    area.style.height = h + 'px';
+    tall = h > 46;
+    if (lastH && Math.abs(h - lastH) >= 8 && typeof area.animate === 'function' && !matchMedia('(prefers-reduced-motion: reduce)').matches)
+      area.animate([{ height: lastH + 'px' }, { height: h + 'px' }], { duration: 140, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
+    lastH = h;
   });
 
   // Extensions and fork can put text back into the editor.
@@ -214,6 +223,7 @@
   <div
     bind:this={boxEl}
     class="composer"
+    class:tall
     class:hot={chat.running}
     class:dragging
     ondragover={(e) => { e.preventDefault(); dragging = true; }}
@@ -382,9 +392,10 @@
     position: relative;
     background: var(--raised);
     border: 1px solid var(--rule);
-    border-radius: 16px;
+    --box-r: 16px;
+    border-radius: var(--box-r);
     box-shadow: var(--shadow);
-    transition: border-color 0.2s, box-shadow 0.4s;
+    transition: border-color 0.2s, box-shadow 0.4s, border-radius 0.18s cubic-bezier(0.2, 0, 0, 1);
   }
   .composer:focus-within {
     border-color: var(--ink-3);
@@ -528,7 +539,7 @@
     margin: 0;
     padding: 0;
     border-bottom: 1px solid var(--rule);
-    border-radius: 15px 15px 0 0;
+    border-radius: calc(var(--box-r) - 1px) calc(var(--box-r) - 1px) 0 0;
     max-height: 300px;
     overflow: auto;
   }
@@ -557,6 +568,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  @media (prefers-reduced-motion: reduce) {
+    .composer {
+      transition: none;
+    }
+  }
   @media (max-width: 720px) {
     .dock {
       padding: 0 14px calc(10px + env(safe-area-inset-bottom));
@@ -573,7 +589,11 @@
     /* The solid send button sits the same distance from the edge on every side (7px, as above and below it), and the box's
        corners are concentric with it (7px + the button's 16px radius), so the button doesn't crowd the curve. */
     .composer {
-      border-radius: 23px;
+      --box-r: 23px;
+    }
+    /* more than one line: a capsule would bulge, so the corners ease to the desktop's curve (animated above) */
+    .composer.tall {
+      --box-r: 18px;
     }
     .round {
       width: 32px;

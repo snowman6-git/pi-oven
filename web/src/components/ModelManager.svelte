@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PresetInput from './PresetInput.svelte';
   import { S } from '../lib/strings';
   import { t } from '../lib/i18n.svelte';
   import { api, HttpError, type ModelProvider, type ModelsConfig } from '../lib/api';
@@ -150,6 +151,11 @@
     app.settingsOpen = false;
     await app.restartChat(chat);
   }
+  // common sizes, each with a line on what it suits (the words live in the locale files)
+  const CTX = [[1024, '1K'], [4096, '4K'], [8192, '8K'], [16384, '16K'], [32768, '32K'], [65536, '64K'], [131072, '128K'], [200000, '200K'], [262144, '256K'], [400000, '400K'], [1048576, '1M']] as const;
+  const OUT = [[4096, '4K'], [8192, '8K'], [16384, '16K'], [32768, '32K'], [65536, '64K'], [128000, '128K'], [262144, '256K']] as const;
+  const ctxPresets = $derived(CTX.map(([value, label]) => ({ value, label, desc: t(`models.ctxUse.${label}`) })));
+  const outPresets = $derived(OUT.map(([value, label]) => ({ value, label, desc: t(`models.outUse.${label}`) })));
 </script>
 
 <div class="box">
@@ -231,8 +237,8 @@
         <label class="inline"><input type="checkbox" bind:checked={image} /> {t('models.image')}</label>
       </div>
       <div class="nums">
-        <label><span>{t('models.ctxWin')} <small>{t('models.tokens')}</small></span><input class="field" inputmode="numeric" bind:value={ctxWin} placeholder="128000" /></label>
-        <label><span>{t('models.maxOut')} <small>{t('models.tokens')}</small></span><input class="field" inputmode="numeric" bind:value={maxTok} placeholder="16384" /></label>
+        <div class="lbl"><span>{t('models.ctxWin')} <small>{t('models.tokens')}</small></span><PresetInput bind:value={ctxWin} presets={ctxPresets} placeholder="128000" label={t('models.ctxWin')} /></div>
+        <div class="lbl"><span>{t('models.maxOut')} <small>{t('models.tokens')}</small></span><PresetInput bind:value={maxTok} presets={outPresets} placeholder="16384" label={t('models.maxOut')} /></div>
       </div>
 
       {#if error}<p class="err" role="alert">{error}</p>{/if}
@@ -257,7 +263,7 @@
   .box { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; }
   h3 { margin: 0 0 4px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
   form { display: grid; gap: 12px; min-width: 0; }
-  label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink-2); min-width: 0; }
+  label, .lbl { display: grid; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink-2); min-width: 0; }
   label small, .khint { font-weight: 450; color: var(--ink-3); font-size: 12px; }
   label small :global(code) { font-size: 11.5px; }
   .field { height: 36px; width: 100%; box-sizing: border-box; font-weight: 450; color: var(--ink); }

@@ -383,6 +383,18 @@ pre,
   .pinflash { animation: none; background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
 }
 
+/* Colours made from the tokens above, shared so each use is the same and each component says less. Declared on
+   :root after the themes, so they follow whichever theme is in force. */
+:root {
+  /* the soft ring around something that is working (pulses, running chips) */
+  --heat-ring: color-mix(in srgb, var(--heat) 28%, transparent);
+  --heat-glow: color-mix(in srgb, var(--heat) 22%, transparent);
+  /* the edge of a running chip or row */
+  --heat-edge: color-mix(in srgb, var(--heat) 50%, var(--rule));
+  /* text on a filled --ok mark */
+  --ok-ink: var(--paper);
+}
+
 /* Showcase mode: elements marked data-priv are blurred when their kind is switched on (the page's data-showcase lists the kinds).
    In the example style their text is overwritten instead (lib/maskdom.ts); form controls and the editor can't be, so they stay blurred. */
 html[data-showcase~='paths']:not([data-showcase-style='example']) [data-priv~='paths'],
@@ -410,4 +422,42 @@ html[data-showcase~='chat'][data-showcase-style='example'] [data-priv~='chat'] :
   filter: blur(6px);
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* A notice block in the conversation (a limit hit, an error reply): the badge's colours (a wash of the colour + the
+   colour itself) in a block with low corners instead of a pill. A fresh one shakes once, left and right, the way a
+   field that refuses input does; one drawn again from history does not. */
+.blk {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0 0;
+  padding: 7px 11px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--blk) 40%, transparent);
+  background: color-mix(in srgb, var(--blk) 12%, transparent);
+  color: var(--blk);
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  --blk: var(--ink-2);
+}
+.blk.warn {
+  --blk: var(--accent);
+}
+.blk.error {
+  --blk: var(--bad);
+}
+.blk.shake {
+  animation: blk-shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@keyframes blk-shake {
+  15% { transform: translateX(-5px); }
+  30% { transform: translateX(5px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+  90% { transform: translateX(1px); }
 }

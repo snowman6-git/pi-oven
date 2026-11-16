@@ -68,7 +68,7 @@ const DEFAULT_SIZE: (f64, f64) = (1280.0, 720.0);
 #[cfg(desktop)]
 const BACK_SCRIPT: &str = "window.__piOvenBack = () => { location.href = 'pi-oven-launcher://back'; };";
 #[cfg(mobile)]
-const BACK_SCRIPT: &str = "window.__piOvenBack = () => history.back();";
+const BACK_SCRIPT: &str = "window.__piOvenBack = () => history.back(); window.__piOvenPhone = true;";
 
 /// The window onto the server. Its page is the server's, so it is given no access to the app.
 fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
@@ -124,6 +124,27 @@ fn show_launcher(app: &AppHandle) -> tauri::Result<()> {
         return w.set_focus();
     }
     let b = WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into())).title("pi-oven");
+    // A phone's one window goes on to the server, and a WebView there cannot open a second window: the server's page
+    // turns its outside links into plain navigation (window.__piOvenPhone), and those are handed to the system browser
+    // here while the window stays on the server.
+    #[cfg(mobile)]
+    let b = {
+        let handle = app.clone();
+        b.initialization_script(BACK_SCRIPT).on_navigation(move |u| {
+            if !matches!(u.scheme(), "http" | "https") {
+                return true;
+            }
+            let server = saved_server(&handle).and_then(|v| parse_server(&v).ok());
+            let own = u.host_str().is_some_and(|h| h.ends_with("tauri.localhost") || h == "localhost");
+            let to_server = server.is_some_and(|s| s.origin() == u.origin());
+            if own || to_server {
+                return true;
+            }
+            use tauri_plugin_opener::OpenerExt;
+            let _ = handle.opener().open_url(u.as_str(), None::<&str>);
+            false
+        })
+    };
     #[cfg(desktop)]
     let b = b.inner_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1).min_inner_size(480.0, 360.0).center();
     let w = b.build()?;
@@ -324,6 +345,7 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     linux_env::apply();
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![get_server, connect, auto_connect])
         .setup(|app| {
             let h = app.handle();

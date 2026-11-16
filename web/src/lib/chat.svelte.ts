@@ -210,6 +210,7 @@ export class Chat {
       the chip becomes the bubble (it flies there; the bubble stays hidden until it lands); otherwise the chip just goes. */
   #taskArrived(id: string) {
     this.#awaitingNotice.delete(id);
+    this.#keepUntilSeen.delete(id);
     if (!this.bgChips.some((t) => t.id === id)) return;
     if (!this.chatVisible || document.hidden || this.bgLanding.includes(id)) {
       this.dismissBg(id);
@@ -227,23 +228,31 @@ export class Chat {
     this.dismissBg(id);
   }
 
-  /** Finished chips whose notice is held back because the agent is busy (pi delivers it as a follow-up, after the run). */
+  /** Finished chips waiting for pi's notice (it may come at once, or after the run if the agent is busy). */
   #awaitingNotice = new Set<string>();
+  /** Of those, the ones that stay until seen even if no notice comes (a failure). */
+  #keepUntilSeen = new Set<string>();
 
-  /** pi sends the notice right away when it is idle, but while it is working the notice waits for the end of the run, which can be
-      long after the task. So a busy agent keeps the chip (up to 15 minutes); once it settles the notice has 10 s to come. */
-  #expireUnlessBusy(id: string) {
-    if (!this.bgFresh.includes(id)) return;
-    if (!this.running) return this.#expire(id);
+  /** A task ended: look for its notice from now on (it can land within a second, while the agent is idle, and be
+      over before any later check). A clean finish goes by itself if no notice comes: 10 s after the end when idle,
+      else up to 15 minutes, and 10 s after the agent settles. A failure waits for its notice but never goes by itself. */
+  #awaitNotice(id: string, keep: boolean) {
     this.#awaitingNotice.add(id);
-    setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 15 * 60_000);
+    if (keep) this.#keepUntilSeen.add(id);
     if (!this.#noticeTimer) this.#pollNotice();
+    if (keep) return;
+    setTimeout(() => { if (!this.running && this.#awaitingNotice.delete(id)) this.#expire(id); }, 10_000);
+    setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 15 * 60_000);
   }
 
   /** The notice only ever lands in the session file (the RPC stream never emits it), so while a task awaits its
       notice the tail of the file is read for a `custom_message` record. */
   #pollNotice() {
-    if (this.#awaitingNotice.size === 0) return;
+    // nothing left to wait for: clear the mark, or the next task would think a poll is still running and never start one
+    if (this.#awaitingNotice.size === 0) {
+      this.#noticeTimer = undefined;
+      return;
+    }
     const file = this.sessionFile;
     if (file)
       api
@@ -268,7 +277,7 @@ export class Chat {
           }
         })
         .catch(() => {});
-    this.#noticeTimer = setTimeout(() => this.#pollNotice(), 1500);
+    this.#noticeTimer = this.#awaitingNotice.size ? setTimeout(() => this.#pollNotice(), 1500) : undefined;
   }
 
   /** The notice did not come: a finished chip does not stay for ever. */
@@ -329,6 +338,8 @@ export class Chat {
     this.#hold(id);
     if (!this.#pendingSince) this.#pendingSince = Date.now();
     clearTimeout(this.#placeTimer);
+    clearTimeout(this.#noticeTimer);
+    clearTimeout(this.#rereadTimer);
     // wait for a quiet moment, but never longer than a second and a half in all
     this.#placeTimer = setTimeout(() => this.#place(), Math.max(0, Math.min(350, 1500 - (Date.now() - this.#pendingSince))));
   }
@@ -360,7 +371,7 @@ export class Chat {
     if (!this.bgFresh.includes(t.id)) this.bgFresh = [...this.bgFresh, t.id];
     // A clean finish has its moment (the chip pops), then waits for pi's notice to take it into the conversation;
     // if none comes it goes by itself. A failure stays until someone has seen it.
-    if (t.status === 'completed') setTimeout(() => this.#expireUnlessBusy(t.id), 10_000);
+    this.#awaitNotice(t.id, t.status !== 'completed');
   }
 
   #announceLaunch(toolId: string, task?: BgTask) {
@@ -434,6 +445,15 @@ export class Chat {
     if (levels.status === 'fulfilled') this.levels = levels.value.levels;
   }
 
+  #rereadTimer: ReturnType<typeof setTimeout> | undefined;
+  #rereadSoon() {
+    clearTimeout(this.#rereadTimer);
+    this.#rereadTimer = setTimeout(() => {
+      void this.refreshStats();
+      void this.conn.request<SessionState>({ type: 'get_state' }).then((st) => (this.state = st)).catch(() => {});
+    }, 400);
+  }
+
   async refreshStats() {
     try { this.stats = await this.conn.request<SessionStats>({ type: 'get_session_stats' }); } catch { /* process may be gone */ }
   }
@@ -500,7 +520,22 @@ export class Chat {
       await this.conn.request({ type: 'set_model', provider: m.provider, modelId: m.id });
       this.state = await this.conn.request<SessionState>({ type: 'get_state' });
       void this.refreshStats();
+      void this.#recommendedLevel(m);
     } catch (e) { this.notice('error', (e as Error).message); }
+  }
+
+  /** A model was picked: if its provider recommends a reasoning level for it (ChatGPT does), start from that one.
+      Where the provider says nothing, the level stays as it was: no level is made up here. */
+  async #recommendedLevel(m: ModelInfo) {
+    try {
+      const [rec, lv] = await Promise.all([
+        api.recommendedLevels(),
+        this.conn.request<{ levels: ThinkingLevel[] }>({ type: 'get_available_thinking_levels' }),
+      ]);
+      this.levels = lv.levels;
+      const want = rec[m.provider]?.[m.id] as ThinkingLevel | undefined;
+      if (want && lv.levels.includes(want) && this.state?.thinkingLevel !== want) await this.setThinking(want);
+    } catch { /* no recommendation: keep the level */ }
   }
 
   /** Ask pi for its models again (after one was added to models.json). */
@@ -676,7 +711,7 @@ export class Chat {
         this.running = false;
         this.#sending = false;
         // the notices held back by the run come now; whatever has none in 10 s was not going to get one
-        for (const id of this.#awaitingNotice) setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 10_000);
+        for (const id of this.#awaitingNotice) if (!this.#keepUntilSeen.has(id)) setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 10_000);
         this.retry = null;
         for (const it of this.items) if (it.kind === 'assistant') it.live = false;
         this.host.changed();
@@ -837,6 +872,7 @@ export class Chat {
         live.usage = m.usage;
         live.stop = m.stopReason;
         live.error = m.errorMessage;
+        if (m.errorMessage) live.errorAt = Date.now(); // the block shakes when the error arrives, however long the answer ran
         live.ts = m.timestamp ?? live.ts;
         const at = this.items.indexOf(live);
         if (at > 0 && repeatsFailure(this.items[at - 1], live)) this.items.splice(at - 1, 1);
@@ -918,6 +954,9 @@ export class Chat {
         const text = r.statusText ? stripAnsi(r.statusText).trim() : '';
         if (text && text !== '−') this.statuses[r.statusKey] = text;
         else delete this.statuses[r.statusKey];
+        // an extension that shows a status has often just changed something (a long-context one swaps the model for a
+        // copy with a larger window, after this page has read it): read the model and context size again
+        this.#rereadSoon();
         break;
       }
       case 'setWidget': {

@@ -16,10 +16,12 @@
   let panel = $state<HTMLElement>();
 
   // One long page was hard to find things in: the settings are split by what they are about.
-  type Tab = 'view' | 'chat' | 'pins' | 'models' | 'showcase' | 'server' | 'about';
+  type Tab = 'view' | 'chat' | 'composer' | 'auto' | 'pins' | 'models' | 'showcase' | 'server' | 'about';
   const TABS: { id: Tab; icon: IconName }[] = [
     { id: 'view', icon: 'light' },
     { id: 'chat', icon: 'chat' },
+    { id: 'composer', icon: 'edit' },
+    { id: 'auto', icon: 'clock' },
     { id: 'pins', icon: 'pin' },
     { id: 'models', icon: 'code' },
     { id: 'showcase', icon: 'eye' },
@@ -227,6 +229,7 @@
         </label>
         {#if app.notifyOn && notifyPerm !== 'granted'}<p class="note">{canNotify ? t('settings.notifyBlocked') : t('settings.notifyInsecure')}</p>{/if}
       </section>
+      {:else if tab === 'composer'}
       <section>
         <h3>{t('settings.meta.title')}</h3>
         <label class="row">
@@ -243,6 +246,16 @@
         </label>
       </section>
       <section>
+        <h3>{t('limits.pollSection')}</h3>
+        {#if pollOn != null}
+          <label class="row">
+            <span>{t('limits.pollName')}<small>{t('limits.pollHint')}</small></span>
+            <input class="switch" type="checkbox" role="switch" checked={pollOn} onchange={(e) => setPoll(e.currentTarget.checked)} />
+          </label>
+        {/if}
+      </section>
+      {:else if tab === 'auto'}
+      <section>
         <h3>{t('settings.retry.title')}</h3>
         <label class="row">
           <span>{t('long.name')}<small>{t('settings.retry.hint')}</small></span>
@@ -253,12 +266,6 @@
       </section>
       <section>
         <h3>{t('resume.title')}</h3>
-        {#if pollOn != null}
-          <label class="row">
-            <span>{t('limits.pollName')}<small>{t('limits.pollHint')}</small></span>
-            <input class="switch" type="checkbox" role="switch" checked={pollOn} onchange={(e) => setPoll(e.currentTarget.checked)} />
-          </label>
-        {/if}
         <label class="row">
           <span>{t('resume.name')}<small>{t('resume.hint')}</small></span>
           <input class="switch" type="checkbox" role="switch" disabled={!resumeSet} checked={resumeSet?.enabled ?? false} onchange={(e) => saveResume(e.currentTarget.checked, resumeText)} />

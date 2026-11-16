@@ -122,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/limits", get(limits::get))
         .route("/api/limits/refresh", axum::routing::post(usage::refresh))
         .route("/api/limits/poll", get(usage::get_poll).put(usage::set_poll))
+        .route("/api/models/recommended", get(usage::recommended))
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))
         .route("/api/sessions", get(api::sessions).delete(api::delete_session))

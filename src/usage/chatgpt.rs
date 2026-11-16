@@ -5,9 +5,6 @@
 //! when needed), and the account id comes from inside that token, so `auth.json` is never read. The token goes to
 //! chatgpt.com only, on curl's standard input (never on a command line, where `ps` would show it), and is not kept.
 
-use std::process::Stdio;
-use tokio::{io::AsyncWriteExt, process::Command};
-
 use super::Asked;
 use crate::limits::{Entry, Window};
 
@@ -67,69 +64,113 @@ pub fn entry_from(v: &serde_json::Value, now: u64) -> Option<Entry> {
         limit_reached: rl["limit_reached"].as_bool().unwrap_or(false) || rl["allowed"].as_bool() == Some(false),
         windows,
         resets: v["rate_limit_reset_credits"]["available_count"].as_u64().map(|n| n as u32),
+        reset_kinds: vec![],
     })
 }
 
 /// Ask ChatGPT once. `pi_bin` gives the sign-in; `now` stamps the answer.
 pub async fn ask(pi_bin: &str, now: u64) -> Asked {
-    let tok = match Command::new(pi_bin)
-        .args(["auth", "print-bearer-token", "--provider", PROVIDER])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output()
-        .await
-    {
-        Ok(o) if o.status.success() => o.stdout,
-        // not signed in to ChatGPT: nothing to ask, and nothing wrong
-        Ok(_) => return Asked::NoSignIn,
-        Err(e) => return Asked::Failed(format!("pi auth: {e}")),
+    let token = match super::token(pi_bin, PROVIDER).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return Asked::NoSignIn,
+        Err(e) => return Asked::Failed(e),
     };
-    let token = String::from_utf8_lossy(&tok).trim().to_owned();
     let Some(account) = account_id(&token) else { return Asked::Failed("no account id in the token".into()) };
-    if token.contains(['\r', '\n']) || account.contains(['\r', '\n']) {
-        return Asked::Failed("unexpected token".into());
+    if account.contains(['\r', '\n']) {
+        return Asked::Failed("unexpected account id".into());
     }
-
-    // -w adds the status on its own last line, so a 429 can be told from other failures
-    let child = Command::new("curl")
-        .args(["-sS", "--proto", "=https", "--max-time", "20", "-H", "@-", "-H", "Accept: application/json", "-H", "User-Agent: pi-oven", "-w", "\n%{http_code}", USAGE])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn();
-    let mut child = match child {
-        Ok(c) => c,
-        Err(e) => return Asked::Failed(format!("curl: {e}")),
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let headers = format!("Authorization: Bearer {token}\nchatgpt-account-id: {account}\n");
-        if let Err(e) = stdin.write_all(headers.as_bytes()).await {
-            return Asked::Failed(e.to_string());
-        }
-    }
-    let out = match child.wait_with_output().await {
-        Ok(o) => o,
-        Err(e) => return Asked::Failed(e.to_string()),
-    };
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, code) = text.rsplit_once('\n').unwrap_or(("", text.as_ref()));
-    match code.trim().parse::<u16>().unwrap_or(0) {
-        200 => match serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| entry_from(&v, now)) {
-            Some(e) => Asked::Got(e),
+    let headers = format!("Authorization: Bearer {token}\nchatgpt-account-id: {account}\n");
+    match super::get(USAGE, &headers).await {
+        Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| entry_from(&v, now)) {
+            Some(mut e) => {
+                if e.resets.unwrap_or(0) > 0 {
+                    e.reset_kinds = credit_kinds(&token, &account).await;
+                }
+                Asked::Got(e)
+            }
             None => Asked::Failed("usage: no limits in the answer".into()),
         },
-        429 => Asked::TooMany,
-        0 => Asked::Failed(format!("usage: {}", String::from_utf8_lossy(&out.stderr).trim())),
-        c => Asked::Failed(format!("usage: HTTP {c}")),
+        Ok((429, _)) => Asked::TooMany,
+        Ok((c, _)) => Asked::Failed(format!("usage: HTTP {c}")),
+        Err(e) => Asked::Failed(e),
+    }
+}
+
+/// The list of reset credits (asked only when there are some).
+const CREDITS: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
+
+/// What one credit resets. The list's fields are not documented (and an empty list shows none), so the likely ones
+/// are read loosely: a model named → "model:<name>"; a week → "week"; five hours / a session → "5h"; else "other".
+pub fn credit_kind(c: &serde_json::Value) -> String {
+    let field = |k: &str| c[k].as_str().map(str::to_ascii_lowercase);
+    if let Some(m) = ["model", "model_slug", "model_name"].iter().find_map(|k| c[*k].as_str()).filter(|m| !m.is_empty()) {
+        return format!("model:{}", m.chars().take(60).collect::<String>());
+    }
+    let words: String = ["limit_type", "reset_type", "type", "window", "scope", "kind", "name"].iter().filter_map(|k| field(k)).collect::<Vec<_>>().join(" ");
+    if words.contains("week") || words.contains("secondary") || words.contains("7d") {
+        "week".into()
+    } else if words.contains("5h") || words.contains("hour") || words.contains("primary") || words.contains("session") {
+        "5h".into()
+    } else {
+        "other".into()
+    }
+}
+
+pub async fn credit_kinds(token: &str, account: &str) -> Vec<String> {
+    match super::get(CREDITS, &format!("Authorization: Bearer {token}\nchatgpt-account-id: {account}\n")).await {
+        Ok((200, body)) => serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v["credits"].as_array().cloned())
+            .map(|a| a.iter().map(credit_kind).collect())
+            .unwrap_or_default(),
+        _ => vec![],
+    }
+}
+
+/// ChatGPT's own list of Codex models (what Codex CLI reads): per model, the reasoning level it recommends.
+const MODELS: &str = "https://chatgpt.com/backend-api/codex/models?client_version=0.200.0";
+
+/// The answer → model slug → recommended reasoning level ("low", "medium" …), as ChatGPT names them.
+pub fn recommended_from(v: &serde_json::Value) -> std::collections::BTreeMap<String, String> {
+    v["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| Some((m["slug"].as_str()?.to_owned(), m["default_reasoning_level"].as_str()?.to_owned())))
+        .collect()
+}
+
+pub async fn recommended(pi_bin: &str) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let token = super::token(pi_bin, PROVIDER).await?.ok_or("no ChatGPT sign-in")?;
+    let account = account_id(&token).ok_or("no account id in the token")?;
+    if account.contains(['\r', '\n']) {
+        return Err("unexpected account id".into());
+    }
+    match super::get(MODELS, &format!("Authorization: Bearer {token}\nchatgpt-account-id: {account}\n")).await? {
+        (200, body) => serde_json::from_str::<serde_json::Value>(&body).map(|v| recommended_from(&v)).map_err(|e| e.to_string()),
+        (c, _) => Err(format!("models: HTTP {c}")),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_what_a_credit_resets() {
+        assert_eq!(credit_kind(&serde_json::json!({ "limit_type": "weekly" })), "week");
+        assert_eq!(credit_kind(&serde_json::json!({ "window": "primary" })), "5h");
+        assert_eq!(credit_kind(&serde_json::json!({ "model_slug": "gpt-6-sol" })), "model:gpt-6-sol");
+        assert_eq!(credit_kind(&serde_json::json!({})), "other");
+    }
+
+    #[test]
+    fn reads_recommended_levels() {
+        let v = serde_json::json!({ "models": [ { "slug": "gpt-6-luna", "default_reasoning_level": "medium" }, { "slug": "x" } ] });
+        let m = recommended_from(&v);
+        assert_eq!(m.get("gpt-6-luna").map(String::as_str), Some("medium"));
+        assert_eq!(m.len(), 1);
+    }
 
     #[test]
     fn reads_the_account_from_the_token() {

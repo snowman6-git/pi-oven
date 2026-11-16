@@ -131,6 +131,8 @@
     s && s.tps !== undefined ? `${s.est ? '~' : ''}${formatRate(s.tps)} tok/s${ttft && s.ttft !== undefined ? ` · TTFT ${formatMs(s.ttft)}` : ''}` : s?.ttft !== undefined && ttft ? `TTFT ${formatMs(s.ttft)}` : '';
 
   const waiting = $derived(item.kind === 'assistant' && item.live && item.blocks.length === 0);
+  /** Only what has just arrived shakes; what is drawn again from history (a reload, another device) stays still. */
+  const fresh = (ts?: number | null) => !!ts && Date.now() - ts < 4000;
 </script>
 
 <article class="turn {item.kind}" class:has-bar={showBar} data-msg={mkey || undefined} use:contextMenu={turnItems}>
@@ -181,7 +183,7 @@
       {/each}
       {#if waiting}<WaitBubble {chat} />{/if}
       {#if liveSpeed}<div class="speed mono" aria-hidden="true">{speedText(liveSpeed)}</div>{/if}
-      {#if item.error}<p class="err">{item.error}</p>{/if}
+      {#if item.error}<p class="blk error" class:shake={fresh(item.errorAt)}>{item.error}</p>{/if}
       {#if item.stop === 'aborted'}<p class="faint">{S.aborted}</p>{/if}
       {#if showBar}
         <div class="acts" role="group" aria-label={t('turn.answerActions')}>
@@ -214,7 +216,8 @@
         <p>{showcase.text(item.text)}</p>
       </details>
     {:else}
-      <p class="notice {item.level}">{showcase.text(item.text)}</p>
+      {#if item.level === 'info'}<p class="notice">{showcase.text(item.text)}</p>
+      {:else}<p class="blk {item.level}" class:shake={fresh(item.ts)}>{showcase.text(item.text)}</p>{/if}
     {/if}
   </div>
 </article>
@@ -452,10 +455,6 @@
     max-height: 340px;
     overflow: auto;
   }
-  .err {
-    color: var(--bad);
-    margin: 4px 0 0;
-  }
   .faint {
     color: var(--ink-3);
     margin: 4px 0 0;
@@ -490,12 +489,6 @@
     margin: 0;
     font-size: 13.5px;
     color: var(--ink-2);
-  }
-  .notice.error {
-    color: var(--bad);
-  }
-  .notice.warn {
-    color: var(--accent);
   }
 
 </style>

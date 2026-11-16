@@ -270,7 +270,7 @@
   .row.completed .mark {
     border: 0;
     background: var(--ok);
-    color: #10170f;
+    color: var(--ok-ink);
   }
   .row.in_progress {
     background: color-mix(in srgb, var(--heat) 9%, transparent);
@@ -279,7 +279,7 @@
   .row.in_progress .mark {
     border: 0;
     background: var(--heat);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 22%, transparent);
+    box-shadow: 0 0 0 4px var(--heat-glow);
   }
   .sj {
     flex: 1;

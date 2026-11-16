@@ -215,7 +215,7 @@
     <div class="side"><Sidebar /></div>
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <section class="main" class:has-chat={!!chat} class:split={splitOn} bind:this={mainEl} bind:clientWidth={mainW} style:--frac={chat?.editors.splitFrac}
+    <section class="main" class:has-chat={!!chat} class:split={splitOn} class:full-file={!!chat && chat.editors.full && chat.editors.active !== null} bind:this={mainEl} bind:clientWidth={mainW} style:--frac={chat?.editors.splitFrac}
       ondragover={(e) => dragOver(e)} ondragleave={(e) => dragLeave(e)} ondrop={(e) => chat && dropFile(e, chat)}>
       {#if chat}
         {#key chat.runtime.id}
@@ -361,6 +361,12 @@
   .g-chat { position: relative; }
   .g-bottom { grid-row: 4; grid-column: 1 / -1; min-width: 0; }
   .g-chat.behind { visibility: hidden; pointer-events: none; }
+  /* a file filling the conversation area: over the message box, and over the conversation beside it when split */
+  .main.full-file .g-bottom { display: none; }
+  .main.full-file .g-pane { grid-row: 3 / 5; grid-column: 1 / -1; z-index: 2; }
+  .main.full-file .g-tabs { grid-column: 1 / -1; }
+  .main.full-file .g-chat { visibility: hidden; pointer-events: none; }
+  .main.full-file .g-grip { display: none; }
   .main.split {
     grid-template-columns: minmax(300px, calc((100% - 7px) * var(--frac, 0.5))) 7px minmax(320px, 1fr);
   }
