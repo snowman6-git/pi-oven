@@ -189,6 +189,8 @@ export const api = {
   /** provider → model id → the reasoning level its provider recommends (only providers that say). */
   recommendedLevels: () => call<Record<string, Record<string, string>>>('/api/models/recommended'),
   setLimitsPoll: (enabled: boolean) => call<{ enabled: boolean }>('/api/limits/poll', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  claudeCache: () => call<{ enabled: boolean; fromEnv: boolean }>('/api/claude-cache'),
+  setClaudeCache: (enabled: boolean) => call<{ enabled: boolean; fromEnv: boolean }>('/api/claude-cache', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   resumeSettings: () => call<ResumeSettings>('/api/resume'),
   setResumeSettings: (s: ResumeSettings) => call<ResumeSettings>('/api/resume', { method: 'PUT', body: JSON.stringify(s) }),
   resumeAct: (id: string, action: 'now' | 'stop') =>

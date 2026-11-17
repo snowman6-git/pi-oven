@@ -37,6 +37,12 @@
   async function setPoll(on: boolean) {
     try { pollOn = (await api.setLimitsPoll(on)).enabled; } catch (e) { resumeError = (e as Error).message; }
   }
+  let cache = $state<{ enabled: boolean; fromEnv: boolean } | null>(null);
+  let cacheError = $state('');
+  $effect(() => { api.claudeCache().then((c) => (cache = c)).catch(() => {}); });
+  async function setCache(on: boolean) {
+    try { cache = await api.setClaudeCache(on); cacheError = ''; } catch (e) { cacheError = (e as Error).message; }
+  }
   let resumeSet = $state<ResumeSettings | null>(null);
   let resumeText = $state('');
   let resumeError = $state('');
@@ -277,6 +283,17 @@
             onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) (e.currentTarget as HTMLInputElement).blur(); }} />
         </label>
         {#if resumeError}<p class="note err">{resumeError}</p>{/if}
+      </section>
+      <section>
+        <h3>{t('settings.cache.title')}</h3>
+        {#if cache}
+          <label class="row">
+            <span>{t('settings.cache.name')}<small>{t('settings.cache.hint')}</small></span>
+            <input class="switch" type="checkbox" role="switch" disabled={cache.fromEnv} checked={cache.enabled} onchange={(e) => setCache(e.currentTarget.checked)} />
+          </label>
+          {#if cache.fromEnv}<p class="note">{t('settings.cache.fromEnv')}</p>{/if}
+        {/if}
+        {#if cacheError}<p class="note err">{cacheError}</p>{/if}
       </section>
       {:else if tab === 'pins'}
       <section>

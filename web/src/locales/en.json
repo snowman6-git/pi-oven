@@ -186,6 +186,12 @@
       "signOutAsk": "Sign out?",
       "signOutBody": "This removes the token saved in this browser. To come back you will need the token or password again."
     },
+    "cache": {
+      "title": "Claude cache",
+      "name": "Keep for 1 hour",
+      "hint": "Caches the conversation for an hour, as Claude Code does. Coming back after more than 5 minutes does not write the whole conversation again, so the plan limit lasts longer. The first write costs a little more. Applies to sessions opened from now on.",
+      "fromEnv": "Follows PI_CACHE_RETENTION from the server's environment."
+    },
     "retry": {
       "title": "API retries",
       "hint": "After 3 failures, tries again every 60 minutes, up to 100 times. The server keeps going with this window closed.",

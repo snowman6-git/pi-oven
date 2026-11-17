@@ -390,6 +390,7 @@ pub struct Manager {
     pub limits: Arc<crate::limits::Limits>,
     pub resume: Arc<crate::resume::Resume>,
     pub usage: Arc<crate::usage::Usage>,
+    pub cache_ttl: crate::cache_ttl::CacheTtl,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -420,7 +421,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -543,6 +544,10 @@ impl Manager {
             if let Some(dir) = ext.parent() {
                 cmd.env("PI_OVEN_PERMISSION_FILE", dir.join("permission"));
             }
+        }
+        // Claude's cache for an hour (see cache_ttl.rs); pi reads it when it starts
+        if let Some(v) = self.cache_ttl.for_pi() {
+            cmd.env(crate::cache_ttl::VAR, v);
         }
         cmd.args(&self.cfg.pi_args)
             .current_dir(&cwd)
