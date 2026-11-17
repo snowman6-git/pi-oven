@@ -1027,6 +1027,20 @@
       "paused": "Paused",
       "more": "Full result",
       "less": "Less"
+    },
+    "recent": "Last",
+    "turns": {
+      "one": "{n} turn",
+      "other": "{n} turns"
+    },
+    "tools": {
+      "one": "{n} tool call",
+      "other": "{n} tool calls"
+    },
+    "ctx": "context {n}",
+    "side": {
+      "one": "{n} at once",
+      "other": "{n} at once"
     }
   }
 }

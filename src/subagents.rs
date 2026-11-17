@@ -37,20 +37,46 @@ fn cut(v: &Value, n: usize) -> Value {
     }
 }
 
+/// One agent's step as the page draws it. `own` is the agent's own run status, when the step is a workflow child
+/// that keeps its progress there (the workflow's file only says whether it is running).
+fn step(s: &Value, own: Option<&Value>) -> Value {
+    let o = own.and_then(|o| o["steps"].get(0)).unwrap_or(s);
+    let pick = |k: &str| if s[k].is_null() { o[k].clone() } else { s[k].clone() };
+    let last = o["recentTools"].as_array().and_then(|a| a.last()).cloned().unwrap_or(Value::Null);
+    json!({
+        "agent": cut(&s["agent"], 80),
+        "status": s["status"],
+        "description": cut(&pick("description"), 300),
+        "sessionName": cut(&pick("sessionName"), 300),
+        "label": cut(&s["label"], 80),
+        "currentTool": cut(&o["currentTool"], 80),
+        "currentToolArgs": cut(&o["currentToolArgs"], 200),
+        "recentTool": cut(&last["tool"], 80),
+        "recentToolArgs": cut(&last["args"], 200),
+        "turnCount": o["turnCount"],
+        "toolCount": o["toolCount"],
+        "context": o["tokens"]["window"],
+        "lastActivityAt": o["lastActivityAt"],
+        "startedAt": s["startedAt"],
+        "endedAt": pick("endedAt"),
+        "durationMs": pick("durationMs"),
+    })
+}
+
+/// A workflow child's own status file, next to the workflow's (its run id names the folder).
+fn child(runs: &Path, s: &Value) -> Option<Value> {
+    let id = s["runId"].as_str()?;
+    if id.is_empty() || id.len() > 100 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return None;
+    }
+    read_file(&runs.join(id)).ok()
+}
+
 /// What the page draws, and nothing else (the file also holds paths, pids and budgets).
-fn trim(v: &Value) -> Value {
+fn trim(v: &Value, runs: Option<&Path>) -> Value {
     let steps: Vec<Value> = v["steps"].as_array().map(|a| a.iter().take(MAX_STEPS).collect::<Vec<_>>()).unwrap_or_default().into_iter().map(|s| {
-        json!({
-            "agent": cut(&s["agent"], 80),
-            "status": s["status"],
-            "description": cut(&s["description"], 300),
-            "label": cut(&s["label"], 80),
-            "currentTool": cut(&s["currentTool"], 80),
-            "currentToolArgs": cut(&s["currentToolArgs"], 200),
-            "startedAt": s["startedAt"],
-            "endedAt": s["endedAt"],
-            "durationMs": s["durationMs"],
-        })
+        let own = runs.filter(|_| s["recentTools"].is_null()).and_then(|r| child(r, s));
+        step(s, own.as_ref())
     }).collect();
     json!({
         "runId": cut(&v["runId"], 120),
@@ -68,6 +94,13 @@ fn read(dir: &Path) -> Result<Value, (StatusCode, &'static str)> {
     let temp = std::env::temp_dir();
     let root_env = std::env::var_os("PI_SUBAGENTS_TEMP_ROOT").filter(|v| !v.is_empty()).map(PathBuf::from);
     let d = run_dir(dir, &temp, root_env.as_deref()).ok_or((StatusCode::FORBIDDEN, "not a subagent run folder"))?;
+    let v = read_file(&d)?;
+    Ok(trim(&v, d.parent()))
+}
+
+/// `status.json` of a run folder already known to be one (or a sibling of one).
+fn read_file(d: &Path) -> Result<Value, (StatusCode, &'static str)> {
+    let d = d.canonicalize().map_err(|_| (StatusCode::NOT_FOUND, "no status yet"))?;
     let f = d.join("status.json").canonicalize().map_err(|_| (StatusCode::NOT_FOUND, "no status yet"))?;
     if f.parent() != Some(d.as_path()) {
         return Err((StatusCode::FORBIDDEN, "not a subagent run folder"));
@@ -78,8 +111,7 @@ fn read(dir: &Path) -> Result<Value, (StatusCode, &'static str)> {
     }
     let text = std::fs::read_to_string(&f).map_err(|_| (StatusCode::NOT_FOUND, "no status yet"))?;
     // the runner may be halfway through writing it: the page simply asks again
-    let v: Value = serde_json::from_str(&text).map_err(|_| (StatusCode::CONFLICT, "status is being written"))?;
-    Ok(trim(&v))
+    serde_json::from_str(&text).map_err(|_| (StatusCode::CONFLICT, "status is being written"))
 }
 
 #[derive(serde::Deserialize)]
@@ -125,12 +157,31 @@ mod tests {
     }
 
     #[test]
+    fn a_workflow_child_reports_from_its_own_file() {
+        let base = std::env::temp_dir().join(format!("oven-sa-child-{}", std::process::id()));
+        let runs = base.join(RUNS);
+        std::fs::create_dir_all(runs.join("c1")).unwrap();
+        std::fs::write(runs.join("c1/status.json"), r#"{"steps":[{"agent":"reviewer","sessionName":"reviewer: 읽기 전용 검토","turnCount":19,"toolCount":30,"tokens":{"window":130959},"recentTools":[{"tool":"grep","args":"src/agent"}]}]}"#).unwrap();
+        let wf = json!({ "state": "running", "mode": "workflow", "steps": [
+            { "agent": "reviewer", "label": "task-1", "status": "running", "runId": "c1" },
+            { "agent": "reviewer", "label": "task-2", "status": "running", "runId": "../../etc" },
+        ]});
+        let t = trim(&wf, Some(&runs));
+        assert_eq!(t["steps"][0]["turnCount"], 19);
+        assert_eq!(t["steps"][0]["recentTool"], "grep");
+        assert_eq!(t["steps"][0]["context"], 130959);
+        assert_eq!(t["steps"][0]["sessionName"], "reviewer: 읽기 전용 검토");
+        assert!(t["steps"][1]["turnCount"].is_null(), "a run id that is not a plain name is not followed");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
     fn keeps_only_what_the_page_draws() {
         let v = json!({
             "runId": "r1", "state": "running", "mode": "single", "startedAt": 1, "pid": 42, "cwd": "/home/x",
             "steps": [{ "agent": "reviewer", "status": "running", "currentTool": "read", "currentToolArgs": "x".repeat(500), "sessionFile": "/home/x/s.jsonl" }]
         });
-        let t = trim(&v);
+        let t = trim(&v, None);
         assert_eq!(t["state"], "running");
         assert!(t.get("pid").is_none() && t.get("cwd").is_none());
         assert_eq!(t["steps"][0]["agent"], "reviewer");

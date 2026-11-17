@@ -23,6 +23,12 @@ export interface Step {
   /** The tool it is using now, and on what. */
   tool?: string;
   toolArgs?: string;
+  /** `tool` is the last one it used (it is between tools: thinking, or waiting on the model), not one under way. */
+  recent?: boolean;
+  turns?: number;
+  tools?: number;
+  /** Tokens in its context now. */
+  context?: number;
   durationMs?: number;
 }
 
@@ -67,9 +73,24 @@ function stepStatus(s: unknown): StepStatus {
   }
 }
 
-function shapeOf(mode: unknown, n: number): RunShape {
+/** A workflow script can run its children side by side (`runs.all`) or one after another: side by side when two
+    of them are going at once or started together. */
+function shapeOf(mode: unknown, n: number, starts: (number | undefined)[] = [], going = 0): RunShape {
   if (mode === 'parallel') return 'parallel';
-  return n > 1 ? 'chain' : 'one';
+  if (n <= 1) return 'one';
+  if (mode === 'workflow') {
+    const t = starts.filter((x): x is number => x != null).sort((a, b) => a - b);
+    if (going > 1 || (t.length > 1 && t[1] - t[0] < 3000)) return 'parallel';
+  }
+  return 'chain';
+}
+
+/** What an agent was asked, in words: its session's name ("reviewer: 읽기 전용 검토…") without the agent's name,
+    else the description, unless the package hid it. */
+function taskOf(s: any): string | undefined {
+  const name = typeof s?.sessionName === 'string' ? s.sessionName.replace(/^[\w.-]+:\s*/, '') : undefined;
+  const desc = typeof s?.description === 'string' && !/^\[[^\]]*redacted\]$/i.test(s.description.trim()) ? s.description : undefined;
+  return str(name) ?? str(desc) ?? str(s?.label, 80);
 }
 
 /** Management calls (`status`, `list`, `guide` …) start nothing. */
@@ -113,8 +134,7 @@ export function applyDetails(run: Run, d: any, final: boolean, isError: boolean,
   const next: Run = { ...run };
   const steps = stepsFromDetails(d);
   if (steps) next.steps = steps;
-  if (d?.mode) next.shape = shapeOf(d.mode, next.steps.length);
-  else next.shape = shapeOf(undefined, next.steps.length);
+  next.shape = shapeOf(d?.mode, next.steps.length, [], next.steps.filter((s) => s.status === 'running').length);
   if (typeof d?.asyncId === 'string') next.runId = d.asyncId;
   else if (typeof d?.runId === 'string' && !next.runId) next.runId = d.runId;
   if (typeof d?.asyncDir === 'string') next.asyncDir = d.asyncDir;
@@ -141,13 +161,21 @@ export function applyStatus(run: Run, st: any, now: number): Run {
   const next: Run = { ...run };
   if (typeof st.runId === 'string') next.runId = st.runId;
   const steps: Step[] = [];
+  const starts: (number | undefined)[] = [];
   for (const s of Array.isArray(st.steps) ? st.steps.slice(0, 64) : []) {
     const agent = str(s?.agent, 80);
     if (!agent) continue;
-    steps.push({ agent, status: stepStatus(s?.status), task: str(s?.description) ?? str(s?.label), tool: str(s?.currentTool, 80), toolArgs: str(s?.currentToolArgs, 200), durationMs: num(s?.durationMs) });
+    const now = str(s?.currentTool, 80);
+    const last = str(s?.recentTool, 80);
+    starts.push(num(s?.startedAt));
+    steps.push({
+      agent, status: stepStatus(s?.status), task: taskOf(s),
+      tool: now ?? last, toolArgs: now ? str(s?.currentToolArgs, 200) : str(s?.recentToolArgs, 200), recent: !now && !!last,
+      turns: num(s?.turnCount), tools: num(s?.toolCount), context: num(s?.context), durationMs: num(s?.durationMs),
+    });
   }
   if (steps.length) next.steps = steps;
-  next.shape = shapeOf(st.mode, next.steps.length);
+  next.shape = shapeOf(st.mode, next.steps.length, starts, steps.filter((s) => s.status === 'running').length);
   if (typeof st.startedAt === 'number') next.startedAt = st.startedAt;
   switch (st.state) {
     case 'complete':
@@ -195,8 +223,9 @@ export function runName(r: Run): string {
   return now?.agent ?? 'subagent';
 }
 
-/** "2/3" for a chain under way (the step that is running, of how many), else nothing. */
+/** "2/3": a chain's step under way, of how many; side by side, how many have finished. Nothing for one agent. */
 export function runCount(r: Run): string {
+  if (r.shape === 'parallel') return `${r.steps.filter((s) => s.status === 'done' || s.status === 'failed').length}/${r.steps.length}`;
   if (r.shape !== 'chain') return '';
   const i = r.steps.findIndex((s) => s.status === 'running' || s.status === 'pending');
   return `${i < 0 ? r.steps.length : i + 1}/${r.steps.length}`;
