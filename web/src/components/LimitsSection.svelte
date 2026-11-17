@@ -4,7 +4,7 @@
   import { limits } from '../lib/limits.svelte';
   import Icon from './Icon.svelte';
   import LimitRing from './LimitRing.svelte';
-  import { creditGroups, halves, planName, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
+  import { creditGroups, halves, planName, providerIcon, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
   import { arcPoints, barPoints, play, reducedMotion, ROLL_UP, springHeights, UNROLL, type Item } from '../lib/unroll';
 
   // The info tab's "plan limits". The plan behind the chosen model is a card at the top; every other plan is one line
@@ -160,6 +160,7 @@
         <div class="fold" class:open={open[id]} class:on={isOn} bind:this={folds[id]}>
           <button class="sum" type="button" aria-expanded={!!open[id]} aria-disabled={isOn} onclick={() => toggle(id)}>
             <span class="arr" aria-hidden="true"><Icon name="right" size={12} /></span>
+            {#if providerIcon(id)}{@const icon = providerIcon(id)!}<span class="prov" aria-hidden="true"><Icon name={icon} size={16} /></span>{/if}
             <span class="who">{providerName(id)} <small>{planName(l.plan)}</small>{#if isOn}<em>{t('limits.inUse')}</em>{/if}</span>
             <span class="ringbox" title={ringTip(rows)}><LimitRing {short} {long} size={18} /></span>
           </button>
@@ -237,14 +238,25 @@
   }
   .arr {
     display: inline-flex;
+    width: 12px;
+    flex: none;
+    overflow: hidden;
     color: var(--ink-3);
-    transition: transform 0.16s, opacity 0.16s;
+    transition: transform 0.16s, opacity 0.16s, width 0.16s, margin 0.16s;
   }
   .fold.open .arr {
     transform: rotate(90deg);
   }
+  /* the plan in use cannot be folded: no arrow, and no gap where it was (the icon sits at the edge) */
   .fold.on .arr {
     opacity: 0;
+    width: 0;
+    margin-right: -8px;
+  }
+  .prov {
+    display: inline-flex;
+    color: var(--ink-2);
+    margin-right: -2px;
   }
   .who em {
     margin-left: 6px;

@@ -92,8 +92,18 @@ impl Pending {
     }
 }
 
-/// A run that ended on a usage limit: the error text and the provider, if this line says so.
-pub fn limit_error(line: &str) -> Option<(String, Option<String>)> {
+/// How sure an error is to be the subscription's limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Limit {
+    /// It says so (ChatGPT: "usage limit", "Try again in ~N min").
+    Sure,
+    /// It may be (Claude's subscription answers a used-up plan with a plain 429 `rate_limit_error`, the same as a
+    /// short rate limit): only fresh numbers showing a used-up window make it one.
+    Maybe,
+}
+
+/// A run that ended on a usage limit: the error text, the provider, and how sure, if this line says so.
+pub fn limit_error(line: &str) -> Option<(String, Option<String>, Limit)> {
     let (error, provider) = if line.starts_with(r#"{"type":"message_end""#) && line.contains(r#""stopReason":"error""#) {
         let v: serde_json::Value = serde_json::from_str(line).ok()?;
         (v["message"]["errorMessage"].as_str()?.to_owned(), v["message"]["provider"].as_str().map(str::to_owned))
@@ -103,7 +113,19 @@ pub fn limit_error(line: &str) -> Option<(String, Option<String>)> {
     } else {
         return None;
     };
-    is_usage_limit(&error).then_some((error, provider))
+    if is_usage_limit(&error) {
+        Some((error, provider, Limit::Sure))
+    } else if provider.is_some() && maybe_plan_limit(&error) {
+        Some((error, provider, Limit::Maybe))
+    } else {
+        None
+    }
+}
+
+/// A 429 that may be a used-up plan (Claude says "would exceed your account's rate limit").
+pub fn maybe_plan_limit(error: &str) -> bool {
+    let e = error.to_ascii_lowercase();
+    e.contains("rate_limit_error") || e.contains("exceed your account's rate limit") || (e.contains("429") && e.contains("rate limit"))
 }
 
 /// The subscription's own limit, not a short rate limit (pi retries those itself).
@@ -183,6 +205,10 @@ mod tests {
         assert!(limit_error(fine).is_none());
         let retried = r#"{"type":"auto_retry_end","success":false,"attempt":3,"finalError":"usage_limit_reached"}"#;
         assert!(limit_error(retried).is_some());
+        // Claude: a plain 429 that may be the plan; only with a provider to ask
+        let claude = r#"{"type":"message_end","message":{"role":"assistant","provider":"anthropic","stopReason":"error","errorMessage":"Anthropic beta messages request failed: HTTP 429 Too Many Requests: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's rate limit. Please try again later.\"}}"}}"#;
+        assert_eq!(limit_error(claude).map(|x| x.2), Some(Limit::Maybe));
+        assert_eq!(limit_error(codex).map(|x| x.2), Some(Limit::Sure));
     }
 
     #[test]

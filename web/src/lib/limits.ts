@@ -48,6 +48,13 @@ export function providerName(p: string): string {
   return p;
 }
 
+/** The icon for a plan's provider, when there is one. */
+export function providerIcon(p: string): 'provChatgpt' | 'provClaude' | null {
+  if (p === 'openai-codex' || p === 'openai-chatgpt') return 'provChatgpt';
+  if (p === 'anthropic') return 'provClaude';
+  return null;
+}
+
 export function planName(p: string | null): string {
   return p ? p.charAt(0).toUpperCase() + p.slice(1) : '';
 }

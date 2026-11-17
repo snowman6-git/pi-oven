@@ -2,6 +2,10 @@
 
 export const PATHS = {
     menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    // plan providers, drawn in the icons' own line style (not the companies' logos): ChatGPT a hexagonal knot,
+    // Claude a radiating spark
+    provChatgpt: '<path d="M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z"/><path d="M12 7.6v8.8M8.2 9.8l7.6 4.4M15.8 9.8l-7.6 4.4"/>',
+    provClaude: '<path d="M12 3.5v5.2M12 15.3v5.2M3.5 12h5.2M15.3 12h5.2M6 6l3.6 3.6M14.4 14.4L18 18M18 6l-3.6 3.6M9.6 14.4L6 18"/>',
     expand: '<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>',
     collapse: '<path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/>',
     // reset credits, by what they reset: a short window (5 h: a small clock), a week (a calendar), one model (a cube)

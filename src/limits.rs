@@ -161,6 +161,12 @@ impl Limits {
         ws.iter().min_by_key(|w| w.2).map(|w| (w.1, w.2, false))
     }
 
+    /// Does `provider` have a window at `at_least` % used that has not reset yet?
+    pub fn used_up(&self, provider: &str, now: u64, at_least: f64) -> bool {
+        let map = self.map.lock().unwrap();
+        map.get(provider).is_some_and(|e| e.windows.iter().any(|w| w.used >= at_least && w.reset_at.is_some_and(|t| t > now)))
+    }
+
     /// The provider said the limit is reached: that window is used up, whatever the last reply's numbers were.
     pub fn mark_used_up(&self, provider: &str, minutes: u32) {
         let changed = {

@@ -653,12 +653,17 @@ impl Manager {
                             if let Some(e) = event {
                                 rt.long_event(e, &long);
                             }
-                            if let Some((error, provider)) = limit {
-                                // ask ChatGPT for the numbers as they are now, then decide; without them, the last reply's
+                            if let Some((error, provider, sure)) = limit {
+                                // ask the provider for the numbers as they are now, then decide; without them, the last reply's
                                 let (rt, limits, usage, pi_bin) = (rt.clone(), limits.clone(), usage.clone(), pi_bin.clone());
                                 tokio::spawn(async move {
                                     let fresh = provider.is_some() && usage.poll(&pi_bin, &limits, true, provider.as_deref()).await;
                                     let now = now_ms();
+                                    // a 429 that may be the plan: only a window the numbers show as (nearly) used up makes it one;
+                                    // otherwise it was a short rate limit, which pi retries by itself
+                                    if sure == crate::resume::Limit::Maybe && !provider.as_deref().is_some_and(|p| limits.used_up(p, now, 95.0)) {
+                                        return;
+                                    }
                                     let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
                                     let found = limits.culprit(provider.as_deref(), now, hint);
                                     // only a window we are sure of is marked used up; fresh numbers already say so
