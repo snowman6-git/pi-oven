@@ -15,6 +15,7 @@ mod runtime;
 mod scope;
 mod selfupdate;
 mod sessions;
+mod subagents;
 mod limits;
 mod resume;
 mod retry;
@@ -124,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/limits/refresh", axum::routing::post(usage::refresh))
         .route("/api/limits/poll", get(usage::get_poll).put(usage::set_poll))
         .route("/api/claude-cache", get(cache_ttl::get).put(cache_ttl::set))
+        .route("/api/subagents/status", get(subagents::status))
         .route("/api/models/recommended", get(usage::recommended))
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))

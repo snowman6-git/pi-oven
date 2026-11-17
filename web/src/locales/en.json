@@ -92,7 +92,8 @@
   },
   "settings": {
     "tab": {
-      "view": "Display",
+      "view": "General",
+      "theme": "Theme",
       "chat": "Chat",
       "pins": "Pins",
       "models": "Models",
@@ -207,7 +208,18 @@
       "limitText": "Plan limit number"
     },
     "extNotices": "Extension notice banners",
-    "extNoticesHint": "Shows the banners extensions raise (e.g. \"… loaded\"). Errors still show when this is off."
+    "extNoticesHint": "Shows the banners extensions raise (e.g. \"… loaded\"). Errors still show when this is off.",
+    "sa": {
+      "title": "Subagents",
+      "chips": {
+        "name": "Chips",
+        "hint": "A chip per run in the row above the message box, ahead of background tasks. When a run ends it flies into the conversation."
+      },
+      "tray": {
+        "name": "Tray",
+        "hint": "One bar over the message box, like the task list: the order and what is happening now on one line. Tap to open."
+      }
+    }
   },
   "showcase": {
     "paths": {
@@ -983,5 +995,38 @@
     "askBody": "It switches to the new build and starts again with the same arguments. pi in open sessions restarts too, and the page reloads once the server is back.",
     "failed": "pi-oven update failed",
     "cardDetail": "{to} (now {from})"
+  },
+  "sa": {
+    "title": "Subagents",
+    "group": {
+      "one": "{n} agent",
+      "other": "{n} agents"
+    },
+    "groupRunning": {
+      "one": "{n} running",
+      "other": "{n} running"
+    },
+    "trayCount": {
+      "one": "{n} run",
+      "other": "{n} runs"
+    },
+    "done": "Done",
+    "failed": "Failed",
+    "now": "Now",
+    "showCall": "Show in conversation",
+    "step": {
+      "pending": "waiting",
+      "running": "running",
+      "done": "done",
+      "failed": "failed"
+    },
+    "notice": {
+      "completed": "Done",
+      "failed": "Failed",
+      "stopped": "Stopped",
+      "paused": "Paused",
+      "more": "Full result",
+      "less": "Less"
+    }
   }
 }

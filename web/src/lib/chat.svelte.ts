@@ -5,6 +5,7 @@ import { resetDate, windowName } from './limits';
 import { orderBatch } from './bgorder';
 import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, fromDetails as todoFromDetails, latestFromItems as todoFromItems, type Task as TodoTask } from '../addons/todo';
 import { Connection } from './connection.svelte';
+import { Subagents } from './subagents.svelte';
 import { Editors, type EditorHost } from './editor.svelte';
 import { pinsFor } from './pins.svelte';
 import { StreamTimer, type Speed } from './speed';
@@ -13,7 +14,7 @@ import type {
   SlashCommand, ThinkingLevel, Usage, WireMessage,
 } from './protocol';
 import {
-  applyResult, blocksFromContent, customLabel, itemsFromMessages, nextKey, repeatsFailure, taskItem, taskItemFromXml, userItem,
+  applyResult, blocksFromContent, customLabel, itemsFromMessages, nextKey, repeatsFailure, subagentItem, taskItem, taskItemFromXml, userItem,
   type Block, type Item, type ToolBlock,
 } from './transcript';
 import { stripAnsi, textOf } from './util';
@@ -151,8 +152,24 @@ export class Chat {
   #pendingSince = 0;
   #placeTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /** Subagent runs (pi-subagents): chips, tray and their notices. */
+  sa: Subagents;
+
   constructor(runtime: RuntimeInfo, private host: ChatHost) {
     this.runtime = runtime;
+    this.sa = new Subagents({
+      sessionFile: () => this.sessionFile,
+      visible: () => this.chatVisible && !document.hidden,
+      addNotice: (rec) => {
+        const it = subagentItem({ ...rec, timestamp: typeof rec.timestamp === 'string' ? Date.parse(rec.timestamp) : rec.timestamp });
+        if (!it || it.kind !== 'subagent') return null;
+        const ids = it.notice.runIds;
+        const dup = this.items.some((i) => i.kind === 'subagent' && (ids.length ? i.notice.runIds.some((r) => ids.includes(r)) : i.notice.text === it.notice.text));
+        if (dup) return null;
+        this.items.push(it);
+        return it.key;
+      },
+    });
     this.pins = pinsFor(runtime.cwd);
     this.editors = new Editors(runtime.id, runtime.cwd, host);
     this.editors.onChatShown = () => (this.unreadReply = false);
@@ -422,6 +439,7 @@ export class Chat {
       this.compacting = state.isCompacting;
       this.items = keepKeys(this.items, itemsFromMessages(msgs.messages));
       this.todo = todoFromItems(this.items);
+      this.sa.restore(this.items);
       this.loaded = true;
       this.loadError = null;
       this.host.changed();
@@ -615,6 +633,7 @@ export class Chat {
     clearTimeout(this.#bgTimer);
     clearTimeout(this.#todoTimer);
     clearTimeout(this.#placeTimer);
+    this.sa.dispose();
     this.editors.dispose();
     this.conn.dispose();
   }
@@ -745,6 +764,7 @@ export class Chat {
       case 'tool_execution_start': {
         const t = this.#findTool(rec.toolCallId);
         if (t) { t.status = 'running'; t.args = rec.args ?? t.args; if (!this.#replaying) t.startedAt = Date.now(); }
+        if (!this.#replaying) this.sa.started(rec.toolCallId, rec.toolName, rec.args);
         if (/^(bg_(run|delegate)|codemode)/.test(rec.toolName) && !this.#replaying) {
           this.#launching.set(rec.toolCallId, rec.toolName);
           setTimeout(() => this.#launching.delete(rec.toolCallId), 60_000);
@@ -754,6 +774,7 @@ export class Chat {
       case 'tool_execution_update': {
         const t = this.#findTool(rec.toolCallId);
         if (t) t.output = textOf(rec.partialResult?.content);
+        this.sa.updated(rec.toolCallId, rec.toolName, rec.partialResult?.details);
         break;
       }
       case 'tool_execution_end': {
@@ -770,6 +791,7 @@ export class Chat {
           applyResult(t, { content: rec.result?.content, details: rec.result?.details, isError: rec.isError });
           t.durationMs = rec.durationMs;
         }
+        this.sa.ended(rec.toolCallId, rec.toolName, rec.result?.details, !!rec.isError);
         if (/^bg_(run|delegate)/.test(rec.toolName)) {
           this.#launching.delete(rec.toolCallId);
           if (!rec.isError && !this.#replaying) this.#announceLaunch(rec.toolCallId, rec.result?.details?.task);
@@ -907,10 +929,12 @@ export class Chat {
         });
         break;
       case 'custom': {
-        const t = taskItem(m);
+        const t = taskItem(m) ?? subagentItem(m);
+        if (t?.kind === 'subagent' && this.items.some((i) => i.kind === 'subagent' && i.notice.runIds.some((r) => t.notice.runIds.includes(r)))) break;
         if (t) {
           this.items.push(t);
           if (!this.#replaying && t.kind === 'task') this.#taskArrived(t.id);
+          if (!this.#replaying && t.kind === 'subagent') this.sa.arrived(t.notice, t.key);
         } else if (m.display) this.items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
       }

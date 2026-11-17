@@ -147,6 +147,8 @@ export const api = {
     call<{ hash: string }>(`/api/runtimes/${id}/git/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
   /** The newest saved state of an extension (`appendEntry`) on the branch the session stands on, or null. */
   sessionState: (path: string, type: string) => call<{ data: unknown }>(`/api/sessions/state?path=${encodeURIComponent(path)}&type=${encodeURIComponent(type)}`),
+  /** How a background subagent run is going (its runner's status.json, trimmed). */
+  subagentStatus: (dir: string) => call<any>(`/api/subagents/status?dir=${encodeURIComponent(dir)}`),
   tailSession: (path: string, custom?: string) =>
     call<{ lines: string[] }>(`/api/sessions/tail?path=${encodeURIComponent(path)}&n=25${custom ? `&custom=${encodeURIComponent(custom)}` : ''}`),
   files: (id: string, path = '') => call<FileListing>(`/api/runtimes/${id}/files?path=${encodeURIComponent(path)}`),

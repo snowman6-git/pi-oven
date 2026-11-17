@@ -4,6 +4,7 @@ import type { ImagePart, Usage, WireMessage } from './protocol';
 import type { Speed } from './speed';
 import { textOf } from './util.ts';
 import { t } from './i18n';
+import { noticeFrom, type Notice } from '../addons/subagents';
 
 export interface ToolBlock {
   type: 'tool';
@@ -27,7 +28,9 @@ export type Item =
   | { kind: 'summary'; key: number; label: string; text: string; ts?: number }
   /** A background task ended (pi's own notification, shown as a bubble that says so). */
   | { kind: 'task'; key: number; id: string; name: string; command: string; status: string; exitCode?: number | null; durationMs?: number; text: string; ts?: number }
-  | { kind: 'notice'; key: number; level: 'info' | 'warn' | 'error'; text: string; ts?: number };
+  | { kind: 'notice'; key: number; level: 'info' | 'warn' | 'error'; text: string; ts?: number }
+  /** A background subagent run ended (pi-subagents' notice; shown whether or not pi marks it for display). */
+  | { kind: 'subagent'; key: number; notice: Notice; ts?: number };
 
 const SKILL_BLOCK = /<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g;
 
@@ -105,7 +108,7 @@ export function itemsFromMessages(msgs: WireMessage[]): Item[] {
         items.push({ kind: 'summary', key: nextKey(), label: t('transcript.branchSummary'), text: m.summary ?? '', ts: m.timestamp });
         break;
       case 'custom': {
-        const t = taskItem(m);
+        const t = taskItem(m) ?? subagentItem(m);
         if (t) items.push(t);
         else if (m.display) items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
@@ -121,6 +124,12 @@ export function taskItem(m: WireMessage): Item | null {
   if (m.customType !== 'background-task-notification' || !m.display || !d?.id) return null;
   const durationMs = typeof d.startTime === 'number' && typeof d.endTime === 'number' ? d.endTime - d.startTime : undefined;
   return { kind: 'task', key: nextKey(), id: String(d.id), name: String(d.name ?? d.command ?? d.id), command: String(d.command ?? ''), status: String(d.status ?? ''), exitCode: d.exitCode, durationMs, text: textOf(m.content), ts: m.timestamp };
+}
+
+/** pi-subagents' notice that a background run ended. */
+export function subagentItem(m: WireMessage): Item | null {
+  const notice = noticeFrom(m as any);
+  return notice ? { kind: 'subagent', key: nextKey(), notice, ts: m.timestamp } : null;
 }
 
 /** Live delivery of the same notice: pi injects the XML as a user message; the `custom_message` form only exists in the session file (replay). */

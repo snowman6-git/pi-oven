@@ -13,6 +13,8 @@
   import BgChips from './BgChips.svelte';
   import ComposerMeta from './ComposerMeta.svelte';
   import TodoTray from './TodoTray.svelte';
+  import SubagentTray from './SubagentTray.svelte';
+  import { settings } from '../lib/settings.svelte';
   import { FILE_MIME } from '../lib/editor.svelte';
   import Icon from './Icon.svelte';
 
@@ -218,6 +220,8 @@
 
   <!-- the model's task list sits right on the message box -->
   <TodoTray {chat} />
+  <!-- subagent runs as a bar (Settings → Theme); by default they are chips in the row above -->
+  {#if settings.subagentView === 'tray'}<SubagentTray {chat} />{/if}
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div

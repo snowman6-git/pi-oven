@@ -2,11 +2,13 @@ export type StreamFx = 'bounce' | 'fade' | 'ember' | 'none';
 export type FontSize = 'small' | 'normal' | 'large';
 export type FontFamily = 'maple' | 'system';
 export type ToolImages = 'always' | 'expanded';
+/** How subagent runs show above the message box: chips in the row with background tasks, or a bar like the task list. */
+export type SubagentView = 'chips' | 'tray';
 
 const KEY = 'pi-oven.settings';
 
-interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean; extNotices: boolean }
-const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true, extNotices: true };
+interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean; extNotices: boolean; subagentView: SubagentView }
+const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true, extNotices: true, subagentView: 'chips' };
 
 function read(): Saved {
   try {
@@ -14,6 +16,7 @@ function read(): Saved {
     // A saved value this version does not know (an older font choice) means the system font.
     if (v.family !== 'maple' && v.family !== 'system') v.family = 'system';
     if (v.toolImages !== 'always' && v.toolImages !== 'expanded') v.toolImages = 'always';
+    if (v.subagentView !== 'chips' && v.subagentView !== 'tray') v.subagentView = 'chips';
     return v;
   } catch { return defaults; }
 }
@@ -32,6 +35,7 @@ class Settings {
   get metaLimitText() { return this.#s.metaLimitText !== false; }
   /** Banners extensions show for their own news ("… loaded"). */
   get extNotices() { return this.#s.extNotices !== false; }
+  get subagentView() { return this.#s.subagentView; }
 
   set<K extends keyof Saved>(key: K, value: Saved[K]) {
     this.#s[key] = value;

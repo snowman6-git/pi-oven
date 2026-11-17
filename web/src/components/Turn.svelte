@@ -13,6 +13,7 @@
   import Markdown from './Markdown.svelte';
   import ToolRow from './ToolRow.svelte';
   import Thinking from './Thinking.svelte';
+  import { noticeName } from '../addons/subagents';
 
   let { item, chat, userIndex, turn }: { item: Item; chat: Chat; userIndex: number; turn: { user: number; end: boolean } } = $props();
 
@@ -75,10 +76,13 @@
       out.push({ label: t('turn.copyCommand'), icon: 'terminal', run: () => app.copy(item.kind === 'bash' ? item.command : '') });
       out.push({ label: t('turn.copyOutput'), icon: 'copy', disabled: !item.output, run: () => app.copy(item.kind === 'bash' ? item.output : '') });
     } else {
-      out.push({ label: S.copy, icon: 'copy', run: () => app.copy(item.kind === 'summary' || item.kind === 'notice' ? item.text : '') });
+      out.push({ label: S.copy, icon: 'copy', run: () => app.copy(item.kind === 'summary' || item.kind === 'notice' ? item.text : item.kind === 'subagent' ? item.notice.text : '') });
     }
     return out;
   }
+
+  /** A subagent notice opened to its full result. */
+  let saOpen = $state(false);
 
   // ── actions under a block ───────────────────────────────────────────────
   const userText = $derived(item.kind === 'user' ? item.text : '');
@@ -209,6 +213,20 @@
         <span class="tnm" data-priv="titles">{showcase.text(item.name)}</span>
         <span class="tres">{taskLine(item)}</span>
         <button class="tout" type="button" onclick={() => { chat.bgFocus = item.id; chat.bgOpen = true; }}>{t('turn.viewOutput')}</button>
+      </div>
+    {:else if item.kind === 'subagent'}
+      {@const n = item.notice}
+      <div class="sanotice" class:hold={chat.sa.hold.includes(item.key)} class:bad={n.status !== 'completed'} data-sa-notice={item.key}>
+        <div class="sahead">
+          <span class="tdot" aria-hidden="true"></span>
+          <b class="sanm">{noticeName(n)}</b>
+          <span class="tres">{t(`sa.notice.${n.status}`)}{n.durationMs != null ? ' · ' + duration(n.durationMs) : ''}</span>
+          {#if n.text}<button class="tout" type="button" aria-expanded={saOpen} onclick={() => (saOpen = !saOpen)}>{saOpen ? t('sa.notice.less') : t('sa.notice.more')}</button>{/if}
+        </div>
+        {#if n.text}
+          {#if saOpen}<div class="sabody md" data-priv="chat"><Markdown source={showcase.text(n.text)} /></div>
+          {:else}<p class="saprev" data-priv="chat">{showcase.text(n.text)}</p>{/if}
+        {/if}
       </div>
     {:else if item.kind === 'summary'}
       <details class="sum">
@@ -384,8 +402,58 @@
     background: var(--raised);
     font-size: 13.5px;
   }
-  .tnotice.hold {
+  .tnotice.hold,
+  .sanotice.hold {
     visibility: hidden;
+  }
+  /* a background subagent run came back: a small card (its chip flew here), the result's first lines, the rest on request */
+  .sanotice {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--raised);
+  }
+  .sanotice.bad {
+    border-color: color-mix(in srgb, var(--bad) 45%, var(--rule));
+  }
+  .sanotice.bad .tdot {
+    background: var(--bad);
+  }
+  .sahead {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+  .sanm {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 620;
+  }
+  .sahead .tout {
+    margin-left: auto;
+  }
+  .saprev {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 14px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+  }
+  .sabody {
+    min-width: 0;
+    font-size: 14px;
   }
   .tdot {
     flex: none;

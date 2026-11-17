@@ -152,7 +152,7 @@
 
   /** Run a change to the row and slide everything that stays to its new place, instead of jumping. */
   async function reflow(change: () => void) {
-    const sel = '[data-bg-chip], [data-bg-stack], [data-bg-tray]';
+    const sel = '[data-bg-chip], [data-bg-stack], [data-bg-tray], [data-sa-chip], [data-sa-group], [data-sa-tray]';
     const before = new Map([...document.querySelectorAll<HTMLElement>(sel)].map((e) => [e, e.getBoundingClientRect()]));
     change();
     await tick();
@@ -268,6 +268,126 @@
       };
       if (chat.bgLanding.includes(ev.id)) setTimeout(play, 900);
       else requestAnimationFrame(play); // after the chip has taken its new colour
+    }
+  });
+
+  // ── subagent runs: the same flights, to and from their chip (or the folded chip, or the tray) ──────────────
+  const sa = $derived(chat.sa);
+  const saChip = (id: string) => document.querySelector<HTMLElement>(`[data-sa-chip="${CSS.escape(id)}"]`);
+  const saHome = (id: string) => saChip(id) ?? document.querySelector<HTMLElement>('[data-sa-group]') ?? document.querySelector<HTMLElement>('[data-sa-tray]');
+  function saTarget(id: string): P | null {
+    const el = saHome(id);
+    const r = (el?.querySelector('.dot') ?? el)?.getBoundingClientRect();
+    return r && r.width ? mid(r) : null;
+  }
+  function saLand(id: string) {
+    sa.landing = sa.landing.filter((x) => x !== id);
+    const el = saHome(id);
+    if (el) sound('bg-card');
+    if (!el || calm()) return;
+    el.animate(
+      saChip(id) === el
+        ? [{ transform: 'scale(0.55)', opacity: 0 }, { transform: 'scale(1.14)', opacity: 1, offset: 0.55 }, { transform: 'scale(1)', opacity: 1 }]
+        : [{ transform: 'scale(1)' }, { transform: 'scale(1.06)', offset: 0.4 }, { transform: 'scale(0.98)', offset: 0.7 }, { transform: 'scale(1)' }],
+      { duration: 520, easing: 'cubic-bezier(0.3, 1.5, 0.5, 1)' },
+    );
+  }
+  async function saFly(id: string) {
+    await tick();
+    const from = source(id);
+    if (!from || !saTarget(id) || calm() || document.hidden) return saLand(id);
+    await ember(from, () => saTarget(id), TOTAL, 40);
+    saLand(id);
+  }
+  function saCelebrate(id: string, state: string) {
+    const el = saHome(id);
+    if (!el || calm() || document.hidden) return;
+    if (el.matches('[data-sa-chip]')) sound(state === 'done' ? 'bg-done' : 'bg-stop');
+    const css = getComputedStyle(document.documentElement);
+    const tone = (state === 'done' ? css.getPropertyValue('--ok') : css.getPropertyValue('--bad')).trim() || 'currentColor';
+    const big = !el.matches('[data-sa-tray]');
+    el.animate(
+      big
+        ? [{ transform: 'scale(1)' }, { transform: 'scale(1.22)', offset: 0.28 }, { transform: 'scale(0.94)', offset: 0.52 }, { transform: 'scale(1.06)', offset: 0.74 }, { transform: 'scale(1)' }]
+        : [{ transform: 'scale(1)' }, { transform: 'scale(1.035)', offset: 0.28 }, { transform: 'scale(0.988)', offset: 0.52 }, { transform: 'scale(1)' }],
+      { duration: 700, easing: 'cubic-bezier(0.3, 1.4, 0.5, 1)' },
+    );
+    ring(el, tone, 12, 700, big ? 0.6 : 0.55);
+  }
+  /** A run ended and has somewhere to go in the conversation: its notice (`key`), or (foreground) its own tool row. */
+  async function saHandoff(id: string, key: number | null): Promise<void> {
+    const dest = () =>
+      key != null ? document.querySelector<HTMLElement>(`[data-sa-notice="${key}"]`) : document.querySelector<HTMLElement>(`[data-tool="${CSS.escape(id)}"] .dot`);
+    const at = (): P | null => {
+      const r = dest()?.getBoundingClientRect();
+      if (!r || !r.width) return null;
+      const sc = document.querySelector('.scroller')?.getBoundingClientRect();
+      const x = key != null ? r.left + 20 : r.left + r.width / 2;
+      const y = sc ? Math.min(Math.max(r.top + r.height / 2, sc.top + 22), sc.bottom - 22) : r.top + r.height / 2;
+      return { x, y };
+    };
+    const arrive = () => {
+      if (dest()) sound('bg-bubble');
+      sa.landed(id, key);
+      requestAnimationFrame(() => {
+        if (calm()) return;
+        dest()?.animate(
+          [{ transform: 'scale(0.6)', opacity: 0 }, { transform: 'scale(1.06)', opacity: 1, offset: 0.55 }, { transform: 'scale(1)', opacity: 1 }],
+          { duration: 520, easing: 'cubic-bezier(0.3, 1.5, 0.5, 1)' },
+        );
+      });
+    };
+    const chip = saChip(id);
+    const from = saTarget(id);
+    if (!from || !at() || calm() || document.hidden) return arrive();
+    if (chip) {
+      // the chip itself collapses into its bars and leaves the row at once, so the others close up
+      const rect = chip.getBoundingClientRect();
+      const ghost = chip.cloneNode(true) as HTMLElement;
+      ghost.removeAttribute('data-sa-chip');
+      ghost.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;margin:0;pointer-events:none;transform-origin:${from.x - rect.left}px ${from.y - rect.top}px`;
+      layer.append(ghost);
+      await reflow(() => sa.dismiss(id));
+      const collapse = ghost.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(0.06)', opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
+      await collapse.finished.catch(() => {});
+      ghost.remove();
+    }
+    await ember(from, at, 650, 26);
+    arrive();
+  }
+
+  // one after another, after the background tasks' own launches, like theirs
+  let saBusy: Promise<void> = Promise.resolve();
+  const saThen = (job: () => Promise<void>) => {
+    saBusy = saBusy.then(async () => {
+      while (flying || queue.length) await new Promise((r) => setTimeout(r, 120));
+      await job();
+    });
+  };
+  let saSeenLaunch = 0;
+  $effect(() => {
+    for (const l of sa.launches) {
+      if (l.n <= saSeenLaunch) continue;
+      saSeenLaunch = l.n;
+      saThen(() => saFly(l.toolId));
+    }
+  });
+  let saSeenEvent = 0;
+  $effect(() => {
+    for (const ev of sa.events) {
+      if (ev.n <= saSeenEvent) continue;
+      saSeenEvent = ev.n;
+      const play = () => saCelebrate(ev.id, ev.state);
+      if (sa.landing.includes(ev.id)) setTimeout(play, 900);
+      else requestAnimationFrame(play);
+    }
+  });
+  let saSeenHand = 0;
+  $effect(() => {
+    for (const h of sa.handoffs) {
+      if (h.n <= saSeenHand) continue;
+      saSeenHand = h.n;
+      saThen(() => saHandoff(h.id, h.key));
     }
   });
 </script>

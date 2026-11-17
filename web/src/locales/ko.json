@@ -92,7 +92,8 @@
   },
   "settings": {
     "tab": {
-      "view": "화면",
+      "view": "일반",
+      "theme": "테마",
       "chat": "대화",
       "pins": "Pin",
       "models": "모델",
@@ -207,7 +208,18 @@
       "limitText": "구독 한도 숫자"
     },
     "extNotices": "확장 알림 배너",
-    "extNoticesHint": "확장이 띄우는 알림(예: \"… loaded\")을 보여 줍니다. 꺼도 오류 알림은 보입니다."
+    "extNoticesHint": "확장이 띄우는 알림(예: \"… loaded\")을 보여 줍니다. 꺼도 오류 알림은 보입니다.",
+    "sa": {
+      "title": "서브에이전트 표시",
+      "chips": {
+        "name": "칩",
+        "hint": "입력창 위 줄에 실행마다 칩 하나. 백그라운드 작업 칩 앞에 모입니다. 끝나면 대화로 날아갑니다."
+      },
+      "tray": {
+        "name": "트레이",
+        "hint": "할 일 목록처럼 입력창 위에 막대 하나. 순서와 지금 하는 일이 한 줄에 보이고, 누르면 펼쳐집니다."
+      }
+    }
   },
   "showcase": {
     "paths": {
@@ -953,5 +965,38 @@
     "askBody": "새 빌드로 바꾸고 같은 실행 인자로 다시 시작합니다. 열린 세션의 pi도 다시 시작되고, 페이지는 서버가 돌아오면 새로 열립니다.",
     "failed": "pi-oven 업데이트 실패",
     "cardDetail": "{to} (지금 {from})"
+  },
+  "sa": {
+    "title": "서브에이전트",
+    "group": {
+      "one": "에이전트 {n}",
+      "other": "에이전트 {n}"
+    },
+    "groupRunning": {
+      "one": "실행 중 {n}",
+      "other": "실행 중 {n}"
+    },
+    "trayCount": {
+      "one": "실행 {n}",
+      "other": "실행 {n}"
+    },
+    "done": "완료",
+    "failed": "실패",
+    "now": "현재",
+    "showCall": "대화에서 보기",
+    "step": {
+      "pending": "대기",
+      "running": "실행 중",
+      "done": "완료",
+      "failed": "실패"
+    },
+    "notice": {
+      "completed": "완료",
+      "failed": "실패",
+      "stopped": "멈춤",
+      "paused": "일시 정지",
+      "more": "전체 결과",
+      "less": "접기"
+    }
   }
 }
