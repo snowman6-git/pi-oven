@@ -110,8 +110,11 @@
   }
   const NAME = (p: string) => NAMES[p] ?? p;
 
-  // an address in the sign-in text becomes a link
-  const parts = (line: string) => line.split(/(https:\/\/\S+)/g);
+  // the sign-in address, apart from the rest of the text: a copy button, a link, and the whole of it to select by hand
+  // (a phone may not open it from here: the app's WebView, or a sign-in such as Google's that refuses to run inside one)
+  const URL_RE = /https:\/\/\S+/;
+  const linkOf = (lines: string[]) => lines.map((l) => l.match(URL_RE)?.[0]).find(Boolean) ?? null;
+  const textLines = (lines: string[]) => lines.filter((l) => !URL_RE.test(l));
 </script>
 
 {#if view}
@@ -148,8 +151,18 @@
         {@const l = view.login}
         <div class="login" class:bad={l.state === 'failed'}>
           {#if l.lines.length}
-            <pre class="term" data-priv="secrets">{#each l.lines as line}{#each parts(line) as part}{#if part.startsWith('https://')}<a href={part} target="_blank" rel="noopener noreferrer">{part}</a>{:else}{part}{/if}{/each}
-{/each}</pre>
+            {@const link = linkOf(l.lines)}
+            <pre class="term" data-priv="secrets">{textLines(l.lines).join('\n')}</pre>
+            {#if link && l.state === 'running'}
+              <div class="link">
+                <div class="lbtns">
+                  <button class="btn primary" type="button" onclick={() => app.copy(link, t('accounts.linkCopied'))}><Icon name="copy" size={14} />{t('accounts.copyLink')}</button>
+                  <a class="btn" href={link} target="_blank" rel="noopener noreferrer"><Icon name="external" size={14} />{t('accounts.openLink')}</a>
+                </div>
+                <textarea class="field mono url" readonly rows="3" aria-label={t('accounts.linkLabel')} data-priv="secrets" onfocus={(e) => e.currentTarget.select()}>{link}</textarea>
+                <p class="note">{t('accounts.linkHint')}</p>
+              </div>
+            {/if}
           {:else if l.state === 'running'}
             <p class="note">{t('accounts.starting')}</p>
           {/if}
@@ -219,6 +232,30 @@
 {#if error}<p class="note err" role="alert">{error}</p>{/if}
 
 <style>
+  .link {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .lbtns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .lbtns .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+  }
+  .url {
+    width: 100%;
+    resize: none;
+    font-size: 11.5px;
+    line-height: 1.45;
+    word-break: break-all;
+  }
   /* the settings page's own look (its rules do not reach into this component) */
   h3 {
     margin: 0 0 8px;
@@ -378,9 +415,6 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--ink-2);
-  }
-  .term a {
-    color: var(--accent);
   }
   .code {
     display: flex;

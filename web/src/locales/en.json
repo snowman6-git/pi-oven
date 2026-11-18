@@ -1096,7 +1096,12 @@
       "model": "Going on with another provider's model",
       "back": "Back on the original model"
     },
-    "lineFrom": "from {who}"
+    "lineFrom": "from {who}",
+    "copyLink": "Copy address",
+    "openLink": "Open in browser",
+    "linkLabel": "Sign-in address",
+    "linkCopied": "Sign-in address copied",
+    "linkHint": "On a phone, copy the address and paste it into a private window of a browser such as Chrome. Opened inside the app, Google sign-in may be refused. Paste the code it shows after you sign in into the field below."
   },
   "saInfo": {
     "title": "Subagents",
