@@ -196,23 +196,16 @@ pre,
   font-size: 0.86em;
   font-feature-settings: 'calt' 1;
 }
+/* No scrollbars anywhere: they sat awkwardly at the edge of panels and dialogs. Everything still scrolls (touch, wheel,
+   trackpad, keys); only the bar is gone. */
+* {
+  scrollbar-width: none;
+}
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  display: none;
+  width: 0;
+  height: 0;
 }
-::-webkit-scrollbar-thumb {
-  background: var(--rule);
-  border-radius: 10px;
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-  @media (hover: hover) {
-    ::-webkit-scrollbar-thumb:hover {
-    background: var(--ink-3);
-    border: 3px solid transparent;
-    background-clip: content-box;
-  }
-  }
 
 
 /* Shared small controls */

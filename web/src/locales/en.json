@@ -970,7 +970,11 @@
       "any": "Resets a limit"
     },
     "pollSection": "Checking limits",
-    "cannotFetch": "Could not fetch the limits ({why}). Trying again in {time}."
+    "cannotFetch": "Could not fetch the limits ({why}). Trying again in {time}.",
+    "use": "Use",
+    "useFull": "Limit",
+    "useLabel": "Use {who}",
+    "switchFailed": "Could not switch accounts: {why}"
   },
   "resume": {
     "name": "Zero-Waste",

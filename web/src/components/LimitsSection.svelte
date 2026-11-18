@@ -5,6 +5,8 @@
   import { settings } from '../lib/settings.svelte';
   import type { Limit } from '../lib/limits';
   import Icon from './Icon.svelte';
+  import { api } from '../lib/api';
+  import { app } from '../lib/app.svelte';
   import LimitRing from './LimitRing.svelte';
   import { creditGroups, halves, planName, providerIcon, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
   import { arcPoints, barPoints, play, reducedMotion, ROLL_UP, springHeights, UNROLL, type Item } from '../lib/unroll';
@@ -44,6 +46,24 @@
   const resetText = (w: WindowNow) =>
     w.resetAt == null ? '' : w.minutes > 1440 ? resetDate(w.resetAt) : t('limits.resetIn', { time: until(w.resetAt, limits.now) });
   const ringTip = (rows: WindowNow[]) => rows.map((w) => `${windowName(w.minutes)} ${t('limits.leftPct', { n: Math.round(w.left) })}`).join(' · ');
+
+  // Another saved account of a provider (not the one in use): its open card has a small "use" pill where the ring was,
+  // and switching to it plays the overhead swap like a model change does (Settings → Accounts does the same).
+  const isOther = (l: Limit) => !!l.account && limits.items[l.provider]?.account?.id !== l.account.id;
+  let switching = $state<string | null>(null);
+  async function useAccount(l: Limit) {
+    const a = l.account;
+    if (!a || switching) return;
+    switching = a.id;
+    try {
+      await api.switchAccount(a.id);
+      limits.swapped(l.provider, a.email ?? a.id);
+    } catch (e) {
+      app.flash(t('limits.switchFailed', { why: (e as Error).message }));
+    } finally {
+      switching = null;
+    }
+  }
 
   // one motion at a time, in the order asked
   let chain: Promise<void> = Promise.resolve();
@@ -210,6 +230,13 @@
             {#if multi.has(l.provider) && l.account?.email}<span class="acct" data-priv="user">{l.account.email}</span>{/if}
             <span class="ringbox" title={ringTip(rows)}><LimitRing {short} {long} size={18} /></span>
           </button>
+          {#if open[id] && isOther(l)}
+            {@const full = rows.some((w) => w.reached) || l.limitReached}
+            <button class="use" type="button" disabled={full || switching !== null}
+              aria-label={t('limits.useLabel', { who: l.account?.email ?? '' })} onclick={() => useAccount(l)}>
+              {full ? t('limits.useFull') : switching === l.account?.id ? '…' : t('limits.use')}
+            </button>
+          {/if}
           <div class="more" hidden={!open[id]}>
             {#each rows as w (w.minutes)}
               <div class="row" class:full={w.reached}>
@@ -335,6 +362,45 @@
   .ringbox {
     margin-left: auto;
     display: inline-flex;
+  }
+  /* another account's open card: a small pill where the ring was (the ring has become the bars) */
+  .use {
+    position: absolute;
+    top: 7px;
+    right: 10px;
+    height: 24px;
+    padding: 0 11px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+    animation: use-in 0.3s ease-out 0.25s both;
+  }
+  .use:disabled {
+    border-color: var(--rule);
+    color: var(--ink-3);
+  }
+  @media (hover: hover) {
+    .use:not(:disabled):hover {
+      background: var(--accent-wash);
+    }
+  }
+  /* the address gives the pill its room */
+  .fold.open:has(.use) .acct {
+    padding-right: 52px;
+  }
+  @keyframes use-in {
+    from {
+      opacity: 0;
+      transform: translateX(6px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .use {
+      animation: none;
+    }
   }
   /* open: the ring has become the bars */
   .fold.open .ringbox :global(svg) {
