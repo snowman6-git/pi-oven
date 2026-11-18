@@ -118,6 +118,10 @@ fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The server the phone's one window goes to (kept here so the navigation handler never reads a file for it).
+#[cfg(mobile)]
+static PHONE_SERVER: std::sync::Mutex<Option<Url>> = std::sync::Mutex::new(None);
+
 /// The window for choosing a server.
 fn show_launcher(app: &AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("launcher") {
@@ -127,21 +131,30 @@ fn show_launcher(app: &AppHandle) -> tauri::Result<()> {
     // A phone's one window goes on to the server, and a WebView there cannot open a second window: the server's page
     // turns its outside links into plain navigation (window.__piOvenPhone), and those are handed to the system browser
     // here while the window stays on the server.
+    //
+    // The handler runs on the WebView's UI thread, for every navigation including this page's own first load: it must
+    // not call anything that needs that thread back (the path API, a plugin). Reading the saved server there did, and
+    // the launcher never loaded (a white screen). So: its own pages first, the server from memory, the browser opened
+    // from another thread.
     #[cfg(mobile)]
     let b = {
+        *PHONE_SERVER.lock().unwrap() = saved_server(app).and_then(|v| parse_server(&v).ok());
         let handle = app.clone();
         b.initialization_script(BACK_SCRIPT).on_navigation(move |u| {
             if !matches!(u.scheme(), "http" | "https") {
                 return true;
             }
-            let server = saved_server(&handle).and_then(|v| parse_server(&v).ok());
-            let own = u.host_str().is_some_and(|h| h.ends_with("tauri.localhost") || h == "localhost");
-            let to_server = server.is_some_and(|s| s.origin() == u.origin());
-            if own || to_server {
+            if u.host_str().is_some_and(|h| h.ends_with("tauri.localhost") || h == "localhost") {
                 return true;
             }
-            use tauri_plugin_opener::OpenerExt;
-            let _ = handle.opener().open_url(u.as_str(), None::<&str>);
+            if PHONE_SERVER.lock().unwrap().as_ref().is_some_and(|s| s.origin() == u.origin()) {
+                return true;
+            }
+            let (handle, url) = (handle.clone(), u.to_string());
+            std::thread::spawn(move || {
+                use tauri_plugin_opener::OpenerExt;
+                let _ = handle.opener().open_url(url, None::<&str>);
+            });
             false
         })
     };
@@ -177,6 +190,10 @@ fn connect(app: AppHandle, window: WebviewWindow, url: String) -> Result<(), Str
                 let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
             }
         }
+    }
+    #[cfg(mobile)]
+    {
+        *PHONE_SERVER.lock().unwrap() = Some(parsed.clone());
     }
     show_server(&app, parsed).map_err(|e| e.to_string())?;
     #[cfg(desktop)]
