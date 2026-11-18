@@ -26,6 +26,8 @@
   let shown = $state('');
   /** Which plans are open (the one in use always is). */
   let open = $state<Record<string, boolean>>({});
+  /** Folding now: the "use" pill goes at once, not after the ring is back (it would sit over it). */
+  let closing = $state<Record<string, boolean>>({});
   const folds: Record<string, HTMLElement> = {};
 
   // A card per plan, and per saved account of it (Settings → Accounts) unless the copies are hidden (Settings → Theme):
@@ -114,6 +116,7 @@
       open[id] = false;
       return;
     }
+    closing[id] = true;
     const from = p.f.offsetHeight;
     const to = p.line.offsetHeight + 2; // the line and the card's border
     const items = itemsOf(p);
@@ -125,6 +128,7 @@
     if (p.ring) p.ring.style.opacity = '1'; // the halves are home: the ring shows while the card folds round it
     await fold.finished.catch(() => {});
     open[id] = false;
+    closing[id] = false;
     await tick();
     if (p.ring) p.ring.style.opacity = '';
     for (const w of p.words) w.getAnimations().forEach((a) => a.cancel());
@@ -222,7 +226,7 @@
     <div class="cards">
       {#each cards as { l, id, short, long, rows } (id)}
         {@const isOn = id === shown}
-        <div class="fold" class:open={open[id]} class:on={isOn} bind:this={folds[id]}>
+        <div class="fold" class:open={open[id]} class:on={isOn} class:usable={open[id] && isOther(l)} bind:this={folds[id]}>
           <button class="sum" type="button" aria-expanded={!!open[id]} aria-disabled={isOn} onclick={() => toggle(id)}>
             <span class="arr" aria-hidden="true"><Icon name="right" size={12} /></span>
             {#if providerIcon(l.provider)}{@const icon = providerIcon(l.provider)!}<span class="prov" aria-hidden="true"><Icon name={icon} size={16} /></span>{/if}
@@ -230,7 +234,7 @@
             {#if multi.has(l.provider) && l.account?.email}<span class="acct" data-priv="user">{l.account.email}</span>{/if}
             <span class="ringbox" title={ringTip(rows)}><LimitRing {short} {long} size={18} /></span>
           </button>
-          {#if open[id] && isOther(l)}
+          {#if open[id] && !closing[id] && isOther(l)}
             {@const full = rows.some((w) => w.reached) || l.limitReached}
             <button class="use" type="button" disabled={full || switching !== null}
               aria-label={t('limits.useLabel', { who: l.account?.email ?? '' })} onclick={() => useAccount(l)}>
@@ -376,7 +380,6 @@
     color: var(--accent);
     font-size: 12px;
     font-weight: 600;
-    animation: use-in 0.3s ease-out 0.25s both;
   }
   .use:disabled {
     border-color: var(--rule);
@@ -387,20 +390,9 @@
       background: var(--accent-wash);
     }
   }
-  /* the address gives the pill its room */
-  .fold.open:has(.use) .acct {
+  /* the address gives the pill its room (kept while folding, so the text does not jump when the pill goes) */
+  .fold.usable .acct {
     padding-right: 52px;
-  }
-  @keyframes use-in {
-    from {
-      opacity: 0;
-      transform: translateX(6px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .use {
-      animation: none;
-    }
   }
   /* open: the ring has become the bars */
   .fold.open .ringbox :global(svg) {
