@@ -4,8 +4,22 @@ import { fromWire, type Limit, type LimitProblem } from './limits';
 
 class Limits {
   items = $state<Record<string, Limit>>({});
+  /** The other saved accounts' plans (Settings → Accounts), each with its own numbers when asked. */
+  others = $state<Limit[]>([]);
   /** Providers that could not be asked just now (shown instead of a chip that silently stays as it was). */
   problems = $state<Record<string, LimitProblem>>({});
+  /** The account behind a provider's plan just changed (switched in Settings, or Baton Touch at a limit). The info
+      tab's plan card plays its change on it. */
+  swap = $state<{ n: number; provider: string; who?: string | null } | null>(null);
+  #swappedAt = 0;
+  swapped(provider: string, who?: string | null) {
+    // the same change heard twice (the page that switched, then every session's notice of it): played once
+    const now = Date.now();
+    if (this.swap?.provider === provider && this.swap.who === who && now - this.#swappedAt < 5000) return;
+    this.#swappedAt = now;
+    this.swap = { n: (this.swap?.n ?? 0) + 1, provider, who };
+    void this.refresh(true);
+  }
   /** Ticks so countdowns and resets move on their own. */
   now = $state(Date.now());
   #started = false;
@@ -48,6 +62,7 @@ class Limits {
       const now = Date.now();
       this.now = now;
       this.items = Object.fromEntries(r.items.map((w) => [w.provider, fromWire(w, now)]));
+      this.others = (r.others ?? []).map((w) => fromWire(w, now));
       this.problems = Object.fromEntries((r.problems ?? []).map((p) => [p.provider, { provider: p.provider, why: p.why, retryAt: now + p.retryInMs }]));
     } catch {
       // an older server, or offline: nothing to show

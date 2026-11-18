@@ -43,6 +43,11 @@ impl Long {
         Self { on: AtomicBool::new(!off), file, available: extension.is_some() }
     }
 
+    /// The bundled extension is there (its commands can be run).
+    pub fn available(&self) -> bool {
+        self.available
+    }
+
     pub fn enabled(&self) -> bool {
         self.available && self.on.load(Ordering::Relaxed)
     }

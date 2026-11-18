@@ -1,6 +1,7 @@
 #[macro_use]
 mod lang;
 mod about;
+mod accounts;
 mod api;
 mod auth;
 mod branch;
@@ -126,6 +127,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/limits/poll", get(usage::get_poll).put(usage::set_poll))
         .route("/api/claude-cache", get(cache_ttl::get).put(cache_ttl::set))
         .route("/api/subagents/status", get(subagents::status))
+        .route("/api/subagents/agents", get(subagents::agents_route))
+        .route("/api/accounts", get(accounts::get))
+        .route("/api/accounts/switch", axum::routing::post(accounts::switch))
+        .route("/api/accounts/remove", axum::routing::post(accounts::remove))
+        .route("/api/accounts/baton", axum::routing::put(accounts::set_baton))
+        .route("/api/accounts/login", axum::routing::post(accounts::login_start).delete(accounts::login_cancel))
+        .route("/api/accounts/login/input", axum::routing::post(accounts::login_input))
         .route("/api/models/recommended", get(usage::recommended))
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))

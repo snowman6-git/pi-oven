@@ -2,6 +2,8 @@
   import { tick } from 'svelte';
   import { t } from '../lib/i18n.svelte';
   import { limits } from '../lib/limits.svelte';
+  import { settings } from '../lib/settings.svelte';
+  import type { Limit } from '../lib/limits';
   import Icon from './Icon.svelte';
   import LimitRing from './LimitRing.svelte';
   import { creditGroups, halves, planName, providerIcon, providerName, resetDate, until, windowName, type WindowNow } from '../lib/limits';
@@ -24,12 +26,19 @@
   let open = $state<Record<string, boolean>>({});
   const folds: Record<string, HTMLElement> = {};
 
+  // A card per plan, and per saved account of it (Settings → Accounts) unless the copies are hidden (Settings → Theme):
+  // then one card per provider, whose account changes in place.
+  const key = (l: Limit) => (settings.hideDupAccounts || !l.account ? l.provider : `${l.provider}#${l.account.id}`);
+  const all = $derived([...Object.values(limits.items), ...(settings.hideDupAccounts ? [] : limits.others)]);
+  /** Providers with more than one saved account: their cards say which account. */
+  const multi = $derived(new Set(limits.others.map((o) => o.provider)));
   const cards = $derived(
-    Object.values(limits.items)
-      .sort((a, b) => Number(b.provider === shown) - Number(a.provider === shown) || a.provider.localeCompare(b.provider))
-      .map((l) => {
+    all
+      .map((l) => ({ l, id: key(l) }))
+      .sort((a, b) => Number(b.id === shown) - Number(a.id === shown) || a.l.provider.localeCompare(b.l.provider) || Number(!!limits.items[b.l.provider] && limits.items[b.l.provider] === b.l) - Number(!!limits.items[a.l.provider] && limits.items[a.l.provider] === a.l))
+      .map(({ l, id }) => {
         const { short, long } = halves(l, limits.now);
-        return { l, short, long, rows: [short, long].filter((w): w is WindowNow => !!w) };
+        return { l, id, short, long, rows: [short, long].filter((w): w is WindowNow => !!w) };
       }),
   );
   const resetText = (w: WindowNow) =>
@@ -139,10 +148,47 @@
     await expand(id); // a plan whose numbers have not come yet just opens when they do
   }
 
-  $effect(() => {
+  /** The card in use: the chosen model's provider, with the account its numbers belong to. */
+  const target = $derived.by(() => {
     const p = provider ?? '';
-    if (p && p !== shown) queue(() => swapTo(p));
+    const l = p ? limits.items[p] : undefined;
+    return l ? key(l) : p;
   });
+  $effect(() => {
+    const k = target;
+    if (k && k !== shown) queue(() => swapTo(k));
+  });
+
+  // The account behind a provider changed and the copies are hidden: the card stays, its account name slides over
+  // and its bars empty and fill again to the new account's numbers ("refill").
+  let swapSeen = 0;
+  $effect(() => {
+    const sw = limits.swap;
+    if (!sw || sw.n <= swapSeen) return;
+    swapSeen = sw.n;
+    if (!settings.hideDupAccounts) return; // the cards trade places instead (the key changes)
+    const before = limits.items[sw.provider]?.account?.id;
+    queue(() => refill(sw.provider, before));
+  });
+  async function refill(p: string, before: string | undefined) {
+    const f = folds[p];
+    if (!f?.isConnected || reducedMotion()) return;
+    const bars = [...f.querySelectorAll<HTMLElement>('.meter > i')];
+    const name = f.querySelector<HTMLElement>('.acct');
+    name?.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-8px)', opacity: 0 }], { duration: 160, easing: 'ease-in', fill: 'forwards' });
+    const drains = bars.map((b, i) => b.animate([{ transform: b.style.transform }, { transform: 'scaleX(0)' }], { duration: 260, delay: i * 50, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' }));
+    await Promise.all(drains.map((a) => a.finished.catch(() => {})));
+    // the new account's numbers: wait for them a little (the switch asks for them)
+    for (let i = 0; i < 25 && limits.items[p]?.account?.id === before; i++) await new Promise((r) => setTimeout(r, 120));
+    await tick();
+    const now = [...(folds[p]?.querySelectorAll<HTMLElement>('.meter > i') ?? [])];
+    drains.forEach((a) => a.cancel());
+    name?.getAnimations().forEach((a) => a.cancel());
+    folds[p]?.querySelector<HTMLElement>('.acct')?.animate([{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: 'cubic-bezier(0.3, 1.5, 0.5, 1)' });
+    await Promise.all(
+      now.map((b, i) => b.animate([{ transform: 'scaleX(0)' }, { transform: b.style.transform }], { duration: 520, delay: 60 + i * 60, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'backwards' }).finished.catch(() => {})),
+    );
+  }
 
   function toggle(id: string) {
     if (id === shown) return;
@@ -154,14 +200,14 @@
   <section>
     <h3>{t('limits.title')}</h3>
     <div class="cards">
-      {#each cards as { l, short, long, rows } (l.provider)}
-        {@const id = l.provider}
+      {#each cards as { l, id, short, long, rows } (id)}
         {@const isOn = id === shown}
         <div class="fold" class:open={open[id]} class:on={isOn} bind:this={folds[id]}>
           <button class="sum" type="button" aria-expanded={!!open[id]} aria-disabled={isOn} onclick={() => toggle(id)}>
             <span class="arr" aria-hidden="true"><Icon name="right" size={12} /></span>
-            {#if providerIcon(id)}{@const icon = providerIcon(id)!}<span class="prov" aria-hidden="true"><Icon name={icon} size={16} /></span>{/if}
-            <span class="who">{providerName(id)} <small>{planName(l.plan)}</small>{#if isOn}<em>{t('limits.inUse')}</em>{/if}</span>
+            {#if providerIcon(l.provider)}{@const icon = providerIcon(l.provider)!}<span class="prov" aria-hidden="true"><Icon name={icon} size={16} /></span>{/if}
+            <span class="who">{providerName(l.provider)} <small>{planName(l.account?.plan ?? l.plan)}</small>{#if isOn}<em>{t('limits.inUse')}</em>{/if}</span>
+            {#if multi.has(l.provider) && l.account?.email}<span class="acct" data-priv="user">{l.account.email}</span>{/if}
             <span class="ringbox" title={ringTip(rows)}><LimitRing {short} {long} size={18} /></span>
           </button>
           <div class="more" hidden={!open[id]}>
@@ -171,7 +217,7 @@
                   <span>{windowName(w.minutes)}{#if w.reached} · {t('limits.reached')}{/if}</span>
                   <span class="num">{t('limits.leftPct', { n: Math.round(w.left) })}</span>
                 </div>
-                <div class="meter" role="meter" aria-valuenow={Math.round(w.left)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(id)} {windowName(w.minutes)}"
+                <div class="meter" role="meter" aria-valuenow={Math.round(w.left)} aria-valuemin="0" aria-valuemax="100" aria-label="{providerName(l.provider)} {windowName(w.minutes)}"
                   data-side={w === short ? 'short' : 'long'} data-left={w.left / 100}>
                   <i class={w.level} style="transform:scaleX({w.left / 100})"></i>
                 </div>
@@ -205,6 +251,22 @@
   small {
     color: var(--ink-3);
     font-size: 12px;
+  }
+  /* which account a card is, when the provider has more than one */
+  .acct {
+    flex: 1 1 auto;
+    text-align: right;
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+  }
+  .acct + .ringbox {
+    margin-left: 0;
   }
   .cards {
     display: grid;
@@ -257,6 +319,11 @@
     display: inline-flex;
     color: var(--ink-2);
     margin-right: -2px;
+  }
+  /* the name, plan and "in use" keep to one line; an account's address gives way first */
+  .who {
+    flex: none;
+    white-space: nowrap;
   }
   .who em {
     margin-left: 6px;

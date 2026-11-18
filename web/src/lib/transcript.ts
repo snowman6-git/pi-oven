@@ -5,6 +5,7 @@ import type { Speed } from './speed';
 import { textOf } from './util.ts';
 import { t } from './i18n';
 import { noticeFrom, type Notice } from '../addons/subagents';
+import { BATON_NOTE, type BatonNote } from './baton.ts';
 
 export interface ToolBlock {
   type: 'tool';
@@ -29,6 +30,8 @@ export type Item =
   /** A background task ended (pi's own notification, shown as a bubble that says so). */
   | { kind: 'task'; key: number; id: string; name: string; command: string; status: string; exitCode?: number | null; durationMs?: number; text: string; ts?: number }
   | { kind: 'notice'; key: number; level: 'info' | 'warn' | 'error'; text: string; ts?: number }
+  /** Baton Touch handed the session to another account or model (the server's note, kept in the session). */
+  | { kind: 'baton'; key: number; note: BatonNote; ts?: number }
   /** A background subagent run ended (pi-subagents' notice; shown whether or not pi marks it for display). */
   | { kind: 'subagent'; key: number; notice: Notice; ts?: number };
 
@@ -110,6 +113,7 @@ export function itemsFromMessages(msgs: WireMessage[]): Item[] {
       case 'custom': {
         const t = taskItem(m) ?? subagentItem(m);
         if (t) items.push(t);
+        else if (m.customType === BATON_NOTE) items.push({ kind: 'baton', key: nextKey(), note: (m.details ?? {}) as BatonNote, ts: m.timestamp });
         else if (m.display) items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
       }

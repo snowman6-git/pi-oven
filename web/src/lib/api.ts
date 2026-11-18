@@ -48,7 +48,25 @@ export const auth = {
   },
 };
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** Background reads (polling, refreshing what is on screen) give up after a while: on a phone that slept or a link that
+    dropped without telling, a fetch can hang for minutes, and everything waiting behind it (a refresh marked busy, a
+    poll that schedules its next round after this one) would freeze with it. What the person started has no limit. */
+const BG = 15_000;
+
+async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 0): Promise<T> {
+  const ctl = timeoutMs ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : undefined;
+  try {
+    return await send<T>(path, ctl ? { ...init, signal: ctl.signal } : init);
+  } catch (e) {
+    if (ctl?.signal.aborted) throw new Error('timeout');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function send<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
   if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
   headers.set('X-Pi-Oven-Lang', currentLang()); // the server words its errors in the page's language
@@ -146,11 +164,21 @@ export const api = {
   gitCommit: (id: string, message: string) =>
     call<{ hash: string }>(`/api/runtimes/${id}/git/commit`, { method: 'POST', body: JSON.stringify({ message }) }),
   /** The newest saved state of an extension (`appendEntry`) on the branch the session stands on, or null. */
-  sessionState: (path: string, type: string) => call<{ data: unknown }>(`/api/sessions/state?path=${encodeURIComponent(path)}&type=${encodeURIComponent(type)}`),
+  sessionState: (path: string, type: string) => call<{ data: unknown }>(`/api/sessions/state?path=${encodeURIComponent(path)}&type=${encodeURIComponent(type)}`, {}, BG),
+  /** Subscription accounts pi-oven keeps beside pi's sign-in (no tokens: who, plan, in use, limited). */
+  accounts: () => call<AccountsView>('/api/accounts', {}, BG * 2), // may ask the provider who a new sign-in is
+  switchAccount: (id: string) => call<AccountsView>('/api/accounts/switch', { method: 'POST', body: JSON.stringify({ id }) }, BG * 4),
+  removeAccount: (id: string) => call<AccountsView>('/api/accounts/remove', { method: 'POST', body: JSON.stringify({ id }) }, BG * 4),
+  setBaton: (b: { enabled?: boolean; crossProvider?: boolean; targets?: BatonTarget[]; returnHome?: boolean }) => call<AccountsView>('/api/accounts/baton', { method: 'PUT', body: JSON.stringify(b) }, BG * 4),
+  loginStart: (provider: string) => call<AccountsView>('/api/accounts/login', { method: 'POST', body: JSON.stringify({ provider }) }, BG * 4),
+  loginInput: (text: string) => call<void>('/api/accounts/login/input', { method: 'POST', body: JSON.stringify({ text }) }, BG * 4),
+  loginCancel: () => call<void>('/api/accounts/login', { method: 'DELETE' }, BG * 4),
+  /** The subagents set up (pi-subagents' definitions with the settings' overrides applied). */
+  subagentAgents: (runtime?: string) => call<{ agents: AgentDef[] }>(`/api/subagents/agents${runtime ? `?runtime=${encodeURIComponent(runtime)}` : ''}`, {}, BG),
   /** How a background subagent run is going (its runner's status.json, trimmed). */
-  subagentStatus: (dir: string) => call<any>(`/api/subagents/status?dir=${encodeURIComponent(dir)}`),
+  subagentStatus: (dir: string) => call<any>(`/api/subagents/status?dir=${encodeURIComponent(dir)}`, {}, BG),
   tailSession: (path: string, custom?: string) =>
-    call<{ lines: string[] }>(`/api/sessions/tail?path=${encodeURIComponent(path)}&n=25${custom ? `&custom=${encodeURIComponent(custom)}` : ''}`),
+    call<{ lines: string[] }>(`/api/sessions/tail?path=${encodeURIComponent(path)}&n=25${custom ? `&custom=${encodeURIComponent(custom)}` : ''}`, {}, BG),
   files: (id: string, path = '') => call<FileListing>(`/api/runtimes/${id}/files?path=${encodeURIComponent(path)}`),
   readFile: (id: string, path: string) => call<FileText>(`/api/runtimes/${id}/files/read?path=${encodeURIComponent(path)}`),
   writeFile: (id: string, body: { path: string; content: string; rev?: string | null; overwrite?: boolean; eol?: string; bom?: boolean }) =>
@@ -179,14 +207,14 @@ export const api = {
     call<RuntimeInfo>('/api/runtimes', { method: 'POST', body: JSON.stringify(body) }),
   restartRuntime: (id: string, sessionPath?: string) =>
     call<RuntimeInfo>(`/api/runtimes/${id}/restart`, { method: 'POST', body: JSON.stringify({ sessionPath }) }),
-  tasks: (id: string) => call<BgTask[]>(`/api/runtimes/${id}/tasks`),
+  tasks: (id: string) => call<BgTask[]>(`/api/runtimes/${id}/tasks`, {}, BG),
   about: () => call<About>('/api/about'),
   updates: () => call<UpdateStatus>('/api/update'),
   runUpdate: (target: UpdateTarget) =>
     call<UpdateResult>('/api/update', { method: 'POST', body: JSON.stringify({ target }) }),
-  limits: () => call<{ items: LimitWire[]; problems?: LimitProblemWire[] }>('/api/limits'),
+  limits: () => call<{ items: LimitWire[]; others?: LimitWire[]; problems?: LimitProblemWire[] }>('/api/limits', {}, BG),
   /** Ask the provider now (the server keeps it to once every 20 s) and get the store back. */
-  refreshLimits: () => call<{ items: LimitWire[]; problems?: LimitProblemWire[] }>('/api/limits/refresh', { method: 'POST' }),
+  refreshLimits: () => call<{ items: LimitWire[]; others?: LimitWire[]; problems?: LimitProblemWire[] }>('/api/limits/refresh', { method: 'POST' }, BG * 3), // the server asks every provider
   limitsPoll: () => call<{ enabled: boolean }>('/api/limits/poll'),
   /** provider → model id → the reasoning level its provider recommends (only providers that say). */
   recommendedLevels: () => call<Record<string, Record<string, string>>>('/api/models/recommended'),
@@ -229,3 +257,20 @@ export const api = {
     return `${proto}://${base.host}/api/runtimes/${id}/ws${q}`;
   },
 };
+
+export interface AccountInfo { id: string; email?: string | null; name?: string | null; plan?: string | null; savedAt: number; limitedUntil?: number | null; current: boolean }
+export interface BatonTarget { provider: string; model: string }
+export interface AccountsView {
+  batonTouch: boolean;
+  /** When no account of the provider is left, hand over to another provider (the targets, in order). */
+  crossProvider: boolean;
+  returnHome: boolean;
+  targets: BatonTarget[];
+  providers: { provider: string; accounts: AccountInfo[] }[];
+  login: { provider: string; state: 'running' | 'done' | 'failed'; lines: string[]; error?: string | null; account?: string | null } | null;
+}
+
+export interface AgentDef {
+  name: string; description?: string | null; model?: string | null; modelFrom?: 'override' | 'agent' | 'default' | 'cli' | null;
+  thinking?: string | null; role?: string | null; kind: 'builtin' | 'user' | 'project' | 'external'; context?: string | null; tools: number; edits: boolean;
+}

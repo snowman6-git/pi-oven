@@ -14,6 +14,8 @@
   import ToolRow from './ToolRow.svelte';
   import Thinking from './Thinking.svelte';
   import { noticeName } from '../addons/subagents';
+  import { batonText } from '../lib/baton';
+  import BatonLine from './BatonLine.svelte';
 
   let { item, chat, userIndex, turn }: { item: Item; chat: Chat; userIndex: number; turn: { user: number; end: boolean } } = $props();
 
@@ -76,7 +78,7 @@
       out.push({ label: t('turn.copyCommand'), icon: 'terminal', run: () => app.copy(item.kind === 'bash' ? item.command : '') });
       out.push({ label: t('turn.copyOutput'), icon: 'copy', disabled: !item.output, run: () => app.copy(item.kind === 'bash' ? item.output : '') });
     } else {
-      out.push({ label: S.copy, icon: 'copy', run: () => app.copy(item.kind === 'summary' || item.kind === 'notice' ? item.text : item.kind === 'subagent' ? item.notice.text : '') });
+      out.push({ label: S.copy, icon: 'copy', run: () => app.copy(item.kind === 'summary' || item.kind === 'notice' ? item.text : item.kind === 'subagent' ? item.notice.text : item.kind === 'baton' ? batonText(item.note) : '') });
     }
     return out;
   }
@@ -233,6 +235,8 @@
         <summary>{item.label}</summary>
         <p>{showcase.text(item.text)}</p>
       </details>
+    {:else if item.kind === 'baton'}
+      <BatonLine note={item.note} fresh={fresh(item.ts)} models={chat.models} />
     {:else}
       {#if item.level === 'info'}<p class="notice">{showcase.text(item.text)}</p>
       {:else}<p class="blk {item.level}" class:shake={fresh(item.ts)}>{showcase.text(item.text)}</p>{/if}

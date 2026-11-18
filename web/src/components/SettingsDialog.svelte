@@ -1,4 +1,6 @@
 <script lang="ts">
+  import AccountsSection from './AccountsSection.svelte';
+  import SaExample from './SaExample.svelte';
   import { app } from '../lib/app.svelte';
   import { hasMaple } from '../lib/maple';
   import { pinRules } from '../lib/pinrules.svelte';
@@ -16,13 +18,14 @@
   let panel = $state<HTMLElement>();
 
   // One long page was hard to find things in: the settings are split by what they are about.
-  type Tab = 'view' | 'theme' | 'chat' | 'composer' | 'auto' | 'pins' | 'models' | 'showcase' | 'server' | 'about';
+  type Tab = 'view' | 'theme' | 'chat' | 'composer' | 'auto' | 'accounts' | 'pins' | 'models' | 'showcase' | 'server' | 'about';
   const TABS: { id: Tab; icon: IconName }[] = [
     { id: 'view', icon: 'globe' },
     { id: 'theme', icon: 'light' },
     { id: 'chat', icon: 'chat' },
     { id: 'composer', icon: 'edit' },
     { id: 'auto', icon: 'clock' },
+    { id: 'accounts', icon: 'shield' },
     { id: 'pins', icon: 'pin' },
     { id: 'models', icon: 'code' },
     { id: 'showcase', icon: 'eye' },
@@ -90,6 +93,7 @@
 
   const themes = ['dark', 'light', 'auto'] as const;
   const saViews = ['chips', 'tray'] as const;
+  const saInfos = ['tree', 'summary'] as const;
   const toolImgs: ToolImages[] = ['always', 'expanded'];
   const fonts: FontSize[] = ['small', 'normal', 'large'];
   const fxs: StreamFx[] = ['bounce', 'fade', 'ember', 'none'];
@@ -214,6 +218,22 @@
         {/key}
       </section>
       <section>
+        <h3>{t('settings.accts.title')}</h3>
+        <label class="row">
+          <span>{t('settings.accts.hide')}<small>{t('settings.accts.hideHint')}</small></span>
+          <input class="switch" type="checkbox" role="switch" checked={settings.hideDupAccounts} onchange={(e) => settings.set('hideDupAccounts', e.currentTarget.checked)} />
+        </label>
+      </section>
+      <section>
+        <h3>{t('settings.saInfo.title')}</h3>
+        <div class="seg" role="radiogroup" aria-label={t('settings.saInfo.title')}>
+          {#each saInfos as v (v)}
+            <button type="button" role="radio" aria-checked={settings.subagentInfo === v} class:on={settings.subagentInfo === v} onclick={() => settings.set('subagentInfo', v)}>{t(`settings.saInfo.${v}`)}</button>
+          {/each}
+        </div>
+        <SaExample part="info" />
+      </section>
+      <section>
         <h3>{t('settings.sa.title')}</h3>
         <div class="fx" role="radiogroup" aria-label={t('settings.sa.title')}>
           {#each saViews as v (v)}
@@ -222,6 +242,7 @@
             </button>
           {/each}
         </div>
+        <SaExample part="runs" />
       </section>
       {:else if tab === 'chat'}
       <section>
@@ -308,6 +329,8 @@
         {/if}
         {#if cacheError}<p class="note err">{cacheError}</p>{/if}
       </section>
+      {:else if tab === 'accounts'}
+      <AccountsSection />
       {:else if tab === 'pins'}
       <section>
         <h3>{t('settings.pins.title')}</h3>

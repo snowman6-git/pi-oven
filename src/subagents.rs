@@ -128,8 +128,173 @@ pub async fn status(Query(q): Query<StatusQuery>) -> Response {
     }
 }
 
+// ── the agents set up (for the info tab) ─────────────────────────────────────
+
+/// One agent definition, as the info tab shows it.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDef {
+    pub name: String,
+    pub description: Option<String>,
+    /// The model it runs on, when something sets one; `None`: the parent session's.
+    pub model: Option<String>,
+    /// What set the model: "override", "agent", "default", or "cli" (an external program's own).
+    pub model_from: Option<&'static str>,
+    pub thinking: Option<String>,
+    /// "read-only" or "writer", when the definition says.
+    pub role: Option<String>,
+    /// "builtin", "user", "project", or "external" (runs another CLI).
+    pub kind: &'static str,
+    /// "fork" (carries the conversation) or "fresh".
+    pub context: Option<String>,
+    pub tools: usize,
+    /// It can change files (an `edit` or `write` tool, or a writer by its role).
+    pub edits: bool,
+}
+
+/// The `key: value` lines of a definition's front matter (and `runner:`'s indented ones as `runner.key`).
+fn front_matter(text: &str) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return out;
+    }
+    let mut parent: Option<String> = None;
+    for line in lines {
+        if line.trim() == "---" {
+            break;
+        }
+        let indented = line.starts_with(' ') || line.starts_with('\t');
+        let Some((k, v)) = line.trim().split_once(':') else { continue };
+        let (k, v) = (k.trim(), v.trim().trim_matches(['"', '\'']));
+        if indented {
+            if let Some(p) = &parent {
+                out.insert(format!("{p}.{k}"), v.to_owned());
+            }
+        } else {
+            parent = v.is_empty().then(|| k.to_owned());
+            if !v.is_empty() {
+                out.insert(k.to_owned(), v.to_owned());
+            }
+        }
+    }
+    out
+}
+
+fn definitions(dir: &Path, kind: &'static str, out: &mut std::collections::BTreeMap<String, (std::collections::BTreeMap<String, String>, &'static str)>) {
+    let mut stack = vec![(dir.to_path_buf(), 0)];
+    while let Some((d, depth)) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten().take(500) {
+            let p = e.path();
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() && depth < 4 {
+                stack.push((p, depth + 1));
+            } else if ft.is_file() && p.extension().is_some_and(|x| x == "md") {
+                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                let fm = front_matter(&text);
+                if let Some(name) = fm.get("name").cloned() {
+                    // a later source (user over builtin, project over user) replaces the same name
+                    out.insert(name, (fm, kind));
+                }
+            }
+        }
+    }
+}
+
+/// `subagents` in a settings file: (default model, per-agent overrides).
+fn settings(path: &Path) -> (Option<String>, serde_json::Map<String, Value>) {
+    let v: Value = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let s = &v["subagents"];
+    (s["defaultModel"].as_str().map(str::to_owned), s["agentOverrides"].as_object().cloned().unwrap_or_default())
+}
+
+pub fn agents(cwd: Option<&Path>) -> Vec<AgentDef> {
+    let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| crate::config::home_dir().join(".pi/agent"));
+    let mut found = std::collections::BTreeMap::new();
+    definitions(&agent_dir.join("npm/node_modules/pi-subagents/agents"), "builtin", &mut found);
+    definitions(&agent_dir.join("agents"), "user", &mut found);
+    let (mut default_model, mut overrides) = settings(&agent_dir.join("settings.json"));
+    if let Some(cwd) = cwd {
+        definitions(&cwd.join(".pi/agents"), "project", &mut found);
+        // the project's settings win, field by field
+        let (pd, po) = settings(&cwd.join(".pi/settings.json"));
+        default_model = pd.or(default_model);
+        for (k, v) in po {
+            let e = overrides.entry(k).or_insert_with(|| json!({}));
+            if let (Some(e), Some(v)) = (e.as_object_mut(), v.as_object()) {
+                e.extend(v.clone());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (name, (fm, kind)) in found {
+        let o = overrides.get(&name).cloned().unwrap_or(Value::Null);
+        if o["disabled"] == true || fm.get("disabled").is_some_and(|v| v == "true") {
+            continue;
+        }
+        let get = |k: &str| o[k].as_str().map(str::to_owned).or_else(|| fm.get(k).cloned()).filter(|v| !v.is_empty() && v != "false");
+        let external = fm.get("runner.type").is_some_and(|t| t == "external-cli");
+        let (model, model_from) = if let Some(m) = o["model"].as_str().filter(|m| !m.is_empty()) {
+            (Some(m.to_owned()), Some("override"))
+        } else if let Some(m) = fm.get("model").filter(|m| !m.is_empty()) {
+            (Some(m.clone()), Some("agent"))
+        } else if external {
+            (Some(format!("{} CLI", fm.get("runner.command").map(String::as_str).unwrap_or("external"))), Some("cli"))
+        } else if let Some(m) = &default_model {
+            (Some(m.clone()), Some("default"))
+        } else {
+            (None, None)
+        };
+        let tool_list: Vec<String> = get("tools").map(|t| t.split(',').map(|x| x.trim().to_owned()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+        let tools = tool_list.len();
+        let role = get("acceptanceRole");
+        let edits = role.as_deref() == Some("writer") || (role.as_deref() != Some("read-only") && tool_list.iter().any(|t| t == "edit"));
+        out.push(AgentDef {
+            name: name.chars().take(80).collect(),
+            description: get("description").map(|d| d.chars().take(200).collect()),
+            model,
+            model_from,
+            thinking: get("thinking"),
+            role,
+            kind: if external { "external" } else { kind },
+            context: get("defaultContext"),
+            tools,
+            edits,
+        });
+    }
+    out
+}
+
+#[derive(serde::Deserialize)]
+pub struct AgentsQuery {
+    runtime: Option<String>,
+}
+
+pub async fn agents_route(axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::AppState>>, Query(q): Query<AgentsQuery>) -> Response {
+    let cwd = match &q.runtime {
+        Some(id) => app.runtimes.get(id).await.map(|rt| PathBuf::from(&rt.info.cwd)),
+        None => None,
+    };
+    match tokio::task::spawn_blocking(move || agents(cwd.as_deref())).await {
+        Ok(list) => Json(json!({ "agents": list })).into_response(),
+        Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reads_front_matter_and_the_runner() {
+        let fm = front_matter("---\nname: claude-code\ndescription: \"Read-only\"\nrunner:\n  type: external-cli\n  command: claude\nthinking: high\n---\nbody: no\n");
+        assert_eq!(fm.get("name").map(String::as_str), Some("claude-code"));
+        assert_eq!(fm.get("description").map(String::as_str), Some("Read-only"));
+        assert_eq!(fm.get("runner.type").map(String::as_str), Some("external-cli"));
+        assert_eq!(fm.get("runner.command").map(String::as_str), Some("claude"));
+        assert_eq!(fm.get("thinking").map(String::as_str), Some("high"));
+        assert!(!fm.contains_key("body"));
+    }
+
     use super::*;
 
     #[test]

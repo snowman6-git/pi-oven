@@ -4,7 +4,7 @@
 
 `src/usage/claude.rs`(`GET https://api.anthropic.com/api/oauth/usage`, `anthropic-beta: oauth-2025-04-20`, `five_hour`·`seven_day`의 `utilization`·`resets_at`). 남은 것:
 - 응답의 `limits[]`(모델별 주간 한도, 예: 특정 모델 전용)는 아직 읽지 않는다.
-- 한도가 차면 Claude는 "usage limit" 문구 없이 `HTTP 429 rate_limit_error`("would exceed your account's rate limit")로 답한다. 짧은 속도 제한과 같은 모양이라, 바로 사용량을 다시 물어 95% 이상인 창이 있을 때만 한도 도달로 본다(`resume::Limit::Maybe`). 실제 한도 도달 응답의 헤더(`anthropic-ratelimit-unified-status: rejected` 등)로 바로 알 수 있는지는 아직 확인하지 않았다.
+- 한도가 차면 Claude는 "usage limit" 문구 없이 `HTTP 429 rate_limit_error`("would exceed your account's rate limit")로 답한다. 짧은 속도 제한과 같은 모양이라, 바로 사용량을 다시 물어 95% 이상인 창이 있을 때만 한도 도달로 본다(`resume::Limit::Maybe`). pi가 재시도를 포기한 실패(`auto_retry_end`)는 그 판정이 끝날 때까지(최대 30초) 100h 모드에 넘기지 않는다: 한도면 Zero-Waste만, 아니면 100h(`Runtime::settle_held_failure`). 실제 한도 도달 응답의 헤더(`anthropic-ratelimit-unified-status: rejected` 등)로 바로 알 수 있는지는 아직 확인하지 않았다.
 
 ## Claude 캐시 수명 1시간으로 — 만듦 (2026-11-17)
 
@@ -27,3 +27,14 @@
 1. 리셋권이 1개 이상인 계정에서 목록 주소를 불러 형태를 확인한다(쓰지는 않는다).
 2. 정보 탭 카드의 "한도 초기화권 N개" 옆에 "쓰기" 버튼. 계정에 되돌릴 수 없는 동작이라 `ConfirmDialog`로 한 번 묻고(취소에 포커스), 쓴 뒤 바로 사용량을 다시 묻는다.
 3. Zero-Waste가 기다리는 중에는 띠에 "리셋권 쓰기"를 둘지 정한다(자동으로 쓰지는 않는다).
+
+## 구독 계정 여러 개 (예: Anthropic 둘) — 만듦 (2026-11-18)
+
+설정 → 계정, Baton Touch(`src/accounts.rs`). 보강(2026-11-18): 모두 한도면 먼저 풀리는 계정으로 그 시각에, 다른 제공자에서 원래 모델로 복귀, 세션 기록에 남는 알림, 다른 세션에도 알림, macOS `script` 인자와 `script`가 없을 때 안내, 고르는 규칙 테스트. 남은 것(가짜 pi로만 확인함): 실제 Claude 로그인을 화면에서 끝까지 해 보기, 실제 pi에서 다른 제공자로 넘기고 돌아오기, 실제 토큰으로 쓰지 않는 계정의 사용량 조회, 원격 서버에 `script`가 있는지. 아래는 처음 세운 계획.
+
+pi는 `auth.json`에 제공자 id마다 자격 증명을 하나만 둔다(`anthropic`, `openai-codex`). 확장은 `registerProvider("anthropic-b", { api: "anthropic-messages", oauth })`로 다른 id를 만들 수 있지만, 내장 Anthropic 로그인 흐름은 공개되어 있지 않아(`@earendil-works/pi-ai/oauth`는 타입만) 그 흐름을 따로 구현해야 한다. 그래서 pi-oven 쪽에서 계정 묶음으로 하는 쪽이 낫다.
+
+- 계정 묶음: `pi auth login anthropic`으로 로그인할 때마다 그 항목을 pi-oven 폴더에 이름 붙여 저장(권한 600, 응답에 토큰을 내보내지 않음). 바꿀 때는 지금 `auth.json`의 항목을 먼저 그 계정 쪽에 되돌려 저장한 뒤(pi가 토큰을 갱신하면 refresh 토큰이 바뀐다) 고른 계정의 항목을 써 넣는다(`.bak`, 원자적 저장, 모르는 항목 유지).
+- 같은 `auth.json`을 모든 세션이 같이 쓰므로 바꾸면 모든 세션에 적용된다(다음 요청부터). 실행 중인 요청이 있으면 끝난 뒤에.
+- Zero-Waste와 잇기: 한도에 걸리면 초기화를 기다리는 대신 다른 계정으로 바꾸고 이어서 진행(설정에서 고름). 한도 조회(`usage/claude.rs`)도 계정별로.
+- 정보 탭 구독 카드에 계정마다 한 장.

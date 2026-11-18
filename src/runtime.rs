@@ -159,6 +159,17 @@ pub struct Runtime {
     /// When our continue message was last sent (0: never).
     resume_fired_at: std::sync::atomic::AtomicU64,
     resume_cfg: Arc<crate::resume::Resume>,
+    /// Plan-limit checks under way (a 429 that may be the plan: the numbers are being asked for).
+    limit_checks: std::sync::atomic::AtomicU32,
+    /// When a check last found that a 429 was the plan's limit (0: never).
+    limit_found_at: std::sync::atomic::AtomicU64,
+    /// The provider and model of the last reply (what Baton Touch hands over from, and whether it is still on the
+    /// model it handed over to).
+    last_model: Mutex<Option<(String, String)>>,
+    /// No run under way (pi's `set_model` waits for one to end).
+    idle: std::sync::atomic::AtomicBool,
+    /// The bundled extension is loaded: notes can be kept in the session (`/oven-note`).
+    notes: bool,
     /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
     session_file: Mutex<Option<String>>,
 }
@@ -188,6 +199,11 @@ impl Runtime {
         (rx, frame)
     }
 
+    /// A page picked a model: the session is on it from now (Baton Touch's way back leaves the person's choice alone).
+    pub fn model_chosen(&self, provider: &str, model: &str) {
+        *self.last_model.lock().unwrap() = Some((provider.to_owned(), model.to_owned()));
+    }
+
     pub fn dialog_answered(&self, id: &str) {
         self.pet.answered(&self.info.id);
         self.replay.lock().unwrap().dialogs.retain(|(d, _)| d != id);
@@ -205,6 +221,105 @@ impl Runtime {
     fn resume_publish(&self, gave_up: bool) {
         let frame = serde_json::json!({ "type": "oven_resume", "state": self.resume_view(), "gaveUp": gave_up });
         let _ = self.events.send(Arc::from(frame.to_string()));
+    }
+
+    /// pi gave up on a reply with a 429 that may be the plan's limit. Wait for the checks of that reply to finish (at
+    /// most 30 s): if one found the plan used up, Zero-Waste has it and 100h mode stays out; otherwise it was a short
+    /// rate limit after all, and 100h mode takes it as it takes any failure.
+    async fn settle_held_failure(self: Arc<Self>, error: String, since: u64, long: Arc<Long>) {
+        use std::sync::atomic::Ordering;
+        let give_up = since + 30_000;
+        while self.limit_checks.load(Ordering::SeqCst) > 0 && now_ms() < give_up {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        // a check of this failure's replies (they came a little before it) found the plan's limit
+        if self.limit_found_at.load(Ordering::SeqCst) + 10 * 60_000 >= since {
+            return;
+        }
+        self.long_event(Event::Failed(error), &long);
+    }
+
+    /// Baton Touch handed over (to another account, or another provider's model): the continue message goes in a few
+    /// seconds, not at the reset; `at`: the account taking over is free only then (it goes a few seconds after). The
+    /// page hears of it (`oven_baton`), and the session keeps a note of it.
+    async fn resume_baton(self: &Arc<Self>, at: Option<u64>, to: serde_json::Value) {
+        use std::sync::atomic::Ordering;
+        let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
+        if tries > crate::resume::MAX_TRIES {
+            self.resume_tries.store(0, Ordering::Relaxed);
+            self.resume_publish(true);
+            return;
+        }
+        let at = at.unwrap_or_else(now_ms) + crate::resume::BATON_DELAY_MS;
+        let pending = crate::resume::Pending { at, tries, window: None, known: true };
+        let begun = self.resume.lock().unwrap().replace(pending).is_none();
+        self.note(to).await;
+        self.resume_publish(false);
+        if begun {
+            tokio::spawn(self.clone().resume_clock());
+        }
+    }
+
+    /// Tell the page what Baton Touch did (`oven_baton`), and keep it in the session when the extension is there.
+    async fn note(&self, to: serde_json::Value) {
+        let mut frame = to.clone();
+        frame["type"] = "oven_baton".into();
+        frame["noted"] = self.notes.into();
+        let _ = self.events.send(Arc::from(frame.to_string()));
+        if self.notes {
+            let cmd = serde_json::json!({ "type": "prompt", "message": format!("/oven-note {to}") });
+            let _ = self.stdin_tx.send(cmd.to_string()).await;
+        }
+    }
+
+    /// A `Later` hand-over: at `at`, if Zero-Waste is still waiting, switch to the account.
+    #[allow(clippy::too_many_arguments)]
+    async fn take_over_at(self: Arc<Self>, at: u64, id: String, was: Option<String>, accounts: Arc<crate::accounts::Accounts>, limits: Arc<crate::limits::Limits>, usage: Arc<crate::usage::Usage>, pi_bin: String) {
+        tokio::time::sleep(Duration::from_millis(at.saturating_sub(now_ms()))).await;
+        if *self.shutdown.borrow() || self.resume.lock().unwrap().is_none() {
+            return;
+        }
+        if let Some(a) = accounts.take_over(&pi_bin, &id, &limits).await {
+            accounts.announce(Some(&self.info.id), &a);
+            let _ = usage.poll(&pi_bin, &limits, true, Some(&a.provider)).await;
+            self.note(serde_json::json!({ "provider": a.provider, "email": a.email, "plan": a.plan, "was": was })).await;
+        }
+    }
+
+    /// After a hand-over to another provider's model (`to`): once the plan it came from has reset, and while the
+    /// session is still on `to`, go back to `model` of `provider`. Checks the numbers first; tries for a day.
+    #[allow(clippy::too_many_arguments)]
+    async fn go_home(self: Arc<Self>, provider: String, model: String, to: crate::accounts::Target, reset: Option<u64>, limits: Arc<crate::limits::Limits>, usage: Arc<crate::usage::Usage>, pi_bin: String, accounts: Arc<crate::accounts::Accounts>) {
+        use std::sync::atomic::Ordering;
+        let give_up = now_ms() + 24 * 3_600_000;
+        let mut wake = reset.or_else(|| limits.used_up_until(&provider, now_ms(), 95.0)).unwrap_or(now_ms() + 3_600_000).max(now_ms() + 60_000);
+        loop {
+            tokio::time::sleep(Duration::from_millis(wake.saturating_sub(now_ms()))).await;
+            if *self.shutdown.borrow() || now_ms() > give_up || !accounts.return_home() {
+                return;
+            }
+            // the person (or something else) changed the model since: theirs to keep
+            let on = self.last_model.lock().unwrap().clone();
+            if on.as_ref().is_some_and(|(p, m)| *p != to.provider || *m != to.model) {
+                return;
+            }
+            let _ = usage.poll(&pi_bin, &limits, true, Some(&provider)).await;
+            let now = now_ms();
+            if let Some(t) = limits.used_up_until(&provider, now, 95.0) {
+                wake = t + 30_000;
+                continue;
+            }
+            if !self.idle.load(Ordering::Relaxed) || self.resume.lock().unwrap().is_some() {
+                wake = now + 60_000;
+                continue;
+            }
+            let cmd = serde_json::json!({ "type": "set_model", "provider": provider, "modelId": model });
+            if self.stdin_tx.send(cmd.to_string()).await.is_ok() {
+                *self.last_model.lock().unwrap() = Some((provider.clone(), model.clone()));
+                self.note(serde_json::json!({ "provider": provider, "model": model, "back": true, "was": to.model })).await;
+            }
+            return;
+        }
     }
 
     /// A run ended on the usage limit: wait for the reset, then send the chosen message.
@@ -391,6 +506,7 @@ pub struct Manager {
     pub resume: Arc<crate::resume::Resume>,
     pub usage: Arc<crate::usage::Usage>,
     pub cache_ttl: crate::cache_ttl::CacheTtl,
+    pub accounts: Arc<crate::accounts::Accounts>,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -421,7 +537,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), accounts: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -590,8 +706,36 @@ impl Manager {
             resume_tries: Default::default(),
             resume_fired_at: Default::default(),
             resume_cfg: self.resume.clone(),
+            limit_checks: Default::default(),
+            limit_found_at: Default::default(),
+            last_model: Mutex::new(None),
+            idle: std::sync::atomic::AtomicBool::new(true),
+            notes: self.long.available(),
         });
         self.pet.attach(rt.clone());
+
+        // the account in use is one for every session: tell this one's page when another session or Settings changes it
+        {
+            let rt = rt.clone();
+            let mut changes = self.accounts.changes();
+            let mut stop = rt.shutdown.subscribe();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = stop.changed() => return,
+                        got = changes.recv() => match got {
+                            Ok(frame) => {
+                                if !frame.contains(&format!(r#""origin":"{}""#, rt.info.id)) {
+                                    let _ = rt.events.send(frame);
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(_) => return,
+                        },
+                    }
+                }
+            });
+        }
 
         // stdout → replay buffer + broadcast. Split on LF only: U+2028/2029 are legal inside JSON strings.
         {
@@ -601,6 +745,7 @@ impl Manager {
             let limits = self.limits.clone();
             let usage = self.usage.clone();
             let pi_bin = self.cfg.pi_bin.clone();
+            let accounts = self.accounts.clone();
             tokio::spawn(async move {
                 let mut rd = BufReader::new(stdout);
                 let mut buf = Vec::new();
@@ -634,14 +779,38 @@ impl Manager {
                             // The page hears of a failure first, so the first one still gets its notice; a run's end
                             // comes after the wait is settled, so the page knows whether it was a real end.
                             let mut event = retry::read(&line);
+                            let mut held = None;
                             match &event {
-                                Some(Event::Started) => rt.resume_on_start(),
-                                Some(Event::Settled) => rt.resume_on_settled(),
+                                Some(Event::Started) => {
+                                    rt.idle.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    rt.resume_on_start()
+                                }
+                                Some(Event::Settled) => {
+                                    rt.idle.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    rt.resume_on_settled()
+                                }
                                 // a usage limit resets in hours: "Zero-Waste" waits for it, not 100h mode
                                 Some(Event::Failed(e)) if crate::resume::is_usage_limit(e) && rt.resume_cfg.get().enabled => event = None,
+                                // a 429 that may be the plan's limit: 100h mode only gets it once the numbers say it was
+                                // not (the check started on the reply that failed, a line earlier)
+                                Some(Event::Failed(e)) if crate::resume::maybe_plan_limit(e) && rt.resume_cfg.get().enabled => {
+                                    held = Some(e.clone());
+                                    event = None;
+                                }
                                 _ => {}
                             }
+                            if let Some(e) = held {
+                                let (rt, long) = (rt.clone(), long.clone());
+                                let since = now_ms();
+                                tokio::spawn(async move { rt.settle_held_failure(e, since, long).await });
+                            }
                             let limit = crate::resume::limit_error(&line);
+                            let model = crate::resume::model_of(&line);
+                            // a reply that got through says which model the session is on; a failed one may be a retry
+                            // of the model just handed over from
+                            if let Some(m) = model.as_ref().filter(|_| limit.is_none() && !line.contains(r#""stopReason":"error""#)) {
+                                *rt.last_model.lock().unwrap() = Some(m.clone());
+                            }
                             let failed = matches!(event, Some(Event::Failed(_)));
                             let event = match event {
                                 Some(e) if !failed => {
@@ -660,13 +829,20 @@ impl Manager {
                             }
                             if let Some((error, provider, sure)) = limit {
                                 // ask the provider for the numbers as they are now, then decide; without them, the last reply's
-                                let (rt, limits, usage, pi_bin) = (rt.clone(), limits.clone(), usage.clone(), pi_bin.clone());
+                                let (rt, limits, usage, pi_bin, accounts) = (rt.clone(), limits.clone(), usage.clone(), pi_bin.clone(), accounts.clone());
+                                let failed_model = model.clone();
+                                rt.limit_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 tokio::spawn(async move {
                                     let fresh = provider.is_some() && usage.poll(&pi_bin, &limits, true, provider.as_deref()).await;
                                     let now = now_ms();
                                     // a 429 that may be the plan: only a window the numbers show as (nearly) used up makes it one;
                                     // otherwise it was a short rate limit, which pi retries by itself
-                                    if sure == crate::resume::Limit::Maybe && !provider.as_deref().is_some_and(|p| limits.used_up(p, now, 95.0)) {
+                                    let plan = sure == crate::resume::Limit::Sure || provider.as_deref().is_some_and(|p| limits.used_up(p, now, 95.0));
+                                    if plan {
+                                        rt.limit_found_at.store(now, std::sync::atomic::Ordering::SeqCst);
+                                    }
+                                    rt.limit_checks.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                    if !plan {
                                         return;
                                     }
                                     let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
@@ -674,6 +850,48 @@ impl Manager {
                                     // only a window we are sure of is marked used up; fresh numbers already say so
                                     if let (false, Some(p), Some((_, minutes, true))) = (fresh, provider.as_deref(), found) {
                                         limits.mark_used_up(p, minutes);
+                                    }
+                                    // Baton Touch: another account of the same plan provider takes over at once
+                                    if rt.resume_cfg.get().enabled {
+                                        if let Some(p) = provider.as_deref() {
+                                            match accounts.baton_touch(&pi_bin, p, found.map(|(t, _, _)| t), &limits).await {
+                                                crate::accounts::Baton::Swapped { next, was } => {
+                                                    accounts.announce(Some(&rt.info.id), &next);
+                                                    let _ = usage.poll(&pi_bin, &limits, true, Some(p)).await;
+                                                    rt.resume_baton(None, serde_json::json!({ "provider": next.provider, "email": next.email, "plan": next.plan, "was": was })).await;
+                                                    return;
+                                                }
+                                                crate::accounts::Baton::Later { next, at, was } => {
+                                                    // every account is limited: the one that resets first takes over then
+                                                    let to = serde_json::json!({ "provider": next.provider, "email": next.email, "plan": next.plan, "at": at, "was": was });
+                                                    rt.resume_baton(Some(at), to).await;
+                                                    tokio::spawn(rt.clone().take_over_at(at, next.id, was, accounts.clone(), limits.clone(), usage.clone(), pi_bin.clone()));
+                                                    return;
+                                                }
+                                                crate::accounts::Baton::Handled => return,
+                                                crate::accounts::Baton::No => {
+                                                    // no account of this provider left: another provider, when allowed
+                                                    if let Some(t) = accounts.cross_target(p, &limits) {
+                                                        let cmd = serde_json::json!({ "type": "set_model", "provider": t.provider, "modelId": t.model });
+                                                        if rt.stdin_tx.send(cmd.to_string()).await.is_ok() {
+                                                            // on the new model from now (its first reply would say so only later)
+                                                            *rt.last_model.lock().unwrap() = Some((t.provider.clone(), t.model.clone()));
+                                                            let home = failed_model.filter(|(fp, _)| fp == p);
+                                                            let from = home.as_ref().map(|(_, m)| m.clone());
+                                                            rt.resume_baton(None, serde_json::json!({ "provider": t.provider, "model": t.model, "from": p, "was": from })).await;
+                                                            if let Some((fp, fm)) = home.filter(|_| accounts.return_home()) {
+                                                                let reset = found.map(|(t, _, _)| t);
+                                                                tokio::spawn(rt.clone().go_home(fp, fm, t, reset, limits.clone(), usage.clone(), pi_bin.clone(), accounts.clone()));
+                                                            }
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else if accounts.baton_just_now() {
+                                            // pi's giving up names no provider: the failure Baton Touch already handled
+                                            return;
+                                        }
                                     }
                                     rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
                                 });

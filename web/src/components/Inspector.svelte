@@ -11,6 +11,7 @@
   import GitTab from './GitTab.svelte';
   import PointTab from './PointTab.svelte';
   import LimitsSection from './LimitsSection.svelte';
+  import SubagentInfo from './SubagentInfo.svelte';
 
   let { chat }: { chat: Chat } = $props();
 
@@ -77,6 +78,7 @@
   </section>
 
   <LimitsSection provider={chat.state?.model?.provider} />
+  <SubagentInfo {chat} />
 
   {#if chat.stats?.tokens}
     <section>

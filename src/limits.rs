@@ -38,6 +38,11 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// When every window used `at_least` % or more has reset again (none is: `None`).
+    pub fn used_up_until(&self, now: u64, at_least: f64) -> Option<u64> {
+        self.windows.iter().filter(|w| w.used >= at_least).filter_map(|w| w.reset_at.filter(|t| *t > now)).max()
+    }
+
     /// Keeps only what the page can show safely: the status line is written by code running in pi.
     fn clean(mut self) -> Option<Self> {
         let name_ok = |s: &str, max: usize| !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
@@ -57,7 +62,7 @@ impl Entry {
     }
 
     /// For the page: times as "how long from now", since a phone's clock need not agree with the server's.
-    fn view(&self, now: u64) -> serde_json::Value {
+    pub fn view(&self, now: u64) -> serde_json::Value {
         serde_json::json!({
             "provider": self.provider,
             "plan": self.plan,
@@ -108,6 +113,17 @@ impl Limits {
             .map(|e| (e.provider.clone(), e))
             .collect();
         Self { map: Mutex::new(map), file, problems: Default::default() }
+    }
+
+    /// The numbers held for `provider` (those of the account in use).
+    pub fn entry(&self, provider: &str) -> Option<Entry> {
+        self.map.lock().unwrap().get(provider).cloned()
+    }
+
+    /// Put `e` in, older or not: another account just took over, and these are its numbers.
+    pub fn replace(&self, e: Entry) {
+        self.map.lock().unwrap().insert(e.provider.clone(), e);
+        self.save();
     }
 
     pub fn record(&self, e: Entry) {
@@ -167,6 +183,10 @@ impl Limits {
         map.get(provider).is_some_and(|e| e.windows.iter().any(|w| w.used >= at_least && w.reset_at.is_some_and(|t| t > now)))
     }
 
+    pub fn used_up_until(&self, provider: &str, now: u64, at_least: f64) -> Option<u64> {
+        self.map.lock().unwrap().get(provider).and_then(|e| e.used_up_until(now, at_least))
+    }
+
     /// The provider said the limit is reached: that window is used up, whatever the last reply's numbers were.
     pub fn mark_used_up(&self, provider: &str, minutes: u32) {
         let changed = {
@@ -214,7 +234,7 @@ impl Limits {
 }
 
 pub async fn get(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    Json(app.runtimes.limits.view(now_ms()))
+    Json(app.runtimes.accounts.limits_view(&app.runtimes.limits, now_ms()))
 }
 
 #[cfg(test)]

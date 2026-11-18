@@ -18,13 +18,14 @@
   // as two groups however they start and end.
   const sa = $derived(chat.sa);
   const runs = $derived(settings.subagentView === 'chips' ? sa.chips : []);
-  /** With more than two runs at once they fold into one chip ("에이전트 5"); its sheet lists them all. */
-  const folded = $derived(runs.length > 2);
-
   // Chips sit side by side in one row. How many background chips fit follows what the subagents leave; the rest go to the circle.
   let rowW = $state(0);
   let saW = $state(0);
   const CHIP_MIN = 150; // narrowest a chip may get before its name is no use
+  const SA_CHIP = 190; // a run's chip with a short name: bars, name, n/m and its clock
+  /** With more than two runs at once they fold into one chip ("에이전트 5"); its sheet lists them all. Two fold as
+      well when they would not fit at a useful width beside the background tasks (a phone). */
+  const folded = $derived(runs.length > 2 || (runs.length === 2 && rowW > 0 && rowW < 2 * SA_CHIP + (chat.bgChips.length ? CHIP_MIN + 6 : 0) + 40));
   const fit = $derived(rowW ? Math.max(1, Math.floor((rowW - 36 - (runs.length ? saW + 17 : 0)) / (CHIP_MIN + 6))) : 4);
 
   // A running task shows how long it has been running (the server's start time, so a reload or another device
@@ -71,7 +72,7 @@
             <button class="main" type="button" aria-haspopup="dialog" aria-expanded={sa.open === '*'} onclick={() => toggleSa('*')}>
               <span class="dot"><SaSegs steps={allSteps} /></span>
               <span class="nm">{tr('sa.group', { n: runs.length })}</span>
-              {#if goingRuns}<span class="ct">{tr('sa.groupRunning', { n: goingRuns })}</span>{/if}
+              {#if goingRuns && goingRuns < runs.length}<span class="ct">{tr('sa.groupRunning', { n: goingRuns })}</span>{/if}
             </button>
           </span>
         {:else}
@@ -279,9 +280,10 @@
     max-width: 100%;
     min-width: 0;
   }
-  /* sharing the row with background tasks: they keep some of it */
+  /* sharing the row with background tasks: both give way only when the row runs out (too narrow for two runs at
+     all, and they fold into one chip) */
   .sagroup.shared {
-    max-width: 62%;
+    flex: 0 1 auto;
   }
   .sep {
     flex: none;

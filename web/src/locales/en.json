@@ -101,7 +101,8 @@
       "server": "Connection",
       "about": "About",
       "composer": "Message box",
-      "auto": "Automation"
+      "auto": "Automation",
+      "accounts": "Accounts"
     },
     "theme": {
       "dark": "Dark",
@@ -219,6 +220,16 @@
         "name": "Tray",
         "hint": "One bar over the message box, like the task list: the order and what is happening now on one line. Tap to open."
       }
+    },
+    "accts": {
+      "title": "Plan accounts",
+      "hide": "Hide duplicate plans",
+      "hideHint": "With several accounts for one provider, the info tab keeps only the card of the account in use. When the account changes, its bars empty and fill again with the new account's numbers. Off: a card per account, and the cards trade places on a change."
+    },
+    "saInfo": {
+      "title": "Subagents in the info tab",
+      "tree": "Family tree",
+      "summary": "Folded summary"
     }
   },
   "showcase": {
@@ -1042,5 +1053,108 @@
       "one": "{n} at once",
       "other": "{n} at once"
     }
+  },
+  "accounts": {
+    "loading": "Loading accounts…",
+    "none": "No account is signed in.",
+    "inUse": "In use",
+    "limited": "Limit · resets {at}",
+    "use": "Use this account",
+    "remove": "Remove",
+    "removeLabel": "Remove {who}",
+    "removeAsk": "Remove {who} from the list?",
+    "removeBody": "Only the sign-in pi-oven saved is deleted. Using it again needs a new sign-in.",
+    "add": "Add account",
+    "starting": "Starting the sign-in…",
+    "codePh": "code#state",
+    "codeLabel": "Sign-in code",
+    "send": "Send",
+    "cancel": "Cancel",
+    "close": "Close",
+    "added": "Account added. The account in use has not changed.",
+    "failed": "Could not sign in: {why}",
+    "baton": "Another account of the same provider",
+    "batonHint": "When Zero-Waste meets a limit, it switches to another account of the same provider that has some left and goes on at once instead of waiting for the reset. Needs Zero-Waste on.",
+    "batonNotice": "Baton Touch · continuing on {who}",
+    "cross": "Allow other providers",
+    "crossHint": "When no account of the provider has anything left, switch to a model of one of the providers chosen below and go on.",
+    "crossModel": "Model to use on {provider}",
+    "crossOrder": "Handed over in the order they were turned on. A provider whose plan is used up is skipped.",
+    "crossNoModels": "Open a conversation and the providers pi knows show up here.",
+    "batonModel": "Baton Touch · continuing on {who}",
+    "batonLater": "Baton Touch · Every account is limited; going on with {who}, which resets first, at {at}",
+    "batonBack": "Baton Touch · Back on the original model, {who}",
+    "elsewhere": "The {provider} account is now {who}. This session uses it from its next request too.",
+    "home": "Go back to the original model when the limit resets",
+    "homeHint": "After handing over to another provider, switch back to the original model once its plan resets, while the chat is idle. If you changed the model yourself meanwhile, it stays.",
+    "shared": "Accounts live in pi's one auth.json. A switch here or by Baton Touch applies to every open session and to pi in the terminal from their next request.",
+    "noTerminal": "This server cannot sign in from the page (no pseudo terminal, `script`). Sign in on the server with `pi auth login {provider}`, then press Reload. The account you were using stays in this list.",
+    "reload": "Reload",
+    "line": {
+      "swap": "Handed to another account; going on",
+      "later": "Every account is limited; handing over at {at}",
+      "model": "Going on with another provider's model",
+      "back": "Back on the original model"
+    },
+    "lineFrom": "from {who}"
+  },
+  "saInfo": {
+    "title": "Subagents",
+    "tree": "Subagent family tree",
+    "root": "This session",
+    "inherits": "↳ inherits",
+    "fork": "inherits the chat",
+    "count": {
+      "one": "{n} subagent",
+      "other": "{n} subagents"
+    },
+    "inheritN": {
+      "one": "{n} on this model",
+      "other": "{n} on this model"
+    },
+    "writersN": {
+      "one": "{n} writes",
+      "other": "{n} write"
+    },
+    "fam": {
+      "ro": "Read-only",
+      "wr": "Writes",
+      "ex": "External CLI",
+      "own": "Your own"
+    },
+    "model": "Model",
+    "from": {
+      "override": "set in settings",
+      "agent": "its definition",
+      "default": "default model",
+      "cli": "external CLI"
+    },
+    "inheritsLong": "Uses this session's model",
+    "thinking": "Thinking",
+    "tools": {
+      "one": "{n} tool",
+      "other": "{n} tools"
+    },
+    "allTools": "All tools",
+    "writes": "Can edit files",
+    "readOnly": "Reads only",
+    "kind": {
+      "builtin": "Built in",
+      "user": "User",
+      "project": "Project",
+      "external": "External"
+    },
+    "close": "Close",
+    "toolsLabel": "Tools"
+  },
+  "saExample": {
+    "tag": "Example",
+    "box": "Type a message",
+    "scout": "Find the files and call paths involved",
+    "worker": "Fix the limit math",
+    "review": "Review the change",
+    "reviewA": "Review correctness",
+    "reviewB": "Review state updates",
+    "reviewC": "Review missed events"
   }
 }

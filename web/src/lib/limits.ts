@@ -2,14 +2,15 @@
 import { locale, t } from './i18n';
 
 export type LimitWindowWire = { minutes: number; used: number; resetInMs: number | null };
-export type LimitWire = { provider: string; plan: string | null; ageMs: number; limitReached: boolean; resets?: number | null; resetKinds?: string[]; windows: LimitWindowWire[] };
+export type LimitAccount = { id: string; email?: string | null; plan?: string | null };
+export type LimitWire = { provider: string; plan: string | null; ageMs?: number; limitReached?: boolean; resets?: number | null; resetKinds?: string[]; windows: LimitWindowWire[]; account?: LimitAccount | null };
 
 /** A provider whose direct question failed: why, and in how long the server tries again. */
 export type LimitProblemWire = { provider: string; why: string; retryInMs: number };
 export type LimitProblem = { provider: string; why: string; retryAt: number };
 
 export type LimitWindow = { minutes: number; used: number; resetAt: number | null };
-export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; resets: number | null; resetKinds: string[]; windows: LimitWindow[] };
+export type Limit = { provider: string; plan: string | null; at: number; limitReached: boolean; resets: number | null; resetKinds: string[]; windows: LimitWindow[]; account: LimitAccount | null };
 
 /** A window as it stands now: past its reset it starts again from nothing. Providers send what is used; the page
  * shows what is left (`left`), which is what one wants to know before sending more. */
@@ -19,8 +20,9 @@ export function fromWire(w: LimitWire, now: number): Limit {
   return {
     provider: w.provider,
     plan: w.plan,
-    at: now - w.ageMs,
-    limitReached: w.limitReached,
+    at: now - (w.ageMs ?? 0),
+    limitReached: !!w.limitReached,
+    account: w.account ?? null,
     resets: w.resets ?? null,
     resetKinds: w.resetKinds ?? [],
     windows: w.windows.map((x) => ({ minutes: x.minutes, used: x.used, resetAt: x.resetInMs == null ? null : now + x.resetInMs })),

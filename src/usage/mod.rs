@@ -23,14 +23,17 @@ use tokio::{io::AsyncWriteExt, process::Command};
 
 /// A fresh sign-in token for `provider` from pi (it refreshes an expired one). `None`: not signed in there.
 pub(crate) async fn token(pi_bin: &str, provider: &str) -> Result<Option<String>, String> {
-    let out = Command::new(pi_bin)
+    let run = Command::new(pi_bin)
         .args(["auth", "print-bearer-token", "--provider", provider])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
-        .output()
+        .output();
+    // a limit check waits on this (Zero-Waste decides after it): pi refreshing over a dead network must not hang it
+    let out = tokio::time::timeout(std::time::Duration::from_secs(30), run)
         .await
+        .map_err(|_| "pi auth: timed out".to_owned())?
         .map_err(|e| format!("pi auth: {e}"))?;
     if !out.status.success() {
         return Ok(None);
@@ -184,7 +187,11 @@ impl Usage {
 /// limits are looked at). Answers with the store, whatever happened.
 pub async fn refresh(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
     app.runtimes.usage.poll(&app.pi_bin, &app.runtimes.limits, false, None).await;
-    Json(app.runtimes.limits.view(now_ms()))
+    // the other saved accounts too (each at most every 5 minutes), when the switch for asking is on
+    if app.runtimes.usage.on.load(Ordering::Relaxed) {
+        app.runtimes.accounts.poll_others(&app.pi_bin).await;
+    }
+    Json(app.runtimes.accounts.limits_view(&app.runtimes.limits, now_ms()))
 }
 
 /// GET: the reasoning level each model's provider recommends, where the provider says (ChatGPT does; others do not,

@@ -75,6 +75,9 @@ impl Resume {
 }
 
 /// A session waiting for its limit to reset.
+/// After Baton Touch switched accounts, the continue message waits this long (the switch has reached pi's file).
+pub const BATON_DELAY_MS: u64 = 4_000;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
     pub at: u64,
@@ -122,6 +125,21 @@ pub fn limit_error(line: &str) -> Option<(String, Option<String>, Limit)> {
     }
 }
 
+/// The provider and model of a reply (`message_end` of the assistant). They come after the content, so the last
+/// occurrence is theirs.
+pub fn model_of(line: &str) -> Option<(String, String)> {
+    if !line.starts_with(r#"{"type":"message_end""#) || !line.contains(r#""role":"assistant""#) {
+        return None;
+    }
+    let field = |key: &str| {
+        let i = line.rfind(key)? + key.len();
+        let end = line[i..].find('"')?;
+        let v = &line[i..i + end];
+        (!v.is_empty() && v.len() <= 200 && !v.contains('\\')).then(|| v.to_owned())
+    };
+    Some((field(r#""provider":""#)?, field(r#""model":""#)?))
+}
+
 /// A 429 that may be a used-up plan (Claude says "would exceed your account's rate limit").
 pub fn maybe_plan_limit(error: &str) -> bool {
     let e = error.to_ascii_lowercase();
@@ -136,9 +154,49 @@ pub fn is_usage_limit(error: &str) -> bool {
 
 /// "… Try again in ~42 min." → 42 minutes.
 pub fn minutes_in(error: &str) -> Option<u64> {
-    let i = error.find("again in")?;
-    let digits: String = error[i + 8..].chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit()).take(6).collect();
-    digits.parse().ok()
+    // "again in 37 minutes", "again in 2h 10m", "again in 1 hour 5 minutes", "again in 3 days", "again in 45s".
+    // A number without a unit is minutes; seconds round up to a minute.
+    let lower = error.to_ascii_lowercase();
+    let i = lower.find("again in")?;
+    let rest: Vec<char> = lower[i + 8..].chars().take(60).collect();
+    let (mut total, mut any, mut k) = (0u64, false, 0usize);
+    loop {
+        while k < rest.len() && matches!(rest[k], ' ' | ',' | '~') {
+            k += 1;
+        }
+        let word = |w: &str| rest[k..].iter().take(w.len()).collect::<String>() == w;
+        if let Some(w) = ["and ", "about "].into_iter().find(|w| word(w)) {
+            k += w.len();
+            continue;
+        }
+        let start = k;
+        while k < rest.len() && rest[k].is_ascii_digit() && k - start < 6 {
+            k += 1;
+        }
+        if k == start {
+            break;
+        }
+        let n: u64 = rest[start..k].iter().collect::<String>().parse().ok()?;
+        while k < rest.len() && rest[k] == ' ' {
+            k += 1;
+        }
+        let unit_start = k;
+        while k < rest.len() && rest[k].is_ascii_alphabetic() {
+            k += 1;
+        }
+        let unit: String = rest[unit_start..k].iter().collect();
+        total += match unit.chars().next() {
+            Some('d') => n * 1440,
+            Some('h') => n * 60,
+            Some('s') => n.div_ceil(60),
+            Some('m') if !unit.starts_with("mo") => n,
+            None => n,
+            // some other word ("again in 5 tries"): not a time
+            _ => break,
+        };
+        any = true;
+    }
+    any.then_some(total)
 }
 
 /// When to send: the reset the error names, else when the window that ran out resets, else in an hour.
@@ -194,6 +252,28 @@ pub async fn act(State(app): State<Arc<AppState>>, Path(id): Path<String>, Json(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_model_of_a_reply() {
+        let l = r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"\"model\":\"x\""}],"provider":"anthropic","model":"claude-opus-5-5","usage":{}}}"#;
+        assert_eq!(model_of(l), Some(("anthropic".into(), "claude-opus-5-5".into())));
+        assert_eq!(model_of(r#"{"type":"message_end","message":{"role":"user"}}"#), None);
+    }
+
+    #[test]
+    fn reads_the_wait_with_its_units() {
+        assert_eq!(minutes_in("Try again in 37 minutes."), Some(37));
+        assert_eq!(minutes_in("You've hit your usage limit. Try again in 2h 10m."), Some(130));
+        assert_eq!(minutes_in("try again in 1 hour 5 minutes"), Some(65));
+        assert_eq!(minutes_in("try again in 1 hour and 5 minutes"), Some(65));
+        assert_eq!(minutes_in("Try again in 3 days"), Some(4320));
+        assert_eq!(minutes_in("again in 45s"), Some(1));
+        assert_eq!(minutes_in("again in 12"), Some(12));
+        assert_eq!(minutes_in("try again in a while"), None);
+        assert_eq!(minutes_in("try again later"), None);
+        assert_eq!(minutes_in("Try again in ~42 min."), Some(42));
+        assert_eq!(minutes_in("try again in about 3 hours"), Some(180));
+    }
 
     #[test]
     fn knows_a_usage_limit_from_other_errors() {

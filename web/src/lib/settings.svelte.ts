@@ -4,11 +4,13 @@ export type FontFamily = 'maple' | 'system';
 export type ToolImages = 'always' | 'expanded';
 /** How subagent runs show above the message box: chips in the row with background tasks, or a bar like the task list. */
 export type SubagentView = 'chips' | 'tray';
+/** How the info tab shows the subagents set up: a family tree, or one line that opens. */
+export type SubagentInfo = 'tree' | 'summary';
 
 const KEY = 'pi-oven.settings';
 
-interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean; extNotices: boolean; subagentView: SubagentView }
-const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true, extNotices: true, subagentView: 'chips' };
+interface Saved { fx: StreamFx; font: FontSize; family: FontFamily; thinkingOpen: boolean; toolImages: ToolImages; metaContext: boolean; metaLimits: boolean; metaLimitText: boolean; extNotices: boolean; subagentView: SubagentView; subagentInfo: SubagentInfo; hideDupAccounts: boolean }
+const defaults: Saved = { fx: 'bounce', font: 'normal', family: 'maple', thinkingOpen: true, toolImages: 'always', metaContext: true, metaLimits: true, metaLimitText: true, extNotices: true, subagentView: 'chips', subagentInfo: 'tree', hideDupAccounts: false };
 
 function read(): Saved {
   try {
@@ -17,6 +19,7 @@ function read(): Saved {
     if (v.family !== 'maple' && v.family !== 'system') v.family = 'system';
     if (v.toolImages !== 'always' && v.toolImages !== 'expanded') v.toolImages = 'always';
     if (v.subagentView !== 'chips' && v.subagentView !== 'tray') v.subagentView = 'chips';
+    if (v.subagentInfo !== 'tree' && v.subagentInfo !== 'summary') v.subagentInfo = 'tree';
     return v;
   } catch { return defaults; }
 }
@@ -36,6 +39,9 @@ class Settings {
   /** Banners extensions show for their own news ("… loaded"). */
   get extNotices() { return this.#s.extNotices !== false; }
   get subagentView() { return this.#s.subagentView; }
+  get subagentInfo() { return this.#s.subagentInfo; }
+  /** The info tab shows only the account in use for each provider (its card refills when the account changes). */
+  get hideDupAccounts() { return this.#s.hideDupAccounts === true; }
 
   set<K extends keyof Saved>(key: K, value: Saved[K]) {
     this.#s[key] = value;

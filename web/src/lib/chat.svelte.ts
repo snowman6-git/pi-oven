@@ -1,11 +1,13 @@
 import { api } from './api';
 import { limits } from './limits.svelte';
 import { settings } from './settings.svelte';
-import { resetDate, windowName } from './limits';
+import { providerName, resetDate, windowName } from './limits';
+import { BATON_NOTE, type BatonNote } from './baton';
 import { orderBatch } from './bgorder';
 import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, fromDetails as todoFromDetails, latestFromItems as todoFromItems, type Task as TodoTask } from '../addons/todo';
 import { Connection } from './connection.svelte';
 import { Subagents } from './subagents.svelte';
+import { COMMAND as SA_COMMAND } from '../addons/subagents';
 import { Editors, type EditorHost } from './editor.svelte';
 import { pinsFor } from './pins.svelte';
 import { StreamTimer, type Speed } from './speed';
@@ -158,6 +160,7 @@ export class Chat {
   constructor(runtime: RuntimeInfo, private host: ChatHost) {
     this.runtime = runtime;
     this.sa = new Subagents({
+      enabled: () => this.hasSubagents,
       sessionFile: () => this.sessionFile,
       visible: () => this.chatVisible && !document.hidden,
       addNotice: (rec) => {
@@ -181,6 +184,8 @@ export class Chat {
   }
 
   get hasTodo() { return this.commands.some((c) => c.name === TODO_COMMAND); }
+  /** pi-subagents is installed (the add-on for it: chips, tray, notices). */
+  get hasSubagents() { return this.commands.some((c) => c.name === SA_COMMAND); }
 
   /** The list as the package saved it (survives compaction, and covers calls made through another tool). */
   #todoTimer: ReturnType<typeof setTimeout> | undefined;
@@ -434,7 +439,7 @@ export class Chat {
         this.conn.request<{ messages: WireMessage[] }>({ type: 'get_messages' }),
       ]);
       if (seq !== this.#loadSeq) return; // a later load is under way: an older answer must not overwrite it
-      this.state = state;
+      this.#takeState(state);
       this.running = state.isStreaming;
       this.compacting = state.isCompacting;
       this.items = keepKeys(this.items, itemsFromMessages(msgs.messages));
@@ -468,8 +473,36 @@ export class Chat {
     clearTimeout(this.#rereadTimer);
     this.#rereadTimer = setTimeout(() => {
       void this.refreshStats();
-      void this.conn.request<SessionState>({ type: 'get_state' }).then((st) => (this.state = st)).catch(() => {});
+      void this.conn.request<SessionState>({ type: 'get_state' }).then((st) => this.#takeState(st)).catch(() => {});
     }, 400);
+  }
+
+  /** pi's state, and the queue checked against it: the queue on screen is built from `queue_update` events, and one
+      missed (a dropped connection, a slow phone the server had to skip events for) would leave a message there that
+      pi has long delivered. pi's own count is the truth: none pending, nothing queued; fewer, the oldest went. */
+  #takeState(s: SessionState) {
+    this.state = s;
+    const n = s.pendingMessageCount;
+    if (typeof n !== 'number') return;
+    const { steering, followUp } = this.queue;
+    const extra = steering.length + followUp.length - n;
+    if (extra <= 0) return;
+    const drop = Math.min(extra, steering.length);
+    this.queue = { steering: steering.slice(drop), followUp: followUp.slice(extra - drop) };
+  }
+
+  /** A message of the person's arrived in the conversation: it is no longer waiting (also when pi's own match missed). */
+  #delivered(m: WireMessage | undefined) {
+    if (m?.role !== 'user') return;
+    const text = textOf(m.content).trim();
+    if (!text) return;
+    const { steering, followUp } = this.queue;
+    const i = steering.findIndex((q) => q.trim() === text);
+    if (i >= 0) this.queue = { steering: steering.filter((_, k) => k !== i), followUp };
+    else {
+      const j = followUp.findIndex((q) => q.trim() === text);
+      if (j >= 0) this.queue = { steering, followUp: followUp.filter((_, k) => k !== j) };
+    }
   }
 
   async refreshStats() {
@@ -536,7 +569,7 @@ export class Chat {
   async setModel(m: ModelInfo) {
     try {
       await this.conn.request({ type: 'set_model', provider: m.provider, modelId: m.id });
-      this.state = await this.conn.request<SessionState>({ type: 'get_state' });
+      this.#takeState(await this.conn.request<SessionState>({ type: 'get_state' }));
       void this.refreshStats();
       void this.#recommendedLevel(m);
     } catch (e) { this.notice('error', (e as Error).message); }
@@ -691,6 +724,19 @@ export class Chat {
         if (rec.gaveUp) this.notice('error', t('resume.gaveUp'));
         if (rec.skipped) this.notice('warn', t('resume.skippedLong', { window: windowName(rec.skipped.window), date: resetDate(Date.now() + rec.skipped.inMs) }));
         break;
+      case 'oven_baton':
+        // Baton Touch handed over: to another account (now, or `at` when every one is limited), to another provider's
+        // model, or back to the model it came from. The session keeps a note that arrives as its own message
+        // (`noted`); without the extension the line is shown here only.
+        if (!rec.noted) this.items.push({ kind: 'baton', key: nextKey(), note: rec as BatonNote, ts: Date.now() });
+        if (rec.model) void this.conn.request<SessionState>({ type: 'get_state' }).then((st) => this.#takeState(st)).catch(() => {});
+        if (!rec.at) limits.swapped(rec.provider, rec.email ?? rec.model);
+        break;
+      case 'oven_account':
+        // another session's Baton Touch, or Settings, changed the account every session uses
+        this.notice('info', t('accounts.elsewhere', { provider: providerName(rec.provider), who: rec.email || rec.provider }));
+        limits.swapped(rec.provider, rec.email ?? rec.provider);
+        break;
       case 'oven_long':
         this.#setLong(rec.state);
         if (rec.gaveUp) this.notice('error', t('long.gaveUp'));
@@ -716,7 +762,7 @@ export class Chat {
         this.host.gone(this);
         break;
       case 'oven_lagged':
-        void this.load();
+        // the server skipped events for this page and closes the socket: the reconnect loads and replays afresh
         break;
 
       case 'agent_start':
@@ -728,6 +774,8 @@ export class Chat {
         break;
       case 'agent_settled':
         this.running = false;
+        // pi delivers or drops what was queued before a run settles
+        this.queue = { steering: [], followUp: [] };
         this.#sending = false;
         // the notices held back by the run come now; whatever has none in 10 s was not going to get one
         for (const id of this.#awaitingNotice) if (!this.#keepUntilSeen.has(id)) setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 10_000);
@@ -735,7 +783,7 @@ export class Chat {
         for (const it of this.items) if (it.kind === 'assistant') it.live = false;
         this.host.changed();
         void this.refreshStats();
-        void this.conn.request<SessionState>({ type: 'get_state' }).then((s) => (this.state = s)).catch(() => {});
+        void this.conn.request<SessionState>({ type: 'get_state' }).then((s) => this.#takeState(s)).catch(() => {});
         if (!this.long) this.host.notify(this, 'done'); // an hourly try that failed is not the end of anything
         break;
       case 'turn_end':
@@ -743,6 +791,7 @@ export class Chat {
         break;
 
       case 'message_start':
+        this.#delivered(rec.message as WireMessage);
         if (rec.message?.role === 'assistant') {
           const ts = rec.message.timestamp as number | undefined;
           // Replayed events for a message history already holds: ignore them through its message_end.
@@ -935,7 +984,8 @@ export class Chat {
           this.items.push(t);
           if (!this.#replaying && t.kind === 'task') this.#taskArrived(t.id);
           if (!this.#replaying && t.kind === 'subagent') this.sa.arrived(t.notice, t.key);
-        } else if (m.display) this.items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
+        } else if (m.customType === BATON_NOTE) this.items.push({ kind: 'baton', key: nextKey(), note: (m.details ?? {}) as BatonNote, ts: m.timestamp });
+        else if (m.display) this.items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
       }
     }

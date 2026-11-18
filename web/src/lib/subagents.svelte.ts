@@ -16,6 +16,8 @@ import {
 import type { Item } from './transcript';
 
 export interface SubagentHost {
+  /** pi-subagents is installed in this pi (its commands are there): otherwise nothing here runs or shows. */
+  enabled(): boolean;
   sessionFile(): string | undefined;
   /** The conversation is on screen and the page is in view: only then is a chip flown. */
   visible(): boolean;
@@ -56,6 +58,7 @@ export class Subagents {
 
   /** Chips showing now: going, or just ended. Oldest first. */
   get chips(): Run[] {
+    if (!this.host.enabled()) return [];
     return this.runs.filter((r) => r.state === 'running' || this.fresh.includes(r.toolId)).sort((a, b) => a.startedAt - b.startedAt);
   }
 
@@ -71,7 +74,7 @@ export class Subagents {
   // ── what pi says ───────────────────────────────────────────────────────────
 
   started(toolId: string, name: string, args: any) {
-    if (name !== TOOL || this.#get(toolId)) return;
+    if (name !== TOOL || this.#get(toolId) || !this.host.enabled()) return;
     const run = fromArgs(toolId, args, Date.now());
     if (!run) return;
     this.#set(run);
@@ -81,7 +84,7 @@ export class Subagents {
   }
 
   updated(toolId: string, name: string, details: any) {
-    if (name !== TOOL || !details) return;
+    if (name !== TOOL || !details || !this.host.enabled()) return;
     // a run already under way when this page (re)loaded: picked up quietly from its first update
     const run = this.#get(toolId) ?? fromArgs(toolId, { agent: 'subagent', async: false }, Date.now());
     if (run) this.#set(applyDetails(run, details, false, false, Date.now()));
@@ -115,6 +118,7 @@ export class Subagents {
 
   /** After the conversation was (re)loaded: background runs launched in it whose notice is not there are going on. */
   restore(items: Item[]) {
+    if (!this.host.enabled()) return;
     const noticed = new Set(items.flatMap((i) => (i.kind === 'subagent' ? i.notice.runIds : [])));
     for (const it of items) {
       if (it.kind !== 'assistant') continue;
@@ -126,6 +130,16 @@ export class Subagents {
         if (!base) continue;
         this.#set(applyDetails(base, d, true, false, Date.now()));
       }
+    }
+    // runs this page was already following whose notice came while it was away (a reconnect, a phone asleep): they
+    // are over, and the notice is in the conversation already, so the chip just goes (no flight, no 15-minute wait)
+    const status = new Map(items.flatMap((i) => (i.kind === 'subagent' ? i.notice.runIds.map((id) => [id, i.notice.status] as const) : [])));
+    for (const r of this.runs) {
+      const st = r.runId ? status.get(r.runId) : undefined;
+      if (!st) continue;
+      if (r.state === 'running') this.#set({ ...r, state: st === 'completed' ? 'done' : 'failed', endedAt: Date.now() });
+      this.#awaiting.delete(r.toolId);
+      this.dismiss(r.toolId);
     }
     this.#poll();
   }

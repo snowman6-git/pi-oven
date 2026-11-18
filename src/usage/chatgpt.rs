@@ -70,11 +70,16 @@ pub fn entry_from(v: &serde_json::Value, now: u64) -> Option<Entry> {
 
 /// Ask ChatGPT once. `pi_bin` gives the sign-in; `now` stamps the answer.
 pub async fn ask(pi_bin: &str, now: u64) -> Asked {
-    let token = match super::token(pi_bin, PROVIDER).await {
-        Ok(Some(t)) => t,
-        Ok(None) => return Asked::NoSignIn,
-        Err(e) => return Asked::Failed(e),
-    };
+    match super::token(pi_bin, PROVIDER).await {
+        Ok(Some(t)) => ask_with(&t, now).await,
+        Ok(None) => Asked::NoSignIn,
+        Err(e) => Asked::Failed(e),
+    }
+}
+
+/// The same question with a token in hand (another saved account's, see `accounts.rs`).
+pub async fn ask_with(token: &str, now: u64) -> Asked {
+    let token = token.to_owned();
     let Some(account) = account_id(&token) else { return Asked::Failed("no account id in the token".into()) };
     if account.contains(['\r', '\n']) {
         return Asked::Failed("unexpected account id".into());

@@ -63,11 +63,15 @@ pub fn entry_from(v: &serde_json::Value) -> Option<Entry> {
 }
 
 pub async fn ask(pi_bin: &str) -> Asked {
-    let token = match super::token(pi_bin, PROVIDER).await {
-        Ok(Some(t)) => t,
-        Ok(None) => return Asked::NoSignIn,
-        Err(e) => return Asked::Failed(e),
-    };
+    match super::token(pi_bin, PROVIDER).await {
+        Ok(Some(t)) => ask_with(&t).await,
+        Ok(None) => Asked::NoSignIn,
+        Err(e) => Asked::Failed(e),
+    }
+}
+
+/// The same question with a token in hand (another saved account's, see `accounts.rs`).
+pub async fn ask_with(token: &str) -> Asked {
     let headers = format!("Authorization: Bearer {token}\nanthropic-beta: oauth-2025-04-20\n");
     match super::get(USAGE, &headers).await {
         Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| entry_from(&v)) {
