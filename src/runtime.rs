@@ -170,6 +170,10 @@ pub struct Runtime {
     idle: std::sync::atomic::AtomicBool,
     /// The bundled extension is loaded: notes can be kept in the session (`/oven-note`).
     notes: bool,
+    /// The last reply ended in an error (a continue message is only worth sending then).
+    last_failed: std::sync::atomic::AtomicBool,
+    /// A weekly (or longer) limit was met: no continue until then (ms; 0: none).
+    no_resume_until: std::sync::atomic::AtomicU64,
     /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
     session_file: Mutex<Option<String>>,
 }
@@ -234,6 +238,9 @@ impl Runtime {
         }
         // a check of this failure's replies (they came a little before it) found the plan's limit
         if self.limit_found_at.load(Ordering::SeqCst) + 10 * 60_000 >= since {
+            // the plan's limit: a wait for its reset, or Baton Touch's continue, is set up; if neither is (Baton Touch
+            // switched a moment ago and these were pi's own retries), one goes once pi has settled
+            self.resume_soon();
             return;
         }
         self.long_event(Event::Failed(error), &long);
@@ -254,6 +261,31 @@ impl Runtime {
         let pending = crate::resume::Pending { at, tries, window: None, known: true };
         let begun = self.resume.lock().unwrap().replace(pending).is_none();
         self.note(to).await;
+        self.resume_publish(false);
+        if begun {
+            tokio::spawn(self.clone().resume_clock());
+        }
+    }
+
+    /// A failure Baton Touch already handled (pi's retries ran out on it, or came back the same): make sure a continue
+    /// is waiting, so the session does not stop there. It goes once pi has settled, and only if the run failed.
+    fn resume_soon(self: &Arc<Self>) {
+        use std::sync::atomic::Ordering;
+        if !self.resume_cfg.get().enabled || self.resume.lock().unwrap().is_some() || now_ms() < self.no_resume_until.load(Ordering::Relaxed) {
+            return;
+        }
+        // a continue just went (the same failure reported again by pi's last retry): that one is enough
+        if now_ms().saturating_sub(self.resume_fired_at.load(Ordering::Relaxed)) < 30_000 {
+            return;
+        }
+        let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
+        if tries > crate::resume::MAX_TRIES {
+            self.resume_tries.store(0, Ordering::Relaxed);
+            self.resume_publish(true);
+            return;
+        }
+        let pending = crate::resume::Pending { at: now_ms() + crate::resume::BATON_DELAY_MS, tries, window: None, known: true };
+        let begun = self.resume.lock().unwrap().replace(pending).is_none();
         self.resume_publish(false);
         if begun {
             tokio::spawn(self.clone().resume_clock());
@@ -330,6 +362,7 @@ impl Runtime {
         }
         // a weekly (or longer) limit is days away: nothing to win by waiting, so the page just says when it resets
         if let Some((reset_at, minutes)) = culprit.filter(|c| c.1 > crate::resume::SHORT_WINDOW_MAX) {
+            self.no_resume_until.store(reset_at, Ordering::Relaxed);
             self.resume_tries.store(0, Ordering::Relaxed);
             self.resume.lock().unwrap().take();
             let frame = serde_json::json!({ "type": "oven_resume", "state": null, "gaveUp": false, "skipped": { "window": minutes, "inMs": reset_at.saturating_sub(now_ms()) } });
@@ -387,7 +420,8 @@ impl Runtime {
                     self.resume_publish(false);
                     return;
                 }
-                if now_ms() >= p.at {
+                // pi still going (its own retries, after Baton Touch put another account in): wait for it to settle
+                if now_ms() >= p.at && self.idle.load(std::sync::atomic::Ordering::Relaxed) {
                     self.resume_tries.store(p.tries, std::sync::atomic::Ordering::Relaxed);
                     self.resume_fired_at.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
                     *g = None;
@@ -397,8 +431,11 @@ impl Runtime {
                 }
             };
             if fire {
-                let text = self.resume_cfg.get().text;
-                let _ = self.stdin_tx.send(serde_json::json!({ "type": "prompt", "message": text }).to_string()).await;
+                // the run got through after all (pi's retry, on the new account): nothing to continue
+                if self.last_failed.load(std::sync::atomic::Ordering::Relaxed) {
+                    let text = self.resume_cfg.get().text;
+                    let _ = self.stdin_tx.send(serde_json::json!({ "type": "prompt", "message": text }).to_string()).await;
+                }
                 self.resume_publish(false);
                 return;
             }
@@ -711,6 +748,8 @@ impl Manager {
             last_model: Mutex::new(None),
             idle: std::sync::atomic::AtomicBool::new(true),
             notes: self.long.available(),
+            last_failed: Default::default(),
+            no_resume_until: Default::default(),
         });
         self.pet.attach(rt.clone());
 
@@ -808,8 +847,12 @@ impl Manager {
                             let model = crate::resume::model_of(&line);
                             // a reply that got through says which model the session is on; a failed one may be a retry
                             // of the model just handed over from
-                            if let Some(m) = model.as_ref().filter(|_| limit.is_none() && !line.contains(r#""stopReason":"error""#)) {
-                                *rt.last_model.lock().unwrap() = Some(m.clone());
+                            if model.is_some() {
+                                let failed = line.contains(r#""stopReason":"error""#);
+                                rt.last_failed.store(failed, std::sync::atomic::Ordering::Relaxed);
+                                if let Some(m) = model.as_ref().filter(|_| limit.is_none() && !failed) {
+                                    *rt.last_model.lock().unwrap() = Some(m.clone());
+                                }
                             }
                             let failed = matches!(event, Some(Event::Failed(_)));
                             let event = match event {
@@ -868,7 +911,10 @@ impl Manager {
                                                     tokio::spawn(rt.clone().take_over_at(at, next.id, was, accounts.clone(), limits.clone(), usage.clone(), pi_bin.clone()));
                                                     return;
                                                 }
-                                                crate::accounts::Baton::Handled => return,
+                                                crate::accounts::Baton::Handled => {
+                                                    rt.resume_soon();
+                                                    return;
+                                                }
                                                 crate::accounts::Baton::No => {
                                                     // no account of this provider left: another provider, when allowed
                                                     if let Some(t) = accounts.cross_target(p, &limits) {
@@ -890,6 +936,7 @@ impl Manager {
                                             }
                                         } else if accounts.baton_just_now() {
                                             // pi's giving up names no provider: the failure Baton Touch already handled
+                                            rt.resume_soon();
                                             return;
                                         }
                                     }

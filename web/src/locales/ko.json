@@ -861,7 +861,8 @@
     "code": " (코드 {n})",
     "compactFailed": "압축 실패: {err}",
     "retrying": "요청이 실패해 다시 시도합니다 ({n}/{max}): {err}",
-    "retryFailed": "재시도 실패: {err}"
+    "retryFailed": "재시도 실패: {err}",
+    "retryFailedShort": "다시 시도해도 실패했습니다"
   },
   "slash": {
     "desc": {

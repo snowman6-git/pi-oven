@@ -442,7 +442,12 @@ export class Chat {
       this.#takeState(state);
       this.running = state.isStreaming;
       this.compacting = state.isCompacting;
-      this.items = keepKeys(this.items, itemsFromMessages(msgs.messages));
+      const next = itemsFromMessages(msgs.messages);
+      // a Baton Touch line whose note is not in the history yet (pi was busy: it comes with the next turn) stays
+      const inHistory = new Set(next.flatMap((i) => (i.kind === 'baton' ? [this.#batonSig(i.note)] : [])));
+      this.#batonLive = this.#batonLive.filter((b) => !inHistory.has(b.sig));
+      next.push(...this.#batonLive.map((b): Item => ({ kind: 'baton', key: b.key, note: b.note, ts: b.ts })));
+      this.items = keepKeys(this.items, next);
       this.todo = todoFromItems(this.items);
       this.sa.restore(this.items);
       this.loaded = true;
@@ -489,6 +494,41 @@ export class Chat {
     if (extra <= 0) return;
     const drop = Math.min(extra, steering.length);
     this.queue = { steering: steering.slice(drop), followUp: followUp.slice(extra - drop) };
+  }
+
+  /** `err` is already on screen: the newest reply's error block says it. */
+  #shownError(err?: string): boolean {
+    if (!err) return false;
+    for (let i = this.items.length - 1; i >= Math.max(0, this.items.length - 6); i--) {
+      const it = this.items[i];
+      if (it.kind === 'assistant') return it.error === err;
+    }
+    return false;
+  }
+
+  /** Baton Touch lines shown as the server said so, before (or without) the session's own note of them: the note can
+      wait for pi's next turn when pi was busy retrying. Keyed by what they say, so the note does not draw it twice,
+      and kept across a reload of the history until the note is in it. */
+  #batonLive: { sig: string; note: BatonNote; key: number; ts: number }[] = [];
+  #batonSig(n: BatonNote) {
+    return JSON.stringify([n.provider ?? null, n.email ?? null, n.model ?? null, n.at ?? null, !!n.back, n.was ?? null]);
+  }
+  #batonArrived(n: BatonNote, fromNote: boolean, ts?: number) {
+    const sig = this.#batonSig(n);
+    const live = this.#batonLive.find((b) => b.sig === sig);
+    if (fromNote) {
+      if (live) {
+        this.#batonLive = this.#batonLive.filter((b) => b !== live);
+        // already drawn when the server said so (by key: the list holds reactive copies, not the objects pushed)
+        if (this.items.some((i) => i.key === live.key)) return;
+      }
+      this.items.push({ kind: 'baton', key: nextKey(), note: n, ts });
+      return;
+    }
+    if (live) return;
+    const key = nextKey(), now = Date.now();
+    this.items.push({ kind: 'baton', key, note: n, ts: now });
+    this.#batonLive = [...this.#batonLive.filter((b) => now - b.ts < 3_600_000), { sig, note: n, key, ts: now }];
   }
 
   /** A message of the person's arrived in the conversation: it is no longer waiting (also when pi's own match missed). */
@@ -726,9 +766,9 @@ export class Chat {
         break;
       case 'oven_baton':
         // Baton Touch handed over: to another account (now, or `at` when every one is limited), to another provider's
-        // model, or back to the model it came from. The session keeps a note that arrives as its own message
-        // (`noted`); without the extension the line is shown here only.
-        if (!rec.noted) this.items.push({ kind: 'baton', key: nextKey(), note: rec as BatonNote, ts: Date.now() });
+        // model, or back to the model it came from. Drawn now; the session's own note of it (which may wait for pi's
+        // next turn) then finds it drawn.
+        this.#batonArrived(rec as BatonNote, false);
         if (rec.model) void this.conn.request<SessionState>({ type: 'get_state' }).then((st) => this.#takeState(st)).catch(() => {});
         if (!rec.at) limits.swapped(rec.provider, rec.email ?? rec.model);
         break;
@@ -878,11 +918,13 @@ export class Chat {
         break;
       case 'auto_retry_start':
         this.retry = `${rec.attempt}/${rec.maxAttempts}`;
-        if (!this.long) this.notice('warn', t('chatmsg.retrying', { n: rec.attempt, max: rec.maxAttempts, err: rec.errorMessage }));
+        // the reply that failed already shows the error in its own block: say only that it is tried again (the strip
+        // and the spinner line count the tries), not the same error a second time
+        if (!this.long && !this.#shownError(rec.errorMessage)) this.notice('warn', t('chatmsg.retrying', { n: rec.attempt, max: rec.maxAttempts, err: rec.errorMessage }));
         break;
       case 'auto_retry_end':
         this.retry = null;
-        if (!rec.success && !this.long) this.notice('error', t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
+        if (!rec.success && !this.long) this.notice('error', this.#shownError(rec.finalError) ? t('chatmsg.retryFailedShort') : t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
         break;
 
       case 'extension_ui_request':
@@ -984,7 +1026,7 @@ export class Chat {
           this.items.push(t);
           if (!this.#replaying && t.kind === 'task') this.#taskArrived(t.id);
           if (!this.#replaying && t.kind === 'subagent') this.sa.arrived(t.notice, t.key);
-        } else if (m.customType === BATON_NOTE) this.items.push({ kind: 'baton', key: nextKey(), note: (m.details ?? {}) as BatonNote, ts: m.timestamp });
+        } else if (m.customType === BATON_NOTE) this.#batonArrived((m.details ?? {}) as BatonNote, true, m.timestamp);
         else if (m.display) this.items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
       }

@@ -888,7 +888,8 @@
     "code": " (code {n})",
     "compactFailed": "Compaction failed: {err}",
     "retrying": "The request failed; retrying ({n}/{max}): {err}",
-    "retryFailed": "Retry failed: {err}"
+    "retryFailed": "Retry failed: {err}",
+    "retryFailedShort": "The retries failed too"
   },
   "slash": {
     "desc": {

@@ -82,13 +82,15 @@
     text-transform: uppercase;
     color: var(--ink-3);
   }
+  /* a plain block, as over the real message box: the tray centres itself with auto margins, which in a flex column
+     would size it to its content and push it past the edge */
   .stage {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: block;
+    min-width: 0;
   }
   /* where the message box would be, so the runs sit as they do over it */
   .box {
+    margin-top: 8px;
     padding: 11px 14px;
     border: 1px solid var(--rule);
     border-radius: 18px;
