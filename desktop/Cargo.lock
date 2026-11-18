@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "pi-oven-desktop"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "open",
  "serde_json",

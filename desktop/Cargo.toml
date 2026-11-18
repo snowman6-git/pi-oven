@@ -1,6 +1,6 @@
 [package]
 name = "pi-oven-desktop"
-version = "0.1.0"
+version = "0.1.2"
 description = "pi-oven desktop shell: a window onto a pi-oven server"
 license = "Apache-2.0"
 edition = "2021"
