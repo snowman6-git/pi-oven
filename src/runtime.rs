@@ -58,7 +58,6 @@ struct Replay {
 }
 
 const TOOL_UPDATE: &str = r#"{"type":"tool_execution_update""#;
-const MESSAGE_UPDATE: &str = r#"{"type":"message_update""#;
 
 fn tool_call_id(line: &str) -> Option<String> {
     #[derive(Deserialize)]
@@ -70,8 +69,12 @@ fn tool_call_id(line: &str) -> Option<String> {
 }
 
 impl Replay {
+    /// A late joiner loads the history (every finished message, tool results included) and then this: only what the
+    /// history cannot show yet. A run can go on for hours: keeping all of it made a 12-hour run's replay 16 MB, which a
+    /// phone could not take in before the socket gave up, so it reconnected and was sent it again, for ever.
     fn record(&mut self, line: &Arc<str>) {
-        if line.starts_with(r#"{"type":"agent_start""#) {
+        let is = |t: &str| line.starts_with(&format!(r#"{{"type":"{t}""#));
+        if is("agent_start") {
             self.active = true;
             self.clear_run();
         }
@@ -87,20 +90,36 @@ impl Replay {
                     },
                     None => self.run.push(line.clone()),
                 }
-            } else if !line.starts_with(r#"{"type":"extension_ui_request""#) {
-                self.run.push(line.clone());
-            }
-            // A finished message is in the history a late joiner loads anyway: its streamed pieces are not needed.
-            if line.starts_with(r#"{"type":"message_end""#) {
-                self.run.retain(|l| !l.starts_with(MESSAGE_UPDATE));
-                self.reindex();
-            } else if line.starts_with(r#"{"type":"tool_execution_end""#) {
-                if let Some(i) = tool_call_id(line).and_then(|id| self.tool_updates.remove(&id)) {
-                    self.run.remove(i);
+            } else if is("tool_execution_end") {
+                // over: its result comes into the history with its message
+                if let Some(id) = tool_call_id(line) {
+                    let mine = |l: &Arc<str>| (l.starts_with(TOOL_UPDATE) || l.starts_with(r#"{"type":"tool_execution_start""#)) && tool_call_id(l).as_deref() == Some(id.as_str());
+                    self.run.retain(|l| !mine(l));
                     self.reindex();
                 }
+            } else if is("queue_update") {
+                // only the newest says what is waiting
+                self.run.retain(|l| !l.starts_with(r#"{"type":"queue_update""#));
+                self.run.push(line.clone());
+                self.reindex();
+            } else if is("auto_retry_end") {
+                self.run.retain(|l| !l.starts_with(r#"{"type":"auto_retry_start""#));
+                self.reindex();
+            } else if is("compaction_end") {
+                self.run.retain(|l| !l.starts_with(r#"{"type":"compaction_start""#));
+                self.reindex();
+            } else if is("message_end") {
+                // the message is in the history now: of everything so far, keep only what still goes on
+                self.run.retain(|l| {
+                    ["agent_start", "queue_update", "auto_retry_start", "compaction_start", "tool_execution_start", "tool_execution_update"]
+                        .iter()
+                        .any(|t| l.starts_with(&format!(r#"{{"type":"{t}""#)))
+                });
+                self.reindex();
+            } else if !is("extension_ui_request") {
+                self.run.push(line.clone());
             }
-            if line.starts_with(r#"{"type":"agent_settled""#) {
+            if is("agent_settled") {
                 self.active = false;
                 self.clear_run();
             }
@@ -1071,13 +1090,41 @@ mod tests {
         assert_eq!(r.run.iter().filter(|l| l.contains(r#""t2","partialResult""#)).count(), 1);
 
         feed(&mut r, &[r#"{"type":"tool_execution_end","toolCallId":"t1"}"#, r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"c"}}"#]);
-        assert!(!r.run.iter().any(|l| l.contains(r#""t1","partialResult""#)), "an ended tool's update goes");
+        assert!(!r.run.iter().any(|l| l.contains(r#""t1""#)), "an ended tool goes entirely (its result is in the history)");
         assert!(r.run.iter().any(|l| l.contains(r#""t2","partialResult""#)), "a running one's stays");
         assert!(r.run.iter().any(|l| l.contains(r#""delta":"c""#)), "the message still streaming is kept");
         assert_eq!(r.tool_updates.get("t2").map(|&i| r.run[i].contains("t2")), Some(true), "index follows the removals");
 
         feed(&mut r, &[r#"{"type":"agent_settled"}"#]);
         assert!(r.run.is_empty() && r.tool_updates.is_empty());
+    }
+
+    #[test]
+    fn hours_of_a_run_do_not_pile_up() {
+        let mut r = Replay::default();
+        feed(&mut r, &[r#"{"type":"agent_start"}"#]);
+        for i in 0..500 {
+            let big = "x".repeat(4000);
+            feed(
+                &mut r,
+                &[
+                    r#"{"type":"turn_start"}"#,
+                    r#"{"type":"message_start","message":{"role":"assistant"}}"#,
+                    &format!(r#"{{"type":"message_end","message":{{"role":"assistant","content":"{big}"}}}}"#),
+                    &format!(r#"{{"type":"tool_execution_start","toolCallId":"c{i}"}}"#),
+                    &format!(r#"{{"type":"tool_execution_end","toolCallId":"c{i}","result":"{big}"}}"#),
+                    &format!(r#"{{"type":"message_end","message":{{"role":"toolResult","content":"{big}"}}}}"#),
+                    r#"{"type":"queue_update","steering":[],"followUp":[]}"#,
+                ],
+            );
+        }
+        feed(&mut r, &[r#"{"type":"auto_retry_start","attempt":1}"#, r#"{"type":"message_start","message":{"role":"assistant"}}"#, r#"{"type":"message_update","x":1}"#]);
+        let kinds: Vec<&str> = r.run.iter().map(|l| l.split('"').nth(3).unwrap_or("")).collect();
+        assert_eq!(kinds, ["agent_start", "queue_update", "auto_retry_start", "message_start", "message_update"], "{kinds:?}");
+        let bytes: usize = r.run.iter().map(|l| l.len()).sum();
+        assert!(bytes < 1000, "{bytes} bytes kept");
+        feed(&mut r, &[r#"{"type":"auto_retry_end","success":true}"#]);
+        assert!(!r.run.iter().any(|l| l.contains("auto_retry")));
     }
 
     #[test]

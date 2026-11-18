@@ -24,7 +24,14 @@ pub async fn handler(State(app): State<Arc<AppState>>, Path(id): Path<String>, w
 const SEND_LIMIT: Duration = Duration::from_secs(15);
 
 async fn send(sock: &mut WebSocket, msg: Message) -> bool {
-    matches!(tokio::time::timeout(SEND_LIMIT, sock.send(msg)).await, Ok(Ok(())))
+    // a big frame (a long history's replay) gets more time: a second for every 128 KB on top, as a slow phone link needs
+    let len = match &msg {
+        Message::Text(t) => t.len(),
+        Message::Binary(b) => b.len(),
+        _ => 0,
+    };
+    let extra = Duration::from_secs((len / (128 * 1024)) as u64);
+    matches!(tokio::time::timeout(SEND_LIMIT + extra, sock.send(msg)).await, Ok(Ok(())))
 }
 
 async fn attach(mut sock: WebSocket, rt: Arc<Runtime>) {

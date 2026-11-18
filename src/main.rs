@@ -2,6 +2,7 @@
 mod lang;
 mod about;
 mod accounts;
+mod reap;
 mod api;
 mod auth;
 mod branch;
@@ -72,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     if argv.get(1).map(String::as_str) == Some("update") {
         std::process::exit(selfupdate::cli(&argv[2..]).await);
     }
+    reap::start();
     selfupdate::init();
     let mut cfg = config::parse_args();
     let (given_token, password) = match cfg.secrets() {
