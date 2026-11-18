@@ -59,6 +59,12 @@ struct Replay {
 
 const TOOL_UPDATE: &str = r#"{"type":"tool_execution_update""#;
 
+/// A response to a command (`{"type":"response"…`, or `{"id":"…","type":"response"…` when the command had an id).
+fn is_response(line: &str) -> bool {
+    line.starts_with(r#"{"type":"response""#)
+        || line.strip_prefix(r#"{"id":""#).and_then(|r| r.find('"').map(|e| r[e..].starts_with(r#"","type":"response""#))).unwrap_or(false)
+}
+
 fn tool_call_id(line: &str) -> Option<String> {
     #[derive(Deserialize)]
     struct Id {
@@ -116,7 +122,8 @@ impl Replay {
                         .any(|t| l.starts_with(&format!(r#"{{"type":"{t}""#)))
                 });
                 self.reindex();
-            } else if !is("extension_ui_request") {
+            } else if !is("extension_ui_request") && !is_response(line) {
+                // (answers belong to the page that asked: a history answer is megabytes, and no late joiner needs it)
                 self.run.push(line.clone());
             }
             if is("agent_settled") {
@@ -1123,6 +1130,8 @@ mod tests {
         assert_eq!(kinds, ["agent_start", "queue_update", "auto_retry_start", "message_start", "message_update"], "{kinds:?}");
         let bytes: usize = r.run.iter().map(|l| l.len()).sum();
         assert!(bytes < 1000, "{bytes} bytes kept");
+        feed(&mut r, &[r#"{"id":"ab-3","type":"response","command":"get_messages","data":{"messages":[]}}"#, r#"{"type":"response","command":"set_model"}"#]);
+        assert!(!r.run.iter().any(|l| l.contains("response")), "answers are the asking page's");
         feed(&mut r, &[r#"{"type":"auto_retry_end","success":true}"#]);
         assert!(!r.run.iter().any(|l| l.contains("auto_retry")));
     }

@@ -179,7 +179,7 @@ export class Chat {
     this.conn = new Connection(
       runtime.id,
       (rec) => this.#intake(rec),
-      () => void this.#open(),
+      (again) => void this.#open(again),
     );
   }
 
@@ -205,10 +205,11 @@ export class Chat {
   get hasPermissionExt() { return this.commands.some((c) => c.name === 'oven-permission'); }
 
   /** Records that arrive while history is loading are held, then applied in order. */
-  async #open() {
+  async #open(again = false) {
     this.#loading = true;
     this.#queued = [];
-    await this.load();
+    // connected again (a phone that slept, a dropped link): only the history that came meanwhile
+    await this.load(again);
     const queued = this.#queued;
     this.#loading = false;
     this.#queued = [];
@@ -431,18 +432,34 @@ export class Chat {
 
   // ── loading ──────────────────────────────────────────────────────────────
   #loadSeq = 0;
-  async load() {
+  /** pi's messages as this page has them (the last full answer, and every message that ended since), so a reconnect
+      can ask for only what came after: the server answers with the rest (`from`) when its history still starts the
+      same, and with all of it otherwise. */
+  #raw: WireMessage[] = [];
+
+  /** A message ended in front of us: it is in pi's history now. */
+  #rawAdd(m: WireMessage | undefined) {
+    if (!m) return;
+    const seen = this.#raw.slice(-8).some((r) => r.timestamp === m.timestamp && r.role === m.role);
+    if (!seen) this.#raw.push(m);
+  }
+
+  async load(since = false) {
     const seq = ++this.#loadSeq;
     try {
+      const last = this.#raw[this.#raw.length - 1];
+      const ask: Record<string, unknown> = { type: 'get_messages' };
+      if (since && last?.timestamp != null) ask.oven_since = { n: this.#raw.length, ts: last.timestamp };
       const [state, msgs] = await Promise.all([
         this.conn.request<SessionState>({ type: 'get_state' }),
-        this.conn.request<{ messages: WireMessage[] }>({ type: 'get_messages' }),
+        this.conn.request<{ messages: WireMessage[]; from?: number }>(ask),
       ]);
       if (seq !== this.#loadSeq) return; // a later load is under way: an older answer must not overwrite it
       this.#takeState(state);
       this.running = state.isStreaming;
       this.compacting = state.isCompacting;
-      const next = itemsFromMessages(msgs.messages);
+      this.#raw = msgs.from != null ? [...this.#raw.slice(0, msgs.from), ...msgs.messages] : msgs.messages;
+      const next = itemsFromMessages(this.#raw);
       // a Baton Touch line whose note is not in the history yet (pi was busy: it comes with the next turn) stays
       const inHistory = new Set(next.flatMap((i) => (i.kind === 'baton' ? [this.#batonSig(i.note)] : [])));
       this.#batonLive = this.#batonLive.filter((b) => !inHistory.has(b.sig));
@@ -847,6 +864,7 @@ export class Chat {
         if (this.#skipTs == null) this.#onAssistantEvent(rec.assistantMessageEvent, rec.usage?.output);
         break;
       case 'message_end':
+        this.#rawAdd(rec.message as WireMessage);
         this.#onMessageEnd(rec.message as WireMessage);
         break;
 
