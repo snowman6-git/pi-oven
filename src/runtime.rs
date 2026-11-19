@@ -200,6 +200,12 @@ pub struct Runtime {
     last_failed: std::sync::atomic::AtomicBool,
     /// A weekly (or longer) limit was met: no continue until then (ms; 0: none).
     no_resume_until: std::sync::atomic::AtomicU64,
+    /// Zero-Waste is waiting for this provider's plan to reset: its numbers are asked again before the continue goes
+    /// (a guessed reset, or numbers hours old with nobody looking, sent it into the same limit).
+    wait_for: Mutex<Option<String>>,
+    usage: Arc<crate::usage::Usage>,
+    limits: Arc<crate::limits::Limits>,
+    pi_bin: String,
     /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
     session_file: Mutex<Option<String>>,
 }
@@ -283,6 +289,7 @@ impl Runtime {
             self.resume_publish(true);
             return;
         }
+        *self.wait_for.lock().unwrap() = None; // another account or model: nothing to wait for
         let at = at.unwrap_or_else(now_ms) + crate::resume::BATON_DELAY_MS;
         let pending = crate::resume::Pending { at, tries, window: None, known: true };
         let begun = self.resume.lock().unwrap().replace(pending).is_none();
@@ -318,6 +325,11 @@ impl Runtime {
         }
     }
 
+    /// pi's automatic retries of a reply that met the plan's limit: pointless while the server waits for the reset.
+    async fn stop_retrying(&self) {
+        let _ = self.stdin_tx.send(r#"{"type":"abort_retry"}"#.to_owned()).await;
+    }
+
     /// Tell the page what Baton Touch did (`oven_baton`), and keep it in the session when the extension is there.
     async fn note(&self, to: serde_json::Value) {
         let mut frame = to.clone();
@@ -333,9 +345,24 @@ impl Runtime {
     /// A `Later` hand-over: at `at`, if Zero-Waste is still waiting, switch to the account.
     #[allow(clippy::too_many_arguments)]
     async fn take_over_at(self: Arc<Self>, at: u64, id: String, was: Option<String>, accounts: Arc<crate::accounts::Accounts>, limits: Arc<crate::limits::Limits>, usage: Arc<crate::usage::Usage>, pi_bin: String) {
-        tokio::time::sleep(Duration::from_millis(at.saturating_sub(now_ms()))).await;
-        if *self.shutdown.borrow() || self.resume.lock().unwrap().is_none() {
-            return;
+        let mut at = at;
+        loop {
+            tokio::time::sleep(Duration::from_millis(at.saturating_sub(now_ms()))).await;
+            if *self.shutdown.borrow() || self.resume.lock().unwrap().is_none() {
+                return;
+            }
+            // its numbers now: still used up (its reset was guessed, or moved), so wait for the real one
+            match accounts.free_at(&pi_bin, &id).await {
+                Some(t) if t > now_ms() => {
+                    at = t + 5_000;
+                    if let Some(p) = self.resume.lock().unwrap().as_mut() {
+                        p.at = at + crate::resume::BATON_DELAY_MS;
+                    }
+                    tracing::info!("Baton Touch: the account taking over is not free yet; waiting for its reset");
+                    self.resume_publish(false);
+                }
+                _ => break,
+            }
         }
         if let Some(a) = accounts.take_over(&pi_bin, &id, &limits).await {
             accounts.announce(Some(&self.info.id), &a);
@@ -437,7 +464,7 @@ impl Runtime {
             if *self.shutdown.borrow() {
                 return;
             }
-            let fire = {
+            let due = {
                 let mut g = self.resume.lock().unwrap();
                 let Some(p) = g.as_ref() else { return };
                 if !self.resume_cfg.get().enabled {
@@ -447,16 +474,38 @@ impl Runtime {
                     return;
                 }
                 // pi still going (its own retries, after Baton Touch put another account in): wait for it to settle
-                if now_ms() >= p.at && self.idle.load(std::sync::atomic::Ordering::Relaxed) {
-                    self.resume_tries.store(p.tries, std::sync::atomic::Ordering::Relaxed);
-                    self.resume_fired_at.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
-                    *g = None;
-                    true
-                } else {
-                    false
+                now_ms() >= p.at && self.idle.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            if !due {
+                continue;
+            }
+            // the plan it waited for: ask its numbers now, and if a window is still used up, wait for that reset instead
+            let waited = self.wait_for.lock().unwrap().clone();
+            if let Some(p) = waited {
+                let _ = self.usage.poll(&self.pi_bin, &self.limits, true, Some(&p)).await;
+                if let Some(t) = self.limits.used_up_until(&p, now_ms(), 95.0) {
+                    if let Some(w) = self.resume.lock().unwrap().as_mut() {
+                        w.at = t + 15_000;
+                        w.known = true;
+                    }
+                    tracing::info!("Zero-Waste: {p} is still used up; waiting for its reset");
+                    self.resume_publish(false);
+                    continue;
+                }
+            }
+            let fire = {
+                let mut g = self.resume.lock().unwrap();
+                match g.take() {
+                    Some(p) => {
+                        self.resume_tries.store(p.tries, std::sync::atomic::Ordering::Relaxed);
+                        self.resume_fired_at.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+                        true
+                    }
+                    None => return,
                 }
             };
             if fire {
+                *self.wait_for.lock().unwrap() = None;
                 // the run got through after all (pi's retry, on the new account): nothing to continue
                 if self.last_failed.load(std::sync::atomic::Ordering::Relaxed) {
                     let text = self.resume_cfg.get().text;
@@ -469,6 +518,8 @@ impl Runtime {
     }
 
     pub fn resume_now(&self) {
+        // the person said now: no second look at the numbers
+        *self.wait_for.lock().unwrap() = None;
         if let Some(p) = self.resume.lock().unwrap().as_mut() {
             p.at = now_ms();
         }
@@ -776,6 +827,10 @@ impl Manager {
             notes: self.long.available(),
             last_failed: Default::default(),
             no_resume_until: Default::default(),
+            wait_for: Mutex::new(None),
+            usage: self.usage.clone(),
+            limits: self.limits.clone(),
+            pi_bin: self.cfg.pi_bin.clone(),
         });
         self.pet.attach(rt.clone());
 
@@ -933,6 +988,7 @@ impl Manager {
                                                 crate::accounts::Baton::Later { next, at, was } => {
                                                     // every account is limited: the one that resets first takes over then
                                                     let to = serde_json::json!({ "provider": next.provider, "email": next.email, "plan": next.plan, "at": at, "was": was });
+                                                    rt.stop_retrying().await;
                                                     rt.resume_baton(Some(at), to).await;
                                                     tokio::spawn(rt.clone().take_over_at(at, next.id, was, accounts.clone(), limits.clone(), usage.clone(), pi_bin.clone()));
                                                     return;
@@ -966,6 +1022,9 @@ impl Manager {
                                             return;
                                         }
                                     }
+                                    // waiting for the reset: pi's own retries would only meet the same limit again
+                                    rt.stop_retrying().await;
+                                    *rt.wait_for.lock().unwrap() = provider.clone();
                                     rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
                                 });
                             }

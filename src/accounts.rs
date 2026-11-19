@@ -289,6 +289,15 @@ fn just_switched(batons: &std::collections::BTreeMap<String, u64>, provider: &st
     batons.get(provider).is_some_and(|t| now.saturating_sub(*t) < BATON_SETTLE_MS)
 }
 
+/// Until when an account cannot take over: its numbers decide when they were asked lately (free, or used up until
+/// a reset); otherwise its own mark (set when it ran out, perhaps a guess) or older numbers, whichever is later.
+fn busy_until(mark: Option<u64>, numbers: Option<(&crate::limits::Entry, u64)>, now: u64) -> Option<u64> {
+    match numbers {
+        Some((e, at)) if now.saturating_sub(at) < 10 * 60_000 => e.used_up_until(now, 95.0),
+        numbers => mark.filter(|t| *t > now).max(numbers.and_then(|(e, _)| e.used_up_until(now, 95.0))),
+    }
+}
+
 /// Which account of `provider` takes over from `cur`.
 #[derive(Debug, PartialEq)]
 enum Pick {
@@ -497,6 +506,16 @@ impl Accounts {
         if !store.baton_touch.unwrap_or(true) || store.accounts.iter().filter(|a| a.provider == provider).count() < 2 {
             return Baton::No;
         }
+        // which account is in use, then every other account's numbers as they are now (asked without the lock: a
+        // refreshed token is saved under it)
+        if self.current.lock().unwrap().get(provider).is_none() {
+            self.sync(pi_bin, &mut store).await;
+            let _ = save_store(&store);
+        }
+        drop(_one);
+        self.refresh_others(pi_bin, provider, None).await;
+        let _one = self.busy.lock().await;
+        let mut store = read_store();
         let current = self.sync(pi_bin, &mut store).await;
         let Some(cur) = current.get(provider).cloned() else { return Baton::No };
         // when it resets: the error or the numbers; else the latest window close to used up; else an hour
@@ -510,11 +529,14 @@ impl Accounts {
         }
         let pick = {
             let others = self.others.lock().unwrap();
-            // its own mark, or its last numbers (asked while it was not in use) showing a window used up
-            let busy = |a: &Account| {
-                let numbers = others.get(&a.id).and_then(|(e, _)| e.used_up_until(now, 95.0));
-                a.limited_until.filter(|t| *t > now).max(numbers)
-            };
+            // numbers asked a moment ago decide (free, or until when); without them, its own mark or older numbers
+            let busy = |a: &Account| busy_until(a.limited_until, others.get(&a.id).map(|(e, at)| (e, *at)), now);
+            // keep the marks true to the numbers, so Settings → Accounts shows when each one is free
+            for a in store.accounts.iter_mut().filter(|a| a.provider == provider && a.id != cur) {
+                if others.get(&a.id).is_some_and(|(_, at)| now.saturating_sub(*at) < 10 * 60_000) {
+                    a.limited_until = busy(a);
+                }
+            }
             pick_next(&store.accounts, provider, &cur, now, busy)
         };
         let _ = save_store(&store);
@@ -573,6 +595,35 @@ impl Accounts {
                 self.others.lock().unwrap().insert(a.id.clone(), (e, now));
             }
         }
+    }
+
+    /// Ask now, whatever the 5-minute pacing, for the numbers of `provider`'s accounts not in use (only `only`, when
+    /// given). Baton Touch decides on these, not on an hour guessed when an account last ran out.
+    async fn refresh_others(&self, pi_bin: &str, provider: &str, only: Option<&str>) {
+        let now = now_ms();
+        let current = self.current.lock().unwrap().get(provider).cloned();
+        let list: Vec<Account> = read_store()
+            .accounts
+            .into_iter()
+            .filter(|a| a.provider == provider && current.as_deref() != Some(a.id.as_str()) && only.is_none_or(|o| o == a.id))
+            .collect();
+        for a in list {
+            self.asked.lock().unwrap().insert(a.id.clone(), now);
+            let Some(token) = self.token_of(pi_bin, &a).await else { continue };
+            let asked = if a.provider == "openai-codex" { crate::usage::chatgpt::ask_with(&token, now).await } else { crate::usage::claude::ask_with(&token).await };
+            if let crate::usage::Asked::Got(e) = asked {
+                self.others.lock().unwrap().insert(a.id.clone(), (e, now_ms()));
+            }
+        }
+    }
+
+    /// When account `id` (not in use) is free again, by its numbers asked now: `None` when it is free now (or cannot
+    /// be told).
+    pub async fn free_at(&self, pi_bin: &str, id: &str) -> Option<u64> {
+        let provider = read_store().accounts.into_iter().find(|a| a.id == id)?.provider;
+        self.refresh_others(pi_bin, &provider, Some(id)).await;
+        let now = now_ms();
+        self.others.lock().unwrap().get(id).and_then(|(e, _)| e.used_up_until(now, 95.0))
     }
 
     /// A usable access token for an account not in use.
@@ -984,6 +1035,23 @@ mod tests {
         assert_eq!(pick_target(&targets, "anthropic", |_| false), Some(t("openai-codex", "gpt")));
         assert_eq!(pick_target(&targets, "anthropic", |p| p == "openai-codex"), Some(t("zai", "glm")));
         assert_eq!(pick_target(&targets, "anthropic", |_| true), None);
+    }
+
+    #[test]
+    fn fresh_numbers_beat_a_guessed_mark() {
+        let now = 10_000_000;
+        let e = |used: f64, reset: u64| crate::limits::Entry { provider: "anthropic".into(), plan: None, at: 1, limit_reached: false, windows: vec![crate::limits::Window { minutes: 300, used, reset_at: Some(reset) }], resets: None, reset_kinds: vec![] };
+        // marked for an hour (a guess), but asked a moment ago: still used up for two hours
+        let used = e(100.0, now + 7_200_000);
+        assert_eq!(busy_until(Some(now + 3_600_000), Some((&used, now - 1_000)), now), Some(now + 7_200_000));
+        // the guess has passed, the numbers say it is still used up
+        assert_eq!(busy_until(Some(now - 60_000), Some((&used, now - 1_000)), now), Some(now + 7_200_000));
+        // marked, but the numbers asked now say it is free again
+        let free = e(10.0, now + 7_200_000);
+        assert_eq!(busy_until(Some(now + 3_600_000), Some((&free, now - 1_000)), now), None);
+        // no fresh numbers: the mark, or old numbers, whichever is later
+        assert_eq!(busy_until(Some(now + 3_600_000), None, now), Some(now + 3_600_000));
+        assert_eq!(busy_until(Some(now + 3_600_000), Some((&used, now - 3_600_000)), now), Some(now + 7_200_000));
     }
 
     #[test]

@@ -165,6 +165,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
+    flex-shrink: 100; /* the model's name gives way first; the agent's own name only when it alone is too long */
   }
   /* the family tree */
   .tree {
@@ -174,6 +175,8 @@
   }
   .root {
     align-self: flex-start;
+    max-width: 100%;
+    min-width: 0;
     display: flex;
     align-items: baseline;
     gap: 8px;
@@ -185,6 +188,18 @@
   .root small {
     font-family: var(--font-mono);
     font-size: 11px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .root b {
+    flex: none;
+  }
+  .branch,
+  .fam,
+  .kids {
+    min-width: 0;
   }
   .branch {
     margin-left: 16px;
@@ -235,10 +250,15 @@
     width: 10px;
     border-top: 1px dashed var(--rule);
   }
+  /* a long agent name gives way (ellipsis) rather than pushing the panel wider */
   .nm {
     font: inherit;
     font-weight: 560;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     padding: 0;
     border: 0;
     background: none;

@@ -168,6 +168,8 @@
     scrollbar-width: none;
     padding: 16px 16px 24px;
     display: grid;
+    /* one column exactly the panel's width: a long unbroken line (a session file's name) must not widen every card */
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
     gap: 22px;
   }

@@ -942,7 +942,8 @@ export class Chat {
         break;
       case 'auto_retry_end':
         this.retry = null;
-        if (!rec.success && !this.long) this.notice('error', this.#shownError(rec.finalError) ? t('chatmsg.retryFailedShort') : t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
+        // "Retry cancelled": stopped on purpose (the person, or the server waiting for a plan to reset), not a failure
+        if (!rec.success && !this.long && !/retry cancelled/i.test(rec.finalError ?? '')) this.notice('error', this.#shownError(rec.finalError) ? t('chatmsg.retryFailedShort') : t('chatmsg.retryFailed', { err: rec.finalError ?? '' }));
         break;
 
       case 'extension_ui_request':

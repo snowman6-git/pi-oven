@@ -316,12 +316,13 @@
 </div>
 
 <style>
-  .tab { display: grid; gap: 8px; min-width: 0; align-content: start; }
-  .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .root { font-size: 12.5px; font-weight: 650; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; align-content: start; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .bar .acts { flex: none; }
+  .root { min-width: 0; font-size: 12.5px; font-weight: 650; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .acts { display: flex; flex: none; }
   .sm { width: 28px; height: 28px; }
-  .tree { display: grid; align-content: start; min-width: 0; margin: 0 -6px; min-height: 55dvh; }
+  .tree { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; min-width: 0; margin: 0 -6px; min-height: 55dvh; }
   .note, .err { margin: 2px 0; padding-left: calc(30px + var(--d, 0) * 14px); font-size: 12.5px; color: var(--ink-3); }
   .err { color: var(--bad); }
   .hint { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
