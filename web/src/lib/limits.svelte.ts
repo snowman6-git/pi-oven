@@ -31,9 +31,10 @@ class Limits {
     this.#started = true;
     void this.refresh(true);
     setInterval(() => (this.now = Date.now()), 30_000);
-    // while in view, ask the provider itself every 5 minutes (no message needed); coming back asks at once
+    // the server asks the providers itself every 5 minutes (and right after a reset), page or not: while in view this
+    // only reads what it has. Coming back, opening the cards or picking a model still asks at once
     setInterval(() => {
-      if (document.visibilityState === 'visible') void this.refresh(true);
+      if (document.visibilityState === 'visible') void this.refresh(false);
     }, 5 * 60_000);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') void this.refresh(true);

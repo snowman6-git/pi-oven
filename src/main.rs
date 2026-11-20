@@ -118,6 +118,8 @@ async fn main() -> anyhow::Result<()> {
         self_update: Default::default(),
     });
     tokio::spawn(app.self_update.clone().watch());
+    runtimes.accounts.load_numbers();
+    tokio::spawn(usage::watch(runtimes.clone(), cfg.pi_bin.clone()));
 
     let router = Router::new()
         .route("/api/info", get(api::info))

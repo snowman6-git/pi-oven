@@ -77,6 +77,8 @@ impl Resume {
 /// A session waiting for its limit to reset.
 /// After Baton Touch switched accounts, the continue message waits this long (the switch has reached pi's file).
 pub const BATON_DELAY_MS: u64 = 4_000;
+/// A Claude 429 the numbers do not show as the plan: a short rate limit, waited out this long before asking again.
+pub const RATE_LIMIT_WAIT_MS: u64 = 5 * 60_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
@@ -144,6 +146,12 @@ pub fn model_of(line: &str) -> Option<(String, String)> {
 pub fn maybe_plan_limit(error: &str) -> bool {
     let e = error.to_ascii_lowercase();
     e.contains("rate_limit_error") || e.contains("exceed your account's rate limit") || (e.contains("429") && e.contains("rate limit"))
+}
+
+/// A provider whose 429 is handled as its plan's limit: Zero-Waste takes it at once, and pi does not retry it (Claude
+/// answers a used-up plan with the same 429 as a short rate limit, and pi's quick retries only meet it again).
+pub fn always_plan(provider: Option<&str>) -> bool {
+    provider == Some("anthropic")
 }
 
 /// The subscription's own limit, not a short rate limit (pi retries those itself).

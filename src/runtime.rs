@@ -189,6 +189,9 @@ pub struct Runtime {
     limit_checks: std::sync::atomic::AtomicU32,
     /// When a check last found that a 429 was the plan's limit (0: never).
     limit_found_at: std::sync::atomic::AtomicU64,
+    /// The reply that just failed met the plan's limit: pi's automatic retry that follows is stopped as it starts (it
+    /// would only meet the same limit, three more times).
+    abort_next_retry: std::sync::atomic::AtomicBool,
     /// The provider and model of the last reply (what Baton Touch hands over from, and whether it is still on the
     /// model it handed over to).
     last_model: Mutex<Option<(String, String)>>,
@@ -303,12 +306,17 @@ impl Runtime {
     /// A failure Baton Touch already handled (pi's retries ran out on it, or came back the same): make sure a continue
     /// is waiting, so the session does not stop there. It goes once pi has settled, and only if the run failed.
     fn resume_soon(self: &Arc<Self>) {
-        use std::sync::atomic::Ordering;
-        if !self.resume_cfg.get().enabled || self.resume.lock().unwrap().is_some() || now_ms() < self.no_resume_until.load(Ordering::Relaxed) {
+        // a continue just went (the same failure reported again by pi's last retry): that one is enough
+        if now_ms().saturating_sub(self.resume_fired_at.load(std::sync::atomic::Ordering::Relaxed)) < 30_000 {
             return;
         }
-        // a continue just went (the same failure reported again by pi's last retry): that one is enough
-        if now_ms().saturating_sub(self.resume_fired_at.load(Ordering::Relaxed)) < 30_000 {
+        self.resume_after(crate::resume::BATON_DELAY_MS, true);
+    }
+
+    /// Continue in `ms` (once pi has settled, and only if the run failed), unless a wait is already set up.
+    fn resume_after(self: &Arc<Self>, ms: u64, known: bool) {
+        use std::sync::atomic::Ordering;
+        if !self.resume_cfg.get().enabled || self.resume.lock().unwrap().is_some() || now_ms() < self.no_resume_until.load(Ordering::Relaxed) {
             return;
         }
         let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
@@ -317,7 +325,7 @@ impl Runtime {
             self.resume_publish(true);
             return;
         }
-        let pending = crate::resume::Pending { at: now_ms() + crate::resume::BATON_DELAY_MS, tries, window: None, known: true };
+        let pending = crate::resume::Pending { at: now_ms() + ms, tries, window: None, known };
         let begun = self.resume.lock().unwrap().replace(pending).is_none();
         self.resume_publish(false);
         if begun {
@@ -822,6 +830,7 @@ impl Manager {
             resume_cfg: self.resume.clone(),
             limit_checks: Default::default(),
             limit_found_at: Default::default(),
+            abort_next_retry: Default::default(),
             last_model: Mutex::new(None),
             idle: std::sync::atomic::AtomicBool::new(true),
             notes: self.long.available(),
@@ -880,7 +889,11 @@ impl Manager {
                             if buf.is_empty() {
                                 continue;
                             }
-                            let line: Arc<str> = Arc::from(String::from_utf8_lossy(&buf).as_ref());
+                            let text = String::from_utf8_lossy(&buf);
+                            let line: Arc<str> = match slim_update(&text) {
+                                Some(slim) => Arc::from(slim),
+                                None => Arc::from(text.as_ref()),
+                            };
                             if line.starts_with(r#"{"type":"extension_ui_request""#) && line.contains(r#""method":"select""#) {
                                 if let Some((ask, offer)) = crate::update::from_prompt(&line) {
                                     updates.offered(offer, now_ms());
@@ -890,11 +903,19 @@ impl Manager {
                                     continue;
                                 }
                             }
+                            if line.starts_with(r#"{"type":"message_start""#) {
+                                rt.abort_next_retry.store(false, std::sync::atomic::Ordering::Relaxed);
+                            } else if line.starts_with(r#"{"type":"auto_retry_start""#) && rt.abort_next_retry.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                                // pi set its retry up a moment before saying so: the abort finds it waiting. The page
+                                // never sees it ("retry 1/3" for a limit Zero-Waste already has)
+                                let _ = rt.stdin_tx.try_send(r#"{"type":"abort_retry"}"#.to_owned());
+                                continue;
+                            }
                             if let Some(f) = state_session_file(&line) {
                                 *rt.session_file.lock().unwrap() = Some(f);
                             }
                             if let Some(e) = crate::limits::read(&line) {
-                                limits.record(e);
+                                limits.record_reply(e);
                             }
                             // The page hears of a failure first, so the first one still gets its notice; a run's end
                             // comes after the wait is settled, so the page knows whether it was a real end.
@@ -952,6 +973,11 @@ impl Manager {
                                 rt.long_event(e, &long);
                             }
                             if let Some((error, provider, sure)) = limit {
+                                // Claude's 429 is its plan (or a rate limit Zero-Waste waits out better than pi's quick
+                                // retries do); a sure limit too: no retry of pi's then
+                                if rt.resume_cfg.get().enabled && (sure == crate::resume::Limit::Sure || crate::resume::always_plan(provider.as_deref())) {
+                                    rt.abort_next_retry.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
                                 // ask the provider for the numbers as they are now, then decide; without them, the last reply's
                                 let (rt, limits, usage, pi_bin, accounts) = (rt.clone(), limits.clone(), usage.clone(), pi_bin.clone(), accounts.clone());
                                 let failed_model = model.clone();
@@ -961,7 +987,13 @@ impl Manager {
                                     let now = now_ms();
                                     // a 429 that may be the plan: only a window the numbers show as (nearly) used up makes it one;
                                     // otherwise it was a short rate limit, which pi retries by itself
-                                    let plan = sure == crate::resume::Limit::Sure || provider.as_deref().is_some_and(|p| limits.used_up(p, now, 95.0));
+                                    // The three ways of waiting, each for its own cause:
+                                    //  - the plan's limit: Baton Touch hands over to another account when one is free
+                                    //    (then continues at once); without one, Zero-Waste waits for the reset;
+                                    //  - anything else (no answer, overloaded, a server error): 100h mode.
+                                    // Claude's 429 is its plan's limit, whatever the numbers say yet (they lag).
+                                    let confirmed = sure == crate::resume::Limit::Sure || provider.as_deref().is_some_and(|p| limits.used_up(p, now, 95.0));
+                                    let plan = confirmed || crate::resume::always_plan(provider.as_deref());
                                     if plan {
                                         rt.limit_found_at.store(now, std::sync::atomic::Ordering::SeqCst);
                                     }
@@ -1025,7 +1057,13 @@ impl Manager {
                                     // waiting for the reset: pi's own retries would only meet the same limit again
                                     rt.stop_retrying().await;
                                     *rt.wait_for.lock().unwrap() = provider.clone();
-                                    rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
+                                    if confirmed || crate::resume::minutes_in(&error).is_some() {
+                                        rt.resume_begin(&error, found.map(|(t, m, _)| (t, m)));
+                                    } else {
+                                        // Claude's numbers do not show the plan used up (yet): ask them again in a few
+                                        // minutes; a used-up window then makes the wait its reset, otherwise it goes on
+                                        rt.resume_after(crate::resume::RATE_LIMIT_WAIT_MS, false);
+                                    }
                                 });
                             }
                         }
@@ -1111,8 +1149,62 @@ impl Manager {
     }
 }
 
+/// pi's `message_update` comes with every piece of an answer, a few hundred a reply, each with the reply's whole
+/// `usage` (tokens and cost, about 170 bytes; more than the piece). The page reads only the output token count from it.
+/// Kept: the event as it is, minus a `partial` copy of the answer when one comes; `usage.output`. The event's `type`
+/// stays first (the pet reads it there).
+fn slim_update(line: &str) -> Option<String> {
+    if !line.starts_with(r#"{"type":"message_update""#) {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    let mut ev = v.get("assistantMessageEvent")?.as_object()?.clone();
+    let kind = ev.remove("type")?;
+    let output = v.pointer("/usage/output").or_else(|| ev.get("partial").and_then(|p| p.pointer("/usage/output"))).cloned();
+    ev.remove("partial");
+    let mut out = String::from(r#"{"type":"message_update""#);
+    if let Some(n) = output {
+        out.push_str(&format!(r#","usage":{{"output":{n}}}"#));
+    }
+    out.push_str(&format!(r#","assistantMessageEvent":{{"type":{kind}"#));
+    for (k, val) in &ev {
+        out.push(',');
+        out.push_str(&serde_json::Value::String(k.clone()).to_string());
+        out.push(':');
+        out.push_str(&val.to_string());
+    }
+    out.push_str("}}");
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_update_keeps_its_piece_and_the_output_count_only() {
+        let answer = "x".repeat(5000);
+        let partial = serde_json::json!({ "role": "assistant", "content": [{ "type": "text", "text": answer }], "usage": { "input": 9, "output": 1234 } });
+        let line = serde_json::json!({ "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "a\"b", "partial": partial }, "message": partial }).to_string();
+        // serde_json writes keys in order: put `type` first as pi does
+        let line = line.replacen(r#"{"assistantMessageEvent""#, r#"{"type":"message_update","assistantMessageEvent""#, 1).replacen(r#","type":"message_update"}"#, "}", 1);
+        assert!(line.starts_with(r#"{"type":"message_update""#) && line.len() > 10_000, "{}", &line[..80]);
+        let slim = super::slim_update(&line).unwrap();
+        assert!(slim.starts_with(r#"{"type":"message_update","usage":{"output":1234},"assistantMessageEvent":{"type":"text_delta""#), "{slim}");
+        assert!(slim.len() < 200, "{slim}");
+        let v: serde_json::Value = serde_json::from_str(&slim).unwrap();
+        assert_eq!(v["assistantMessageEvent"]["delta"], "a\"b");
+        assert_eq!(v["assistantMessageEvent"]["contentIndex"], 0);
+        assert_eq!(v["usage"]["output"], 1234);
+        assert!(v.get("message").is_none() && v["assistantMessageEvent"].get("partial").is_none());
+        // as pi's RPC sends it: the whole usage beside the event
+        let rpc = r#"{"type":"message_update","usage":{"input":10,"output":77,"cacheRead":0,"cacheWrite":0,"totalTokens":87,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"조각"}}"#;
+        assert_eq!(super::slim_update(rpc).unwrap(), r#"{"type":"message_update","usage":{"output":77},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"조각"}}"#);
+        // a block's end keeps its whole content
+        let end = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":0,"content":"all of it","partial":{"content":[]}},"message":{}}"#;
+        let v: serde_json::Value = serde_json::from_str(&super::slim_update(end).unwrap()).unwrap();
+        assert_eq!(v["assistantMessageEvent"]["content"], "all of it");
+        assert!(super::slim_update(r#"{"type":"message_end","message":{}}"#).is_none());
+    }
+
     use super::*;
 
     #[test]

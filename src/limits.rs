@@ -98,7 +98,14 @@ pub struct Limits {
     /// Providers whose last direct question failed: why, and when the next may go out. Shown, so a chip that does not
     /// follow a model switch has a reason on screen instead of looking stuck.
     problems: Mutex<BTreeMap<String, (String, u64)>>,
+    /// When each provider last went to another account. Numbers that left before it belong to the account before:
+    /// a reply sent on the old sign-in, or a question asked with its token, can land after the switch.
+    switched: Mutex<BTreeMap<String, u64>>,
 }
+
+/// A reply's numbers come with its first bytes, which can come this long after the request went out on the sign-in
+/// of the moment.
+pub const REPLY_LAG_MS: u64 = 30_000;
 
 impl Limits {
     pub fn load(extension: Option<&PathBuf>) -> Self {
@@ -112,7 +119,7 @@ impl Limits {
             .filter_map(Entry::clean)
             .map(|e| (e.provider.clone(), e))
             .collect();
-        Self { map: Mutex::new(map), file, problems: Default::default() }
+        Self { map: Mutex::new(map), file, problems: Default::default(), switched: Default::default() }
     }
 
     /// The numbers held for `provider` (those of the account in use).
@@ -122,8 +129,28 @@ impl Limits {
 
     /// Put `e` in, older or not: another account just took over, and these are its numbers.
     pub fn replace(&self, e: Entry) {
+        self.switched.lock().unwrap().insert(e.provider.clone(), crate::runtime::now_ms());
         self.map.lock().unwrap().insert(e.provider.clone(), e);
         self.save();
+    }
+
+    /// Numbers a reply brought: kept unless the account changed since its request may have gone out.
+    pub fn record_reply(&self, e: Entry) {
+        self.record_since(e.at.saturating_sub(REPLY_LAG_MS), e);
+    }
+
+    /// Numbers asked for at `asked`: kept unless the account changed since.
+    pub fn record_since(&self, asked: u64, e: Entry) {
+        if self.switched.lock().unwrap().get(&e.provider).is_some_and(|t| *t > asked) {
+            tracing::info!("usage: numbers for {} from before the account changed; left out", e.provider);
+            return;
+        }
+        self.record(e);
+    }
+
+    /// The soonest reset after `after`, of any window held.
+    pub fn next_reset(&self, after: u64) -> Option<u64> {
+        self.map.lock().unwrap().values().flat_map(|e| e.windows.iter()).filter_map(|w| w.reset_at).filter(|t| *t > after).min()
     }
 
     pub fn record(&self, e: Entry) {
@@ -289,6 +316,25 @@ mod tests {
         assert_eq!(l2.culprit(Some("p"), 0, None), Some((9000 * m, 10080, true)));
         l.mark_used_up("p", 300);
         assert_eq!(l.view(100)["items"][0]["windows"][0]["used"], 100.0);
+    }
+
+    #[test]
+    fn numbers_from_before_an_account_change_are_left_out() {
+        let limits = Limits::load(None);
+        let now = crate::runtime::now_ms();
+        let e = |used: f64, at: u64| Entry { provider: "anthropic".into(), plan: None, at, limit_reached: false, windows: vec![Window { minutes: 300, used, reset_at: Some(now + 3_600_000) }], resets: None, reset_kinds: vec![] };
+        limits.replace(e(10.0, now)); // the new account's numbers, at the switch
+        // a reply that went out on the old sign-in lands 5 s later with its 100 %
+        limits.record_reply(e(100.0, now + 5_000));
+        assert_eq!(limits.entry("anthropic").unwrap().windows[0].used, 10.0);
+        // a question asked before the switch
+        limits.record_since(now - 1, e(100.0, now + 6_000));
+        assert_eq!(limits.entry("anthropic").unwrap().windows[0].used, 10.0);
+        // later replies are the new account's
+        limits.record_reply(e(20.0, now + REPLY_LAG_MS + 1_000));
+        assert_eq!(limits.entry("anthropic").unwrap().windows[0].used, 20.0);
+        assert_eq!(limits.next_reset(now), Some(now + 3_600_000));
+        assert_eq!(limits.next_reset(now + 3_600_000), None);
     }
 
     #[test]

@@ -338,7 +338,8 @@ pub struct Accounts {
     batons: std::sync::Mutex<std::collections::BTreeMap<String, u64>>,
     /// The account in use per provider, as last found (for the limits view, without asking anyone).
     current: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
-    /// The plan numbers of the accounts not in use: account id → (numbers, next time they may be asked).
+    /// The plan numbers of the accounts not in use: account id → (numbers, when they were asked). Kept in a file
+    /// (`account-limits.json`), so a restart does not leave Baton Touch with guesses.
     others: std::sync::Mutex<std::collections::BTreeMap<String, (crate::limits::Entry, u64)>>,
     /// Accounts not in use whose numbers were last asked for (account id → when), so they are asked at most every 5 min.
     asked: std::sync::Mutex<std::collections::BTreeMap<String, u64>>,
@@ -480,6 +481,8 @@ impl Accounts {
             None => limits.replace(crate::limits::Entry { provider: provider.to_owned(), plan: None, at: 0, limit_reached: false, windows: vec![], resets: None, reset_kinds: vec![] }),
         }
         self.current.lock().unwrap().insert(provider.to_owned(), to.to_owned());
+        drop(others);
+        self.save_numbers();
     }
 
     async fn remove(&self, pi_bin: &str, id: &str) -> Result<(), String> {
@@ -568,6 +571,44 @@ impl Accounts {
 
     // ── the numbers of the accounts not in use ─────────────────────────────────
 
+    fn numbers_file() -> PathBuf {
+        crate::config::cache_dir().join("account-limits.json")
+    }
+
+    /// Read the numbers kept from before a restart.
+    pub fn load_numbers(&self) {
+        let Some(map) = std::fs::read(Self::numbers_file()).ok().and_then(|b| serde_json::from_slice::<std::collections::BTreeMap<String, (crate::limits::Entry, u64)>>(&b).ok()) else { return };
+        let mut others = self.others.lock().unwrap();
+        for (id, v) in map {
+            others.entry(id).or_insert(v);
+        }
+    }
+
+    fn save_numbers(&self) {
+        if cfg!(test) {
+            return; // tests leave the real cache folder alone
+        }
+        let Ok(body) = serde_json::to_string(&*self.others.lock().unwrap()) else { return };
+        if let Err(e) = write_private(&Self::numbers_file(), &body) {
+            tracing::warn!("could not keep the accounts' plan numbers: {e}");
+        }
+    }
+
+    /// Put an account's fresh numbers in: kept unless that account went into use since they were asked for (then the
+    /// numbers held for its provider are newer).
+    fn keep_numbers(&self, id: &str, e: crate::limits::Entry, asked: u64) {
+        if self.current.lock().unwrap().get(&e.provider).is_some_and(|c| c == id) {
+            return;
+        }
+        self.others.lock().unwrap().insert(id.to_owned(), (e, asked));
+        self.save_numbers();
+    }
+
+    /// The soonest reset after `after` among the accounts not in use.
+    pub fn next_reset(&self, after: u64) -> Option<u64> {
+        self.others.lock().unwrap().values().flat_map(|(e, _)| e.windows.iter()).filter_map(|w| w.reset_at).filter(|t| *t > after).min()
+    }
+
     /// Ask for the plan numbers of the saved accounts not in use, each at most every 5 minutes. A token close to
     /// expiry is refreshed by pi in a folder of its own, and the refreshed sign-in is kept.
     pub async fn poll_others(&self, pi_bin: &str) {
@@ -585,14 +626,19 @@ impl Accounts {
             .accounts
             .into_iter()
             .filter(|a| current.get(&a.provider).is_some_and(|c| *c != a.id))
-            .filter(|a| self.asked.lock().unwrap().get(&a.id).is_none_or(|t| now.saturating_sub(*t) >= GAP))
+            .filter(|a| {
+                let last = self.asked.lock().unwrap().get(&a.id).copied();
+                // a window it had has reset since: what it says now matters, gap or not
+                let reset = self.others.lock().unwrap().get(&a.id).is_some_and(|(e, _)| e.windows.iter().any(|w| w.reset_at.is_some_and(|t| t <= now && last.is_none_or(|l| l < t))));
+                reset || last.is_none_or(|t| now.saturating_sub(t) >= GAP)
+            })
             .collect();
         for a in due {
             self.asked.lock().unwrap().insert(a.id.clone(), now);
             let Some(token) = self.token_of(pi_bin, &a).await else { continue };
             let asked = if a.provider == "openai-codex" { crate::usage::chatgpt::ask_with(&token, now).await } else { crate::usage::claude::ask_with(&token).await };
             if let crate::usage::Asked::Got(e) = asked {
-                self.others.lock().unwrap().insert(a.id.clone(), (e, now));
+                self.keep_numbers(&a.id, e, now);
             }
         }
     }
@@ -612,7 +658,7 @@ impl Accounts {
             let Some(token) = self.token_of(pi_bin, &a).await else { continue };
             let asked = if a.provider == "openai-codex" { crate::usage::chatgpt::ask_with(&token, now).await } else { crate::usage::claude::ask_with(&token).await };
             if let crate::usage::Asked::Got(e) = asked {
-                self.others.lock().unwrap().insert(a.id.clone(), (e, now_ms()));
+                self.keep_numbers(&a.id, e, now_ms());
             }
         }
     }

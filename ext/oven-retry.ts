@@ -14,6 +14,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const TYPE = "oven-retry";
 const TEXT = "The previous request failed with a temporary API error. Continue from where you left off.";
+/** The command the server runs (`/oven-note <json>`), and the kind of message it keeps. */
+const NOTE_COMMAND = "oven-note";
 const NOTE = "oven-baton";
 
 export default function (pi: ExtensionAPI) {
@@ -24,7 +26,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand(NOTE, {
+	pi.registerCommand(NOTE_COMMAND, {
 		description: "Keep a note of an account or model hand-over (used by pi-oven)",
 		handler: async (args, ctx) => {
 			let details: unknown;

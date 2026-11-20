@@ -164,7 +164,7 @@ impl Usage {
             let next = gate.quiet_until.load(Ordering::Relaxed);
             match asked {
                 Asked::Got(e) => {
-                    limits.record(e);
+                    limits.record_since(now, e);
                     limits.note_problem(id, None);
                     fresh = true;
                 }
@@ -180,6 +180,43 @@ impl Usage {
             }
         }
         fresh
+    }
+}
+
+/// How often the server asks by itself, whether or not a page is open (on the clock: :00, :05, …).
+pub const EVERY_MS: u64 = 5 * 60_000;
+/// After a known reset, the numbers are asked this much later (the provider has moved on by then).
+const AFTER_RESET_MS: u64 = 20_000;
+
+/// The server's own questions: every five minutes on the clock, and just after any window held (in use or not) is due
+/// to reset, so a reset is seen when it happens rather than when a page next looks. The usual gates still apply.
+pub async fn watch(rt: Arc<crate::runtime::Manager>, pi_bin: String) {
+    let mut tick = (now_ms() / EVERY_MS + 1) * EVERY_MS;
+    // resets up to this one have been asked after (those before the start are not chased)
+    let mut done_reset = now_ms();
+    loop {
+        // looked at again every minute at most: numbers that came in meanwhile can bring a reset sooner than the tick
+        let now = now_ms();
+        let reset = [rt.limits.next_reset(done_reset), rt.accounts.next_reset(done_reset)].into_iter().flatten().min();
+        let after = reset.map(|t| t + AFTER_RESET_MS);
+        let (at, forced) = match after {
+            Some(t) if t < tick => (t, true),
+            _ => (tick, false),
+        };
+        if at > now {
+            tokio::time::sleep(std::time::Duration::from_millis((at - now).min(60_000))).await;
+            continue;
+        }
+        if forced {
+            done_reset = reset.unwrap_or(now);
+        } else {
+            tick = (now / EVERY_MS + 1) * EVERY_MS;
+        }
+        if !rt.usage.on.load(Ordering::Relaxed) {
+            continue;
+        }
+        rt.usage.poll(&pi_bin, &rt.limits, forced, None).await;
+        rt.accounts.poll_others(&pi_bin).await;
     }
 }
 
