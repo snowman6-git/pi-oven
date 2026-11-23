@@ -149,7 +149,11 @@ export class Connection {
       if (timeoutMs) timer = setTimeout(() => { this.#pending.delete(id); reject(new Error('timeout')); }, timeoutMs);
       this.#ws.send(JSON.stringify({ ...cmd, id }));
     }).finally(() => clearTimeout(timer));
-    if (!res.success) throw new Error(res.error ?? `${res.command} failed`);
+    if (!res.success) {
+      const err = new Error(res.error ?? `${res.command} failed`) as Error & { response?: Response };
+      err.response = res; // the server's own fields (`oven_held`) come with it
+      throw err;
+    }
     return res.data as T;
   }
 

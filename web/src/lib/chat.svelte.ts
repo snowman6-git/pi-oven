@@ -8,6 +8,7 @@ import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, 
 import { Connection } from './connection.svelte';
 import { Subagents } from './subagents.svelte';
 import { COMMAND as SA_COMMAND } from '../addons/subagents';
+import { COMMAND as LENS_COMMAND } from '../addons/lens';
 import { Editors, type EditorHost } from './editor.svelte';
 import { pinsFor } from './pins.svelte';
 import { StreamTimer, type Speed } from './speed';
@@ -124,6 +125,9 @@ export class Chat {
   bgLaunches = $state<{ n: number; toolId: string; taskId: string | null }[]>([]);
   /** Tasks that just ended, oldest first; the chip pops once for each. */
   bgEvents = $state<{ n: number; id: string; status: BgTask['status'] }[]>([]);
+  /** How far the effects have played each queue. Kept here, not in the effect: it is made again whenever this
+      session comes back on screen, and would otherwise play every flight of the session again. */
+  played = { launch: 0, event: 0, handoff: 0, saLaunch: 0, saEvent: 0, saHand: 0 };
   /** Finished (or asking) while the person was looking elsewhere. */
   unseen = $state(false);
   /** Pending history requests for message-less sessions are cheap; flag lets the UI show a skeleton. */
@@ -186,6 +190,7 @@ export class Chat {
   get hasTodo() { return this.commands.some((c) => c.name === TODO_COMMAND); }
   /** pi-subagents is installed (the add-on for it: chips, tray, notices). */
   get hasSubagents() { return this.commands.some((c) => c.name === SA_COMMAND); }
+  get hasLens() { return this.commands.some((c) => c.name === LENS_COMMAND); }
 
   /** The list as the package saved it (survives compaction, and covers calls made through another tool). */
   #todoTimer: ReturnType<typeof setTimeout> | undefined;
@@ -231,10 +236,24 @@ export class Chat {
 
   /** pi's notice for a task has reached the conversation. If the task still has its chip and the conversation can be seen,
       the chip becomes the bubble (it flies there; the bubble stays hidden until it lands); otherwise the chip just goes. */
-  #taskArrived(id: string) {
+  #taskArrived(id: string, status?: string) {
     this.#awaitingNotice.delete(id);
     this.#keepUntilSeen.delete(id);
-    if (!this.bgChips.some((t) => t.id === id)) return;
+    // pi's notice is the word that the task is over: the list (read every 2 s) can lag behind it, and saying
+    // "running" after it brought the chip back as a running one, which then waited for a notice that had come
+    this.#noticed.add(id);
+    const task = this.bgTasks.find((t) => t.id === id);
+    const had = this.bgChips.some((t) => t.id === id);
+    if (task?.status === 'running') {
+      const ended = (['completed', 'failed', 'killed'].includes(status ?? '') ? status : 'completed') as BgTask['status'];
+      this.bgTasks = this.bgTasks.map((t) => (t.id === id ? { ...t, status: ended } : t));
+      if (had) {
+        // its ending was not seen yet: the chip pops as for any ending, then flies to the notice
+        this.bgEvents = [...this.bgEvents.slice(-19), { n: ++this.#bgEventSeq, id, status: ended }];
+        if (!this.bgFresh.includes(id)) this.bgFresh = [...this.bgFresh, id];
+      }
+    }
+    if (!had) return;
     if (!this.chatVisible || document.hidden || this.bgLanding.includes(id)) {
       this.dismissBg(id);
       return;
@@ -251,6 +270,8 @@ export class Chat {
     this.dismissBg(id);
   }
 
+  /** Tasks whose notice has come: over, whatever the list still says. */
+  #noticed = new Set<string>();
   /** Finished chips waiting for pi's notice (it may come at once, or after the run if the agent is busy). */
   #awaitingNotice = new Set<string>();
   /** Of those, the ones that stay until seen even if no notice comes (a failure). */
@@ -268,8 +289,9 @@ export class Chat {
     setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 15 * 60_000);
   }
 
-  /** The notice only ever lands in the session file (the RPC stream never emits it), so while a task awaits its
-      notice the tail of the file is read for a `custom_message` record. */
+  /** pi's notice comes on the RPC stream as the custom message's `message_end` (checked with pi 1.5.2, idle or busy),
+      which ends the chip at once (`#taskArrived`). A page that was away for it reads the tail of the session file for
+      the `custom_message` record instead, while a task awaits its notice. */
   #pollNotice() {
     // nothing left to wait for: clear the mark, or the next task would think a poll is still running and never start one
     if (this.#awaitingNotice.size === 0) {
@@ -295,7 +317,7 @@ export class Chat {
             const t = taskItem(rec);
             if (t) {
               this.items.push(t);
-              this.#taskArrived(id); // the pop, and the card flying into the bubble
+              this.#taskArrived(id, t.kind === 'task' ? t.status : undefined); // the pop, and the card flying into the bubble
             }
           }
         })
@@ -324,14 +346,18 @@ export class Chat {
       this.#bgBaseline = true;
       // what was already there when this page looked: oldest first; what comes later is added as it arrives
       if (first) this.#remember(orderBatch(list).map((t) => t.id));
-      for (const t of list) {
+      // a task whose notice came is over even while the list still says it runs
+      const list0 = list;
+      const fixed = list0.map((t) => (this.#noticed.has(t.id) && t.status === 'running' ? { ...t, status: (before.get(t.id) ?? 'completed') as BgTask['status'] } : t));
+      for (const t of fixed) {
         const was = before.get(t.id);
+        if (this.#noticed.has(t.id)) continue; // its ending was handled when the notice came
         if (t.status !== 'running' && (was === 'running' || (!was && !first))) this.#bgEnded(t);
         else if (!was && !first && t.status === 'running') this.#arrive(t.id);
       }
       // a task the extension just announced may not be in the list yet
       const young = this.bgTasks.filter((t) => t.status === 'running' && !list.some((x) => x.id === t.id) && Date.now() - t.startTime < 10_000);
-      this.bgTasks = [...list, ...young];
+      this.bgTasks = [...fixed, ...young];
     } catch { /* the next round will retry */ }
     finally {
       this.#bgFetching = false;
@@ -583,7 +609,9 @@ export class Chat {
       setTimeout(() => (this.#sending = false), 15_000);
     }
     try {
-      await this.conn.request(cmd);
+      const r = await this.conn.request<{ held?: unknown } | undefined>(cmd);
+      // the plan is used up: Zero-Waste keeps the message and sends it at the reset (the strip above shows it)
+      if (r?.held) { this.#sending = false; this.waitSince = 0; }
     } catch (e) {
       this.#sending = false;
       this.notice('error', (e as Error).message);
@@ -779,7 +807,6 @@ export class Chat {
         this.#setResume(rec.state);
         void limits.refresh(); // a limit just hit marks its window as used up
         if (rec.gaveUp) this.notice('error', t('resume.gaveUp'));
-        if (rec.skipped) this.notice('warn', t('resume.skippedLong', { window: windowName(rec.skipped.window), date: resetDate(Date.now() + rec.skipped.inMs) }));
         break;
       case 'oven_baton':
         // Baton Touch handed over: to another account (now, or `at` when every one is limited), to another provider's
@@ -797,6 +824,14 @@ export class Chat {
       case 'oven_long':
         this.#setLong(rec.state);
         if (rec.gaveUp) this.notice('error', t('long.gaveUp'));
+        break;
+      case 'oven_unheld':
+        // the wait was stopped: the messages it held go back into the message box, not lost
+        this.prefill = { text: rec.text, n: Date.now() };
+        break;
+      case 'oven_halt':
+        // the server stopped a run whose requests kept failing back to back (a loop, not pi's spaced retries)
+        this.notice('error', t('chatmsg.halted', { n: rec.fails }));
         break;
       case 'oven_stderr':
         this.stderr = [...this.stderr.slice(-39), rec.line];
@@ -1020,7 +1055,7 @@ export class Chat {
         const x = taskItemFromXml(textOf(m.content));
         if (x) {
           this.items.push({ kind: 'task', key: nextKey(), id: x.id, name: x.name, command: '', status: x.status, exitCode: undefined, durationMs: undefined, text: x.name, ts: m.timestamp });
-          if (!this.#replaying) this.#taskArrived(x.id);
+          if (!this.#replaying) this.#taskArrived(x.id, x.status);
           break;
         }
         if (!this.items.some((i) => i.kind === 'user' && i.ts === m.timestamp)) this.items.push(userItem(m));
@@ -1043,7 +1078,7 @@ export class Chat {
         if (t?.kind === 'subagent' && this.items.some((i) => i.kind === 'subagent' && i.notice.runIds.some((r) => t.notice.runIds.includes(r)))) break;
         if (t) {
           this.items.push(t);
-          if (!this.#replaying && t.kind === 'task') this.#taskArrived(t.id);
+          if (!this.#replaying && t.kind === 'task') this.#taskArrived(t.id, t.status);
           if (!this.#replaying && t.kind === 'subagent') this.sa.arrived(t.notice, t.key);
         } else if (m.customType === BATON_NOTE) this.#batonArrived((m.details ?? {}) as BatonNote, true, m.timestamp);
         else if (m.display) this.items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });

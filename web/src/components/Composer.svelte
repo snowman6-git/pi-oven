@@ -227,6 +227,7 @@
   <div
     bind:this={boxEl}
     class="composer"
+    class:veiled={(menu !== null && menu !== 'plus') || chat.sa.open}
     class:tall
     class:hot={chat.running}
     class:dragging
@@ -400,6 +401,11 @@
     border-radius: var(--box-r);
     box-shadow: var(--shadow);
     transition: border-color 0.2s, box-shadow 0.4s, border-radius 0.18s cubic-bezier(0.2, 0, 0, 1);
+  }
+  /* a menu below is open over the box: when the box is taller than the menu (a long message), its top would show
+     above the menu; the box has turned into the menu, so it is not drawn meanwhile */
+  .composer.veiled {
+    visibility: hidden;
   }
   .composer:focus-within {
     border-color: var(--ink-3);

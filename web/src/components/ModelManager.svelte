@@ -31,8 +31,12 @@
   let modelName = $state('');
   let reasoning = $state(false);
   let image = $state(false);
+  let xhigh = $state(false);
+  let max = $state(false);
   let ctxWin = $state('');
   let maxTok = $state('');
+  /** The model being changed (its id stays; a new id is a new model). */
+  let editing = $state<string | null>(null);
 
   let found = $state<string[] | null>(null);
   let probing = $state(false);
@@ -70,6 +74,31 @@
     applied = null;
   }
 
+  /** Pick a model that is already there: the form shows it as it is, to change it. */
+  function editModel(p: ModelProvider, m: ModelProvider['models'][number]) {
+    edit(p);
+    editing = m.id;
+    modelId = m.id;
+    modelName = m.name ?? '';
+    reasoning = m.reasoning;
+    image = m.image;
+    xhigh = m.xhigh;
+    max = m.max;
+    ctxWin = m.contextWindow != null ? String(m.contextWindow) : '';
+    maxTok = m.maxTokens != null ? String(m.maxTokens) : '';
+    error = null;
+    formEl?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
+  function stopEditing() {
+    editing = null;
+    modelId = modelName = ctxWin = maxTok = '';
+    reasoning = image = xhigh = max = false;
+    error = null;
+  }
+
+  let formEl = $state<HTMLElement>();
+
   async function probe() {
     probeError = null;
     found = null;
@@ -103,7 +132,7 @@
         baseUrl: baseUrl.trim(),
         api: apiKind,
         apiKey: clearKey ? '' : key ? key : undefined,
-        model: modelId.trim() ? { id: modelId.trim(), name: modelName.trim() || undefined, reasoning, image, contextWindow: num(ctxWin), maxTokens: num(maxTok) } : undefined,
+        model: modelId.trim() ? { id: modelId.trim(), name: modelName.trim() || undefined, reasoning, image, xhigh, max, contextWindow: num(ctxWin), maxTokens: num(maxTok) } : undefined,
       });
       const id = modelId.trim();
       key = '';
@@ -113,8 +142,9 @@
         const list = chat ? await chat.reloadModels() : null;
         applied = { id, visible: !list || list.some((m) => m.id === id && m.provider === provider.trim()) };
         modelId = modelName = ctxWin = maxTok = '';
-        reasoning = image = false;
+        reasoning = image = xhigh = max = false;
         found = null;
+        editing = null;
       } else app.flash(t('models.saved'));
     } catch (e) {
       error = e instanceof Error ? e.message : t('models.saveFailed');
@@ -138,6 +168,7 @@
     if (!ok) return;
     try {
       await api.removeModel(p.name, id);
+      if (editing && p.name === provider.trim() && (!id || id === editing)) stopEditing();
       await load();
       await chat?.reloadModels();
       app.flash(t('models.removed'));
@@ -176,7 +207,7 @@
               </div>
               <div class="models">
                 {#each p.models as m (m.id)}
-                  <span class="mchip">{m.name || m.id}<button type="button" aria-label={t('models.removeName', { name: m.id })} onclick={() => remove(p, m.id)}>×</button></span>
+                  <span class="mchip" class:on={editing === m.id && p.name === provider.trim()}><button class="mname" type="button" title={t('models.editModelHint')} onclick={() => editModel(p, m)}>{m.name || m.id}</button><button class="mx" type="button" aria-label={t('models.removeName', { name: m.id })} onclick={() => remove(p, m.id)}>×</button></span>
                 {:else}
                   <small>{t('models.noModels')}</small>
                 {/each}
@@ -188,8 +219,8 @@
       </section>
     {/if}
 
-    <form onsubmit={(e) => { e.preventDefault(); void save(); }}>
-      <h3>{existing ? t('models.addTo', { name: existing.name }) : t('models.newProvider')}</h3>
+    <form bind:this={formEl} onsubmit={(e) => { e.preventDefault(); void save(); }}>
+      <h3>{editing ? t('models.editModel', { id: editing }) : existing ? t('models.addTo', { name: existing.name }) : t('models.newProvider')}</h3>
 
       <label>{t('models.providerName')}
         <input class="field" bind:value={provider} placeholder={t('models.providerPh')} list="md-providers" autocomplete="off" spellcheck="false" />
@@ -226,7 +257,7 @@
       {/if}
 
       <label>{t('models.modelId')}
-        <input class="field mono" bind:value={modelId} placeholder={t('models.modelIdPh')} autocomplete="off" spellcheck="false" />
+        <input class="field mono" bind:value={modelId} placeholder={t('models.modelIdPh')} autocomplete="off" spellcheck="false" readonly={editing !== null} />
       </label>
       <label><span>{t('models.displayName')} <small>{t('models.optional')}</small></span>
         <input class="field" bind:value={modelName} placeholder={t('models.displayPh')} autocomplete="off" />
@@ -235,6 +266,8 @@
       <div class="checks">
         <label class="inline"><input type="checkbox" bind:checked={reasoning} /> {t('models.reasoning')}</label>
         <label class="inline"><input type="checkbox" bind:checked={image} /> {t('models.image')}</label>
+        <label class="inline"><input type="checkbox" bind:checked={xhigh} disabled={!reasoning} /> {t('models.xhigh')}</label>
+        <label class="inline"><input type="checkbox" bind:checked={max} disabled={!reasoning} /> {t('models.max')}</label>
       </div>
       <div class="nums">
         <div class="lbl"><span>{t('models.ctxWin')} <small>{t('models.tokens')}</small></span><PresetInput bind:value={ctxWin} presets={ctxPresets} placeholder="128000" label={t('models.ctxWin')} /></div>
@@ -253,7 +286,8 @@
       {/if}
 
       <div class="actions">
-        <button class="btn primary" type="submit" disabled={saving}>{saving ? t('models.saving') : modelId.trim() ? t('models.addModel') : t('models.saveProvider')}</button>
+        {#if editing}<button class="btn" type="button" onclick={stopEditing}>{S.cancel}</button>{/if}
+        <button class="btn primary" type="submit" disabled={saving}>{saving ? t('models.saving') : editing ? t('models.saveModel') : modelId.trim() ? t('models.addModel') : t('models.saveProvider')}</button>
       </div>
       {#if cfg}<p class="path mono" data-priv="paths">{cfg.path}</p>{/if}
     </form>
@@ -289,8 +323,10 @@
   .sm { width: 28px; height: 28px; }
   .models { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
   .mchip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--paper-sunk); font-size: 12.5px; }
-  .mchip button { width: 18px; height: 18px; border-radius: 50%; color: var(--ink-3); line-height: 1; }
-  @media (hover: hover) { .mchip button:hover { background: var(--rule); color: var(--ink); } }
+  .mchip.on { box-shadow: inset 0 0 0 1px var(--accent); }
+  .mchip .mname { color: inherit; font: inherit; padding: 0; text-align: left; }
+  .mchip .mx { width: 18px; height: 18px; border-radius: 50%; color: var(--ink-3); line-height: 1; }
+  @media (hover: hover) { .mchip .mname:hover { text-decoration: underline; } .mchip .mx:hover { background: var(--rule); color: var(--ink); } }
   @media (max-width: 720px) {
     .nums { grid-template-columns: minmax(0, 1fr); }
   }

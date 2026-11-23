@@ -13,7 +13,8 @@
   left: var(--cx-left, 0);
   width: var(--cx-width, 100%);
   bottom: var(--cx-bottom, 0);
-  min-height: var(--cx-h, 48px);
+  /* its own height, even when a long message has made the box taller: the box then shrinks into the menu (and is
+     hidden behind it while it is open, see Composer's .veiled) */
   max-height: min(420px, 60vh);
   box-sizing: border-box;
   overflow: auto;

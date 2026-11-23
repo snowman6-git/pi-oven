@@ -101,7 +101,14 @@ pub struct Limits {
     /// When each provider last went to another account. Numbers that left before it belong to the account before:
     /// a reply sent on the old sign-in, or a question asked with its token, can land after the switch.
     switched: Mutex<BTreeMap<String, u64>>,
+    /// The provider refused a request for the plan's limit (a 429 that is the plan), with no numbers to say which
+    /// window: provider → when. Numbers that come after it decide again (`record`); without any it lapses after
+    /// `REACHED_FOR_MS`.
+    reached: Mutex<BTreeMap<String, u64>>,
 }
+
+/// How long a refusal counts as "used up" when no numbers came after it.
+pub const REACHED_FOR_MS: u64 = 30 * 60_000;
 
 /// A reply's numbers come with its first bytes, which can come this long after the request went out on the sign-in
 /// of the moment.
@@ -119,7 +126,7 @@ impl Limits {
             .filter_map(Entry::clean)
             .map(|e| (e.provider.clone(), e))
             .collect();
-        Self { map: Mutex::new(map), file, problems: Default::default(), switched: Default::default() }
+        Self { map: Mutex::new(map), file, problems: Default::default(), switched: Default::default(), reached: Default::default() }
     }
 
     /// The numbers held for `provider` (those of the account in use).
@@ -130,22 +137,55 @@ impl Limits {
     /// Put `e` in, older or not: another account just took over, and these are its numbers.
     pub fn replace(&self, e: Entry) {
         self.switched.lock().unwrap().insert(e.provider.clone(), crate::runtime::now_ms());
+        let windows: Vec<_> = e.windows.iter().map(|w| serde_json::json!({ "minutes": w.minutes, "used": w.used })).collect();
+        crate::logs::event("limits", serde_json::json!({ "provider": e.provider, "plan": e.plan, "windows": windows, "reached": e.limit_reached, "account": "switched" }));
         self.map.lock().unwrap().insert(e.provider.clone(), e);
         self.save();
     }
 
     /// Numbers a reply brought: kept unless the account changed since its request may have gone out.
     pub fn record_reply(&self, e: Entry) {
-        self.record_since(e.at.saturating_sub(REPLY_LAG_MS), e);
+        if self.is_before_switch(&e, e.at.saturating_sub(REPLY_LAG_MS)) {
+            return;
+        }
+        self.record_from(e, "reply");
     }
 
     /// Numbers asked for at `asked`: kept unless the account changed since.
     pub fn record_since(&self, asked: u64, e: Entry) {
-        if self.switched.lock().unwrap().get(&e.provider).is_some_and(|t| *t > asked) {
-            tracing::info!("usage: numbers for {} from before the account changed; left out", e.provider);
+        if self.is_before_switch(&e, asked) {
             return;
         }
-        self.record(e);
+        self.record_from(e, "poll");
+    }
+
+    fn is_before_switch(&self, e: &Entry, asked: u64) -> bool {
+        let old = self.switched.lock().unwrap().get(&e.provider).is_some_and(|t| *t > asked);
+        if old {
+            tracing::info!("usage: numbers for {} from before the account changed; left out", e.provider);
+        }
+        old
+    }
+
+    /// The provider refused a request for the plan's limit and no fresh numbers say which window: the plan counts as
+    /// used up until numbers come (or `REACHED_FOR_MS` passes).
+    pub fn mark_reached(&self, provider: &str, now: u64) {
+        self.reached.lock().unwrap().insert(provider.to_owned(), now);
+        crate::logs::event("limits", serde_json::json!({ "provider": provider, "reached": true, "source": "refused" }));
+    }
+
+    /// Is `provider`'s plan used up now, as far as anything says? `Some((reset, window))`: a window at 100 % that has
+    /// not reset (its reset time and length), or a refusal no numbers have answered yet (`(None, None)`).
+    pub fn blocked(&self, provider: &str, now: u64) -> Option<(Option<u64>, Option<u32>)> {
+        let map = self.map.lock().unwrap();
+        if let Some(e) = map.get(provider) {
+            let out = e.windows.iter().filter(|w| w.used >= 100.0).filter_map(|w| w.reset_at.filter(|t| *t > now).map(|t| (t, w.minutes))).max();
+            if let Some((t, m)) = out {
+                return Some((Some(t), Some(m)));
+            }
+        }
+        let at = *self.reached.lock().unwrap().get(provider)?;
+        (now.saturating_sub(at) < REACHED_FOR_MS && map.get(provider).is_none_or(|e| e.at < at)).then_some((None, None))
     }
 
     /// The soonest reset after `after`, of any window held.
@@ -154,6 +194,18 @@ impl Limits {
     }
 
     pub fn record(&self, e: Entry) {
+        self.record_from(e, "poll");
+    }
+
+    /// `source`: where the numbers came from, for the log (`reply`: a response's headers or events; `poll`: asked).
+    fn record_from(&self, e: Entry, source: &str) {
+        // numbers newer than a refusal say what it was
+        {
+            let mut r = self.reached.lock().unwrap();
+            if r.get(&e.provider).is_some_and(|t| *t <= e.at) {
+                r.remove(&e.provider);
+            }
+        }
         let all: Vec<Entry> = {
             let mut map = self.map.lock().unwrap();
             let old = map.get(&e.provider);
@@ -165,6 +217,12 @@ impl Limits {
             if e.resets.is_none() {
                 e.resets = old.and_then(|o| o.resets);
                 e.reset_kinds = old.map(|o| o.reset_kinds.clone()).unwrap_or_default();
+            }
+            // for the log: a jump in the numbers, to put next to the replies before it
+            let used = |x: &Entry| x.windows.iter().map(|w| (w.minutes, (w.used * 10.0).round() as i64)).collect::<Vec<_>>();
+            if old.is_none_or(|o| used(o) != used(&e)) {
+                let windows: Vec<_> = e.windows.iter().map(|w| serde_json::json!({ "minutes": w.minutes, "used": w.used, "was": old.and_then(|o| o.windows.iter().find(|x| x.minutes == w.minutes)).map(|x| x.used) })).collect();
+                crate::logs::event("limits", serde_json::json!({ "provider": e.provider, "plan": e.plan, "windows": windows, "reached": e.limit_reached, "source": source }));
             }
             map.insert(e.provider.clone(), e);
             map.values().cloned().collect()
@@ -350,5 +408,25 @@ mod tests {
         assert_eq!(Limits::load(Some(&ext)).view(3)["items"][0]["windows"][0]["used"], 20.0);
         std::fs::remove_file(dir.join("limits.json")).unwrap();
         std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_plan_is_held_back_while_used_up_or_refused_until_numbers_come() {
+        let l = Limits::load(None);
+        let w = |minutes, used: f64, reset_at| Window { minutes, used, reset_at: Some(reset_at) };
+        let e = |at, used| Entry { provider: "anthropic".into(), plan: None, at, limit_reached: false, windows: vec![w(300, 10.0, 50_000), w(10080, used, 900_000)], resets: None, reset_kinds: vec![] };
+        l.record(e(1_000, 100.0));
+        assert_eq!(l.blocked("anthropic", 2_000), Some((Some(900_000), Some(10080))));
+        assert_eq!(l.blocked("anthropic", 900_001), None, "reset since");
+        l.record(e(3_000, 40.0));
+        assert_eq!(l.blocked("anthropic", 4_000), None);
+        // a refusal with no numbers after it
+        l.mark_reached("anthropic", 5_000);
+        assert_eq!(l.blocked("anthropic", 6_000), Some((None, None)));
+        assert_eq!(l.blocked("anthropic", 5_000 + REACHED_FOR_MS), None, "lapses");
+        // numbers after it decide
+        l.record(e(7_000, 40.0));
+        assert_eq!(l.blocked("anthropic", 8_000), None);
+        assert_eq!(l.blocked("openai-codex", 8_000), None);
     }
 }

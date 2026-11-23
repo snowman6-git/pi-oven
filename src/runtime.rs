@@ -58,6 +58,11 @@ struct Replay {
 }
 
 const TOOL_UPDATE: &str = r#"{"type":"tool_execution_update""#;
+/// This many failed replies in a row, each within `HALT_GAP_MS` of the one before, stop the run
+/// (`Runtime::reply_failed`). pi waits at least 2 s before its own retries, so they never count; the loop of 2026-11-22
+/// failed every 0.6 s.
+const HALT_FAILS: usize = 6;
+const HALT_GAP_MS: u64 = 1_500;
 
 /// A response to a command (`{"type":"response"…`, or `{"id":"…","type":"response"…` when the command had an id).
 fn is_response(line: &str) -> bool {
@@ -201,8 +206,6 @@ pub struct Runtime {
     notes: bool,
     /// The last reply ended in an error (a continue message is only worth sending then).
     last_failed: std::sync::atomic::AtomicBool,
-    /// A weekly (or longer) limit was met: no continue until then (ms; 0: none).
-    no_resume_until: std::sync::atomic::AtomicU64,
     /// Zero-Waste is waiting for this provider's plan to reset: its numbers are asked again before the continue goes
     /// (a guessed reset, or numbers hours old with nobody looking, sent it into the same limit).
     wait_for: Mutex<Option<String>>,
@@ -211,6 +214,15 @@ pub struct Runtime {
     pi_bin: String,
     /// The session file pi reported last (a new session has none at spawn, and pi can switch files).
     session_file: Mutex<Option<String>>,
+    /// The replies so far, for the log (`logs::Replies`: the last prompt's size, the extension's look at the request).
+    replies: Mutex<crate::logs::Replies>,
+    /// pi holds messages to send later (`queue_update`: steering or follow-up).
+    queued: std::sync::atomic::AtomicBool,
+    /// When the replies that failed since the last one that got through came (ms).
+    fails: Mutex<VecDeque<u64>>,
+    accounts: Arc<crate::accounts::Accounts>,
+    /// The provider of the last reply, failed or not (the session's provider before any reply got through).
+    reply_provider: Mutex<Option<String>>,
 }
 
 impl Runtime {
@@ -241,6 +253,24 @@ impl Runtime {
     /// A page picked a model: the session is on it from now (Baton Touch's way back leaves the person's choice alone).
     pub fn model_chosen(&self, provider: &str, model: &str) {
         *self.last_model.lock().unwrap() = Some((provider.to_owned(), model.to_owned()));
+    }
+
+    /// A message the page is about to send would go to a plan that is used up (its numbers say 100 %, or the provider
+    /// just refused for the limit and no numbers came since), and nothing would take over (Baton Touch to another
+    /// account, or to another provider's model): what to tell the page instead, or `None` to send it.
+    pub fn limit_hold(&self) -> Option<serde_json::Value> {
+        let provider = match self.last_model.lock().unwrap().clone() {
+            Some((p, _)) => p,
+            None => self.reply_provider.lock().unwrap().clone()?,
+        };
+        let now = now_ms();
+        let (reset, window) = self.limits.blocked(&provider, now)?;
+        if self.accounts.other_free(&provider, now) || self.accounts.cross_target(&provider, &self.limits).is_some() {
+            return None;
+        }
+        let v = serde_json::json!({ "provider": provider, "inMs": reset.map(|t| t.saturating_sub(now)), "window": window });
+        crate::logs::event("hold", serde_json::json!({ "rt": self.info.id, "provider": provider, "resetAt": reset, "window": window }));
+        Some(v)
     }
 
     pub fn dialog_answered(&self, id: &str) {
@@ -294,8 +324,8 @@ impl Runtime {
         }
         *self.wait_for.lock().unwrap() = None; // another account or model: nothing to wait for
         let at = at.unwrap_or_else(now_ms) + crate::resume::BATON_DELAY_MS;
-        let pending = crate::resume::Pending { at, tries, window: None, known: true };
-        let begun = self.resume.lock().unwrap().replace(pending).is_none();
+        let pending = crate::resume::Pending { at, tries, window: None, known: true, held: vec![] };
+        let begun = self.set_pending(pending);
         self.note(to).await;
         self.resume_publish(false);
         if begun {
@@ -316,7 +346,7 @@ impl Runtime {
     /// Continue in `ms` (once pi has settled, and only if the run failed), unless a wait is already set up.
     fn resume_after(self: &Arc<Self>, ms: u64, known: bool) {
         use std::sync::atomic::Ordering;
-        if !self.resume_cfg.get().enabled || self.resume.lock().unwrap().is_some() || now_ms() < self.no_resume_until.load(Ordering::Relaxed) {
+        if !self.resume_cfg.get().enabled || self.resume.lock().unwrap().is_some() {
             return;
         }
         let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
@@ -325,8 +355,9 @@ impl Runtime {
             self.resume_publish(true);
             return;
         }
-        let pending = crate::resume::Pending { at: now_ms() + ms, tries, window: None, known };
-        let begun = self.resume.lock().unwrap().replace(pending).is_none();
+        crate::logs::event("resume", serde_json::json!({ "rt": self.info.id, "action": "wait", "at": now_ms() + ms, "known": known, "tries": tries }));
+        let pending = crate::resume::Pending { at: now_ms() + ms, tries, window: None, known, held: vec![] };
+        let begun = self.set_pending(pending);
         self.resume_publish(false);
         if begun {
             tokio::spawn(self.clone().resume_clock());
@@ -335,7 +366,46 @@ impl Runtime {
 
     /// pi's automatic retries of a reply that met the plan's limit: pointless while the server waits for the reset.
     async fn stop_retrying(&self) {
-        let _ = self.stdin_tx.send(r#"{"type":"abort_retry"}"#.to_owned()).await;
+        self.cancel_retry("waiting for the limit");
+    }
+
+    /// Stop pi's automatic retry. With messages in pi's queue, the run too: pi 1.5 starts the run again at once to
+    /// deliver them, the request fails the same way before they go in, and round it goes. With the retry's wait cut
+    /// short that was two requests a second (100 in 71 s on the test server, 2026-11-22). The queue stays and goes with
+    /// the next run.
+    fn cancel_retry(&self, why: &str) {
+        use std::sync::atomic::Ordering;
+        let _ = self.stdin_tx.try_send(r#"{"type":"abort_retry"}"#.to_owned());
+        let queued = self.queued.load(Ordering::Relaxed);
+        if queued {
+            let _ = self.stdin_tx.try_send(r#"{"type":"abort"}"#.to_owned());
+        }
+        crate::logs::event("retry", serde_json::json!({ "rt": self.info.id, "action": if queued { "abort_run" } else { "abort_retry" }, "why": why }));
+    }
+
+    /// A reply failed. Many in a row, each too soon after the last for pi's own retries (2, 4, 8 s apart): something
+    /// keeps starting the request again. Stop the run, so a loop cannot burn through a plan or the account's standing
+    /// with the provider.
+    fn reply_failed(&self, now: u64, error: Option<&str>) {
+        let n = {
+            let mut f = self.fails.lock().unwrap();
+            if f.back().is_some_and(|t| now.saturating_sub(*t) > HALT_GAP_MS) {
+                f.clear();
+            }
+            f.push_back(now);
+            if f.len() < HALT_FAILS {
+                return;
+            }
+            let n = f.len();
+            f.clear();
+            n
+        };
+        let _ = self.stdin_tx.try_send(r#"{"type":"abort_retry"}"#.to_owned());
+        let _ = self.stdin_tx.try_send(r#"{"type":"abort"}"#.to_owned());
+        tracing::warn!(runtime = %self.info.id, "{n} failed replies back to back: run stopped");
+        crate::logs::event("halt", serde_json::json!({ "rt": self.info.id, "fails": n, "error": error.map(crate::logs::clip) }));
+        let frame = serde_json::json!({ "type": "oven_halt", "fails": n });
+        let _ = self.events.send(Arc::from(frame.to_string()));
     }
 
     /// Tell the page what Baton Touch did (`oven_baton`), and keep it in the session when the extension is there.
@@ -421,15 +491,6 @@ impl Runtime {
         if !self.resume_cfg.get().enabled {
             return;
         }
-        // a weekly (or longer) limit is days away: nothing to win by waiting, so the page just says when it resets
-        if let Some((reset_at, minutes)) = culprit.filter(|c| c.1 > crate::resume::SHORT_WINDOW_MAX) {
-            self.no_resume_until.store(reset_at, Ordering::Relaxed);
-            self.resume_tries.store(0, Ordering::Relaxed);
-            self.resume.lock().unwrap().take();
-            let frame = serde_json::json!({ "type": "oven_resume", "state": null, "gaveUp": false, "skipped": { "window": minutes, "inMs": reset_at.saturating_sub(now_ms()) } });
-            let _ = self.events.send(Arc::from(frame.to_string()));
-            return;
-        }
         let tries = self.resume_tries.load(Ordering::Relaxed) + 1;
         if tries > crate::resume::MAX_TRIES {
             self.resume_tries.store(0, Ordering::Relaxed);
@@ -443,17 +504,80 @@ impl Runtime {
         } else {
             crate::resume::due(error, culprit, now)
         };
-        let pending = crate::resume::Pending { at, tries, window, known };
-        let begun = self.resume.lock().unwrap().replace(pending).is_none();
+        crate::logs::event("resume", serde_json::json!({ "rt": self.info.id, "action": "wait", "at": at, "window": window, "known": known, "tries": tries }));
+        let pending = crate::resume::Pending { at, tries, window, known, held: vec![] };
+        let begun = self.set_pending(pending);
         self.resume_publish(false);
         if begun {
             tokio::spawn(self.clone().resume_clock());
         }
     }
 
+    /// Put a wait in place; messages held back by the one before stay with it. Returns whether none was running.
+    fn set_pending(&self, mut p: crate::resume::Pending) -> bool {
+        let mut g = self.resume.lock().unwrap();
+        if let Some(old) = g.take() {
+            let mut held = old.held;
+            held.append(&mut p.held);
+            p.held = held;
+            *g = Some(p);
+            return false;
+        }
+        *g = Some(p);
+        true
+    }
+
+    /// A message from the page while the plan it would go to is used up (`limit_hold`): Zero-Waste keeps it and sends
+    /// it when the limit resets (checking the numbers first), in place of the continue message. "Now" on the strip sends
+    /// it at once. Returns whether it was held (Zero-Waste is on); otherwise it goes to pi as usual.
+    pub fn hold(self: &Arc<Self>, mut prompt: serde_json::Value, held: &serde_json::Value) -> bool {
+        if !self.resume_cfg.get().enabled {
+            return false;
+        }
+        if let Some(o) = prompt.as_object_mut() {
+            o.remove("id");
+            o.remove("streamingBehavior");
+        }
+        let now = now_ms();
+        let reset = held["inMs"].as_u64().map(|ms| now + ms);
+        let window = held["window"].as_u64().map(|w| w as u32);
+        // a known reset: then (and the numbers are asked again first); a refusal with no numbers: ask again soon
+        let (at, known) = match reset {
+            Some(t) => (t + 10_000, true),
+            None => (now + crate::resume::RATE_LIMIT_WAIT_MS, false),
+        };
+        *self.wait_for.lock().unwrap() = held["provider"].as_str().map(str::to_owned);
+        let tries = self.resume_tries.load(std::sync::atomic::Ordering::Relaxed).max(1);
+        crate::logs::event("resume", serde_json::json!({ "rt": self.info.id, "action": "hold", "at": at, "window": window, "known": known }));
+        let begun = {
+            let mut g = self.resume.lock().unwrap();
+            match g.as_mut() {
+                // already waiting (a failed run's continue, or held messages): add this one, keep the time
+                Some(p) => {
+                    p.held.push(prompt);
+                    false
+                }
+                None => {
+                    *g = Some(crate::resume::Pending { at, tries, window, known, held: vec![prompt] });
+                    true
+                }
+            }
+        };
+        self.resume_publish(false);
+        if begun {
+            tokio::spawn(self.clone().resume_clock());
+        }
+        true
+    }
+
     /// pi started a run. Ours takes the wait away before it sends, so a wait still here means the user sent something.
     fn resume_on_start(&self) {
-        if self.resume.lock().unwrap().take().is_some() {
+        // (messages the person sent and Zero-Waste holds stay held: they still wait for the limit)
+        let taken = {
+            let mut g = self.resume.lock().unwrap();
+            if g.as_ref().is_some_and(|p| p.held.is_empty()) { g.take() } else { None }
+        };
+        if taken.is_some() {
             self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
             self.resume_publish(false);
         }
@@ -461,7 +585,9 @@ impl Runtime {
 
     /// A run that ends with nothing waiting got through: the count starts again.
     fn resume_on_settled(&self) {
-        if self.resume.lock().unwrap().is_none() {
+        // (a run that failed has not got through: its limit check may still be under way, and the count must hold
+        // until our continue message gets through, or ten in a row stop it)
+        if self.resume.lock().unwrap().is_none() && !self.last_failed.load(std::sync::atomic::Ordering::Relaxed) {
             self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
         }
     }
@@ -497,25 +623,41 @@ impl Runtime {
                         w.known = true;
                     }
                     tracing::info!("Zero-Waste: {p} is still used up; waiting for its reset");
+                    crate::logs::event("resume", serde_json::json!({ "rt": self.info.id, "action": "still_used_up", "provider": p, "at": t + 15_000 }));
                     self.resume_publish(false);
                     continue;
                 }
             }
-            let fire = {
+            let held = {
                 let mut g = self.resume.lock().unwrap();
                 match g.take() {
                     Some(p) => {
                         self.resume_tries.store(p.tries, std::sync::atomic::Ordering::Relaxed);
                         self.resume_fired_at.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
-                        true
+                        p.held
                     }
                     None => return,
                 }
             };
-            if fire {
+            // the messages held back go in place of the continue message: the first starts the run, the rest follow
+            if !held.is_empty() {
+                *self.wait_for.lock().unwrap() = None;
+                crate::logs::event("resume", serde_json::json!({ "rt": self.info.id, "action": "send_held", "n": held.len() }));
+                for (i, mut m) in held.into_iter().enumerate() {
+                    if i > 0 {
+                        m["streamingBehavior"] = "followUp".into();
+                    }
+                    let _ = self.stdin_tx.send(m.to_string()).await;
+                }
+                self.resume_publish(false);
+                return;
+            }
+            {
                 *self.wait_for.lock().unwrap() = None;
                 // the run got through after all (pi's retry, on the new account): nothing to continue
-                if self.last_failed.load(std::sync::atomic::Ordering::Relaxed) {
+                let failed = self.last_failed.load(std::sync::atomic::Ordering::Relaxed);
+                crate::logs::event("resume", serde_json::json!({ "rt": self.info.id, "action": if failed { "send" } else { "not_needed" } }));
+                if failed {
                     let text = self.resume_cfg.get().text;
                     let _ = self.stdin_tx.send(serde_json::json!({ "type": "prompt", "message": text }).to_string()).await;
                 }
@@ -534,9 +676,14 @@ impl Runtime {
     }
 
     pub fn resume_stop(&self) {
-        if self.resume.lock().unwrap().take().is_some() {
-            self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
-            self.resume_publish(false);
+        let Some(p) = self.resume.lock().unwrap().take() else { return };
+        self.resume_tries.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.resume_publish(false);
+        // messages it held are not lost: the page puts them back in the message box
+        let texts: Vec<&str> = p.held.iter().filter_map(|h| h["message"].as_str()).collect();
+        if !texts.is_empty() {
+            let frame = serde_json::json!({ "type": "oven_unheld", "text": texts.join("\n\n") });
+            let _ = self.events.send(Arc::from(frame.to_string()));
         }
     }
 
@@ -557,6 +704,8 @@ impl Runtime {
             (step, idle && g.is_some())
         };
         if step != Step::Same {
+            let state = self.long_view();
+            crate::logs::event("100h", serde_json::json!({ "rt": self.info.id, "gaveUp": step == Step::GaveUp, "state": state }));
             self.long_publish(step == Step::GaveUp);
         }
         if begun {
@@ -628,6 +777,7 @@ pub struct Manager {
     pub resume: Arc<crate::resume::Resume>,
     pub usage: Arc<crate::usage::Usage>,
     pub cache_ttl: crate::cache_ttl::CacheTtl,
+    pub lens: crate::lens::Lens,
     pub accounts: Arc<crate::accounts::Accounts>,
 }
 
@@ -659,7 +809,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), accounts: Default::default() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), accounts: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -784,6 +934,9 @@ impl Manager {
             }
         }
         // Claude's cache for an hour (see cache_ttl.rs); pi reads it when it starts
+        if let Some(v) = self.lens.for_pi() {
+            cmd.env(crate::lens::VAR, v); // pi-lens leaves the request alone (see lens.rs)
+        }
         if let Some(v) = self.cache_ttl.for_pi() {
             cmd.env(crate::cache_ttl::VAR, v);
         }
@@ -835,11 +988,15 @@ impl Manager {
             idle: std::sync::atomic::AtomicBool::new(true),
             notes: self.long.available(),
             last_failed: Default::default(),
-            no_resume_until: Default::default(),
             wait_for: Mutex::new(None),
             usage: self.usage.clone(),
             limits: self.limits.clone(),
             pi_bin: self.cfg.pi_bin.clone(),
+            replies: Default::default(),
+            queued: Default::default(),
+            fails: Default::default(),
+            accounts: self.accounts.clone(),
+            reply_provider: Mutex::new(None),
         });
         self.pet.attach(rt.clone());
 
@@ -894,6 +1051,14 @@ impl Manager {
                                 Some(slim) => Arc::from(slim),
                                 None => Arc::from(text.as_ref()),
                             };
+                            // pi-updater 0.8's notice: the update card has it (not a banner in every session)
+                            if line.starts_with(r#"{"type":"extension_ui_request""#) && line.contains(r#""method":"notify""#) {
+                                if let Some(offer) = crate::update::from_notify(&line) {
+                                    updates.offered(offer, now_ms());
+                                    let _ = rt.events.send(Arc::from(r#"{"type":"oven_update"}"#));
+                                    continue;
+                                }
+                            }
                             if line.starts_with(r#"{"type":"extension_ui_request""#) && line.contains(r#""method":"select""#) {
                                 if let Some((ask, offer)) = crate::update::from_prompt(&line) {
                                     updates.offered(offer, now_ms());
@@ -908,11 +1073,40 @@ impl Manager {
                             } else if line.starts_with(r#"{"type":"auto_retry_start""#) && rt.abort_next_retry.swap(false, std::sync::atomic::Ordering::Relaxed) {
                                 // pi set its retry up a moment before saying so: the abort finds it waiting. The page
                                 // never sees it ("retry 1/3" for a limit Zero-Waste already has)
-                                let _ = rt.stdin_tx.try_send(r#"{"type":"abort_retry"}"#.to_owned());
+                                rt.cancel_retry("limit");
                                 continue;
                             }
                             if let Some(f) = state_session_file(&line) {
                                 *rt.session_file.lock().unwrap() = Some(f);
+                            }
+                            // the session's provider before any reply (a message held for a used-up plan needs it)
+                            if line.contains(r#""command":"get_state""#) && rt.reply_provider.lock().unwrap().is_none() {
+                                if let Some(p) = serde_json::from_str::<serde_json::Value>(&line).ok().and_then(|v| v["data"]["model"]["provider"].as_str().map(str::to_owned)) {
+                                    *rt.reply_provider.lock().unwrap() = Some(p);
+                                }
+                            }
+                            // the extension's look at the request about to go: for the log only, not the page
+                            if let Some(t) = crate::logs::trace_of(&line) {
+                                rt.replies.lock().unwrap().request = Some(t);
+                                continue;
+                            }
+                            if line.starts_with(r#"{"type":"queue_update""#) {
+                                let waiting = !line.contains(r#""steering":[]"#) || !line.contains(r#""followUp":[]"#);
+                                rt.queued.store(waiting, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            if let Some(r) = crate::logs::reply_of(&line) {
+                                let now = now_ms();
+                                if let Some(p) = &r.provider {
+                                    *rt.reply_provider.lock().unwrap() = Some(p.clone());
+                                }
+                                if rt.replies.lock().unwrap().record(&rt.info.id, &r, now) {
+                                    tracing::warn!(runtime = %rt.info.id, "prompt cache broke: {} read from the cache, {} written again", r.read, r.write);
+                                }
+                                match r.stop.as_deref() {
+                                    Some("error") => rt.reply_failed(now, r.error.as_deref()),
+                                    Some("aborted") => {}
+                                    _ => rt.fails.lock().unwrap().clear(),
+                                }
                             }
                             if let Some(e) = crate::limits::read(&line) {
                                 limits.record_reply(e);
@@ -998,11 +1192,20 @@ impl Manager {
                                         rt.limit_found_at.store(now, std::sync::atomic::Ordering::SeqCst);
                                     }
                                     rt.limit_checks.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                    let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
+                                    let found = limits.culprit(provider.as_deref(), now, hint);
+                                    crate::logs::event("limit", serde_json::json!({
+                                        "rt": rt.info.id, "provider": provider, "sure": sure == crate::resume::Limit::Sure, "fresh": fresh,
+                                        "confirmed": confirmed, "plan": plan, "reset": found.map(|f| serde_json::json!({ "at": f.0, "minutes": f.1, "known": f.2 })),
+                                        "limits": provider.as_deref().and_then(|p| limits.entry(p)).map(|e| e.windows), "error": crate::logs::clip(&error),
+                                    }));
                                     if !plan {
                                         return;
                                     }
-                                    let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
-                                    let found = limits.culprit(provider.as_deref(), now, hint);
+                                    // the refusal itself says the plan is used up, until numbers say which window
+                                    if let (Some(p), true) = (provider.as_deref(), confirmed || !fresh) {
+                                        limits.mark_reached(p, now);
+                                    }
                                     // only a window we are sure of is marked used up; fresh numbers already say so
                                     if let (false, Some(p), Some((_, minutes, true))) = (fresh, provider.as_deref(), found) {
                                         limits.mark_used_up(p, minutes);
@@ -1012,12 +1215,14 @@ impl Manager {
                                         if let Some(p) = provider.as_deref() {
                                             match accounts.baton_touch(&pi_bin, p, found.map(|(t, _, _)| t), &limits).await {
                                                 crate::accounts::Baton::Swapped { next, was } => {
+                                                    crate::logs::event("baton", serde_json::json!({ "rt": rt.info.id, "result": "swapped", "provider": p }));
                                                     accounts.announce(Some(&rt.info.id), &next);
                                                     let _ = usage.poll(&pi_bin, &limits, true, Some(p)).await;
                                                     rt.resume_baton(None, serde_json::json!({ "provider": next.provider, "email": next.email, "plan": next.plan, "was": was })).await;
                                                     return;
                                                 }
                                                 crate::accounts::Baton::Later { next, at, was } => {
+                                                    crate::logs::event("baton", serde_json::json!({ "rt": rt.info.id, "result": "later", "provider": p, "at": at }));
                                                     // every account is limited: the one that resets first takes over then
                                                     let to = serde_json::json!({ "provider": next.provider, "email": next.email, "plan": next.plan, "at": at, "was": was });
                                                     rt.stop_retrying().await;
@@ -1026,10 +1231,12 @@ impl Manager {
                                                     return;
                                                 }
                                                 crate::accounts::Baton::Handled => {
+                                                    crate::logs::event("baton", serde_json::json!({ "rt": rt.info.id, "result": "handled", "provider": p }));
                                                     rt.resume_soon();
                                                     return;
                                                 }
                                                 crate::accounts::Baton::No => {
+                                                    crate::logs::event("baton", serde_json::json!({ "rt": rt.info.id, "result": "none", "provider": p }));
                                                     // no account of this provider left: another provider, when allowed
                                                     if let Some(t) = accounts.cross_target(p, &limits) {
                                                         let cmd = serde_json::json!({ "type": "set_model", "provider": t.provider, "modelId": t.model });

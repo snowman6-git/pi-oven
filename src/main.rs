@@ -18,7 +18,9 @@ mod scope;
 mod selfupdate;
 mod sessions;
 mod subagents;
+mod lens;
 mod limits;
+mod logs;
 mod resume;
 mod retry;
 mod update;
@@ -64,10 +66,13 @@ fn cors(origins: &[String]) -> tower_http::cors::CorsLayer {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "pi_oven=info".into()))
-        .with_target(false)
-        .init();
+    {
+        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+        let filter = || tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "pi_oven=info".into());
+        // the terminal, and the same lines in <cache>/logs/server.log (a server started by hand loses its terminal)
+        let file = logs::ServerLog::open().map(|w| tracing_subscriber::fmt::layer().with_target(false).with_ansi(false).with_writer(move || w.clone()).with_filter(filter()));
+        tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().with_target(false).with_filter(filter())).with(file).init();
+    }
 
     let argv: Vec<String> = std::env::args().collect();
     if argv.get(1).map(String::as_str) == Some("update") {
@@ -130,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/limits/refresh", axum::routing::post(usage::refresh))
         .route("/api/limits/poll", get(usage::get_poll).put(usage::set_poll))
         .route("/api/claude-cache", get(cache_ttl::get).put(cache_ttl::set))
+        .route("/api/addons/lens", get(lens::get).put(lens::set))
         .route("/api/subagents/status", get(subagents::status))
         .route("/api/subagents/agents", get(subagents::agents_route))
         .route("/api/accounts", get(accounts::get))

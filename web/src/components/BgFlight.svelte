@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { ring } from '../lib/ring';
   import { tick } from 'svelte';
   import type { Chat } from '../lib/chat.svelte';
@@ -223,11 +224,21 @@
     flying = false;
   }
 
-  let seen = 0;
+  // where the effects are in each queue lives on the session (`chat.played`): this component is made again each time
+  // the session comes back on screen, and must not play its flights again. What was under way when it went (a chip
+  // still hidden for its ember, a bubble for its chip) has nothing to land it any more: shown as it is.
+  onMount(() => {
+    const played = chat.played;
+    const flown = new Set(chat.bgLaunches.filter((l) => l.n <= played.launch).map((l) => l.taskId));
+    if (chat.bgLanding.some((id) => flown.has(id))) chat.bgLanding = chat.bgLanding.filter((id) => !flown.has(id));
+    for (const h of chat.bgHandoffs) if (h.n <= chat.played.handoff && chat.bgHandoffHold.includes(h.id)) chat.landed(h.id);
+    const saFlown = new Set(chat.sa.launches.filter((l) => l.n <= chat.played.saLaunch).map((l) => l.toolId));
+    if (chat.sa.landing.some((id) => saFlown.has(id))) chat.sa.landing = chat.sa.landing.filter((id) => !saFlown.has(id));
+  });
   $effect(() => {
     for (const l of chat.bgLaunches) {
-      if (l.n <= seen) continue;
-      seen = l.n;
+      if (l.n <= chat.played.launch) continue;
+      chat.played.launch = l.n;
       queue.push({ toolId: l.toolId, taskId: l.taskId });
     }
     void drain();
@@ -235,7 +246,6 @@
 
   // Notices take their chips one at a time, after the launches have all arrived.
   const handQueue: string[] = [];
-  const seenHandoffs = new Set<string>();
   let handing = false;
   async function drainHandoffs() {
     if (handing) return;
@@ -248,20 +258,19 @@
   }
   $effect(() => {
     for (const h of chat.bgHandoffs) {
-      if (seenHandoffs.has(h.id + ':' + h.n)) continue;
-      seenHandoffs.add(h.id + ':' + h.n);
+      if (h.n <= chat.played.handoff) continue;
+      chat.played.handoff = h.n;
       handQueue.push(h.id);
     }
     void drainHandoffs();
   });
 
   // Endings: each pops its own chip. A chip still waiting for its ember pops when it has landed.
-  let handled = 0;
   $effect(() => {
     const events = chat.bgEvents;
     for (const ev of events) {
-      if (ev.n <= handled) continue;
-      handled = ev.n;
+      if (ev.n <= chat.played.event) continue;
+      chat.played.event = ev.n;
       const play = () => {
         if (chipOf(ev.id)) sound(ev.status === 'completed' ? 'bg-done' : 'bg-stop');
         celebrate(ev.id, ev.status);
@@ -364,29 +373,26 @@
       await job();
     });
   };
-  let saSeenLaunch = 0;
   $effect(() => {
     for (const l of sa.launches) {
-      if (l.n <= saSeenLaunch) continue;
-      saSeenLaunch = l.n;
+      if (l.n <= chat.played.saLaunch) continue;
+      chat.played.saLaunch = l.n;
       saThen(() => saFly(l.toolId));
     }
   });
-  let saSeenEvent = 0;
   $effect(() => {
     for (const ev of sa.events) {
-      if (ev.n <= saSeenEvent) continue;
-      saSeenEvent = ev.n;
+      if (ev.n <= chat.played.saEvent) continue;
+      chat.played.saEvent = ev.n;
       const play = () => saCelebrate(ev.id, ev.state);
       if (sa.landing.includes(ev.id)) setTimeout(play, 900);
       else requestAnimationFrame(play);
     }
   });
-  let saSeenHand = 0;
   $effect(() => {
     for (const h of sa.handoffs) {
-      if (h.n <= saSeenHand) continue;
-      saSeenHand = h.n;
+      if (h.n <= chat.played.saHand) continue;
+      chat.played.saHand = h.n;
       saThen(() => saHandoff(h.id, h.key));
     }
   });

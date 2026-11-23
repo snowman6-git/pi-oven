@@ -238,7 +238,7 @@ pub async fn tree(State(app): State<Arc<AppState>>, Query(q): Query<TreeQuery>) 
 
 // ── branching ───────────────────────────────────────────────────────────────
 
-fn civil(ms: u64) -> (i64, u32, u32, u32, u32, u32, u32) {
+pub fn civil(ms: u64) -> (i64, u32, u32, u32, u32, u32, u32) {
     let (secs, milli) = ((ms / 1000) as i64, (ms % 1000) as u32);
     let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
     // Howard Hinnant's days -> civil date.

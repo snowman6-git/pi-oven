@@ -604,6 +604,22 @@ impl Accounts {
         self.save_numbers();
     }
 
+    /// Could Baton Touch hand `provider` over to another saved account now (it is on, and an account not in use is
+    /// not known to be used up)? Then a message is not held back for the plan in use.
+    pub fn other_free(&self, provider: &str, now: u64) -> bool {
+        let store = read_store();
+        if !store.baton_touch.unwrap_or(true) {
+            return false;
+        }
+        let current = self.current.lock().unwrap().get(provider).cloned();
+        let others = self.others.lock().unwrap();
+        store.accounts.iter().filter(|a| a.provider == provider && current.as_ref() != Some(&a.id)).any(|a| {
+            let marked = a.limited_until.is_some_and(|t| t > now);
+            let used_up = others.get(&a.id).is_some_and(|(e, _)| e.used_up_until(now, 100.0).is_some());
+            !marked && !used_up
+        })
+    }
+
     /// The soonest reset after `after` among the accounts not in use.
     pub fn next_reset(&self, after: u64) -> Option<u64> {
         self.others.lock().unwrap().values().flat_map(|(e, _)| e.windows.iter()).filter_map(|w| w.reset_at).filter(|t| *t > after).min()

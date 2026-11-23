@@ -106,7 +106,7 @@ fn mcp(dir: &std::path::Path) -> Vec<Mcp> {
     out.into_values().collect()
 }
 
-async fn pi_version(bin: &str) -> Option<String> {
+pub(crate) async fn pi_version(bin: &str) -> Option<String> {
     let mut cmd = Command::new(bin);
     cmd.arg("--version").current_dir(home_dir()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(15), cmd.output()).await.ok()?.ok()?;

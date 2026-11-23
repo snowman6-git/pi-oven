@@ -9,10 +9,13 @@
  * - ChatGPT over WebSocket: a `codex.rate_limits` event at the start of each response (`chatgptFromEvent`).
  * - ChatGPT over HTTP (SSE): pi falls back to it when a WebSocket closes; then the same numbers come as
  *   `x-codex-primary-*` / `x-codex-secondary-*` response headers (`chatgptFromHeaders`).
- * - Claude (anthropic, subscription sign-in): `anthropic-ratelimit-unified-<window>-utilization` / `-reset` headers
- *   (`claudeFromHeaders`, not yet checked against a real reply). API-key use sends other headers and is left alone.
+ * - Claude (anthropic, subscription sign-in): `anthropic-ratelimit-unified-<window>-utilization` / `-reset` / `-status`
+ *   headers, read as Claude Code reads them (`claudeFromHeaders`). They come only with a reply that got through: pi
+ *   throws on an error status before this hook, so a 429 brings none (the server asks the usage address then).
+ *   API-key use sends other headers and is left alone.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 
 type Window = { minutes: number; used: number; resetAt: number | null };
 type Limits = { provider: string; plan: string | null; at: number; limitReached: boolean; windows: Window[] };
@@ -81,24 +84,78 @@ function windowMinutes(name: string): number | null {
 }
 
 function claudeFromHeaders(provider: string, h: Headers, status: number, now: number): Limits | null {
+	// What Claude Code reads too: per window (`5h`, `7d`) `-utilization` as a fraction of the plan (0.42), `-reset` in
+	// seconds since 1970 and `-status` (`allowed`, `allowed_warning`, `rejected`). The fraction can pass 1 at the
+	// limit; it is never a percentage (reading 1.02 as 1.02 % showed a used-up plan as nearly unused).
 	const windows: Window[] = [];
+	let rejected = h["anthropic-ratelimit-unified-status"] === "rejected" || status === 429;
 	for (const [k, v] of Object.entries(h)) {
 		const m = /^anthropic-ratelimit-unified-([0-9a-z]{1,8})-utilization$/.exec(k);
 		if (!m) continue;
 		const minutes = windowMinutes(m[1]);
 		const u = num(v);
 		if (minutes == null || u == null) continue;
-		// a fraction (0.42), but take a percentage too
-		windows.push({ minutes, used: u <= 1 ? u * 100 : u, resetAt: resetFrom(h[`anthropic-ratelimit-unified-${m[1]}-reset`], null, now) });
+		const out = h[`anthropic-ratelimit-unified-${m[1]}-status`] === "rejected";
+		rejected ||= out;
+		windows.push({ minutes, used: out ? Math.max(100, u * 100) : u * 100, resetAt: resetFrom(h[`anthropic-ratelimit-unified-${m[1]}-reset`], null, now) });
 	}
 	if (!windows.length) return null;
-	const reached = h["anthropic-ratelimit-unified-status"] === "rejected" || status === 429;
-	return { provider, plan: null, at: now, limitReached: reached, windows };
+	return { provider, plan: null, at: now, limitReached: rejected, windows };
+}
+
+// ── what each request looked like (for the server's log) ───────────────────
+
+/**
+ * The prompt cache only helps while each request starts with the request before it. When something changes an early
+ * message (an extension rewriting the context, say), everything after it is written to the cache again, and a long
+ * conversation costs many times what it should. So for every request this compares the messages with the request
+ * before, by hash, and tells the server (status `oven-trace`) from which message on they differ. Nothing of the
+ * content leaves pi: hashes stay here, only positions, roles and sizes go.
+ */
+const TRACE = "oven-trace";
+let previous: { sys: string; tools: string; msgs: string[] } | null = null;
+
+const hashOf = (v: unknown): string =>
+	// `cache_control` marks move to the newest messages with every request: not a change of the content
+	createHash("sha1").update(JSON.stringify(v, (k, x) => (k === "cache_control" ? undefined : x)) ?? "").digest("base64");
+
+function trace(payload: any): Record<string, unknown> | null {
+	if (!payload || typeof payload !== "object") return null;
+	const msgs: unknown[] = Array.isArray(payload.messages) ? payload.messages : Array.isArray(payload.input) ? payload.input : Array.isArray(payload.contents) ? payload.contents : [];
+	const now = { sys: hashOf(payload.system ?? payload.instructions ?? payload.systemInstruction ?? null), tools: hashOf(payload.tools ?? null), msgs: msgs.map(hashOf) };
+	const marks: number[] = [];
+	msgs.forEach((m, i) => {
+		if (JSON.stringify(m).includes('"cache_control"')) marks.push(i);
+	});
+	const out: Record<string, unknown> = { at: Date.now(), n: msgs.length, marks, bytes: JSON.stringify(payload).length };
+	if (previous) {
+		const common = Math.min(previous.msgs.length, now.msgs.length);
+		let first = 0;
+		while (first < common && previous.msgs[first] === now.msgs[first]) first++;
+		out.prevN = previous.msgs.length;
+		// the first message that is not the one before at that place (`null`: this request only adds to the last one)
+		out.first = first < common ? first : null;
+		if (first < common) out.role = (msgs[first] as any)?.role ?? (msgs[first] as any)?.type ?? null;
+		out.sys = now.sys !== previous.sys;
+		out.tools = now.tools !== previous.tools;
+	}
+	previous = now;
+	return out;
 }
 
 // ── wiring ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	pi.on("before_provider_request", (event, ctx) => {
+		try {
+			const t = trace(event.payload);
+			if (t) ctx.ui.setStatus(TRACE, JSON.stringify(t));
+		} catch {
+			// a log line is not worth a failed request
+		}
+		return undefined;
+	});
+
 	pi.on("provider_stream_event", (event, ctx) => {
 		send(ctx, chatgptFromEvent(String(event.provider), event.data, Date.now()));
 	});

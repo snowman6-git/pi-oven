@@ -34,7 +34,7 @@ const easeIn = bezier(0.4, 0, 1, 1);
 const MAX_PAST = 12;
 /** A height on the way from `from` to `to`: the spring's overshoot past `to` is kept to MAX_PAST px. */
 export const toward = (from: number, to: number, t: number) =>
-  t <= 1 ? from + (to - from) * t : to + Math.min(MAX_PAST, (to - from) * (t - 1));
+  t <= 1 ? from + (to - from) * t : to + Math.sign(to - from) * Math.min(MAX_PAST, Math.abs(to - from) * (t - 1));
 
 /** Samples per second of the curve handed to the browser (it plays them at the screen's rate, 120 Hz or more). */
 const SAMPLES = 240;
@@ -51,7 +51,7 @@ function boxHeight(node: Element): number {
  * Animate `node`'s height from `from` to `to` px along `ease`, sampled densely. Returns what Svelte needs to wait for.
  * `max-height` is lifted while it moves, or a list at its cap could not overshoot.
  */
-function heightTo(node: Element, from: number, to: number, ms: number, ease: (t: number) => number): TransitionConfig {
+function heightTo(node: Element, from: number, to: number, ms: number, ease: (t: number) => number, closing = to < from): TransitionConfig {
   if (reduced() || ms <= 0 || typeof (node as HTMLElement).animate !== 'function') return { duration: 0 };
   const n = Math.max(2, Math.ceil((ms / 1000) * SAMPLES));
   const frames: Keyframe[] = [];
@@ -60,20 +60,21 @@ function heightTo(node: Element, from: number, to: number, ms: number, ease: (t:
     frames.push({ offset: p, height: `${toward(from, to, ease(p))}px`, maxHeight: 'none', overflow: 'hidden' });
   }
   // closing keeps its last frame until Svelte removes the node; opening ends on the node's own height
-  (node as HTMLElement).animate(frames, { duration: ms, easing: 'linear', fill: to < from ? 'forwards' : 'none' });
+  (node as HTMLElement).animate(frames, { duration: ms, easing: 'linear', fill: closing ? 'forwards' : 'none' });
   return { duration: ms };
 }
 
-/** `in:grow`: the box stretches up into the menu, with the spring. */
+/** `in:grow`: the box turns into the menu, with the spring: up when the menu is taller, down when a long message
+    made the box taller than the menu. */
 export function grow(node: Element): TransitionConfig {
   const total = (node as HTMLElement).offsetHeight;
-  return heightTo(node, Math.min(total, boxHeight(node)), total, 280, spring);
+  return heightTo(node, boxHeight(node), total, 280, spring, false);
 }
 
-/** `out:shrink`: the menu folds back into the box, quickly and without the spring. */
+/** `out:shrink`: the menu goes back to the box's height, quickly and without the spring. */
 export function shrink(node: Element): TransitionConfig {
   const total = (node as HTMLElement).offsetHeight;
-  return heightTo(node, total, Math.min(total, boxHeight(node)), 85, easeIn);
+  return heightTo(node, total, boxHeight(node), 85, easeIn, true);
 }
 
 /** `in:rise`: something added inside the message box (attached images, the file chip, the command list) opens

@@ -132,7 +132,7 @@ export interface ModelProvider {
   baseUrl?: string;
   api?: string;
   key: { kind: 'none' | 'literal' | 'env' | 'command'; hint?: string };
-  models: { id: string; name?: string; reasoning: boolean; image: boolean; contextWindow?: number; maxTokens?: number }[];
+  models: { id: string; name?: string; reasoning: boolean; image: boolean; xhigh: boolean; max: boolean; contextWindow?: number; maxTokens?: number }[];
 }
 export interface ModelsConfig { path: string; providers: ModelProvider[]; apis: string[] }
 export interface ModelForm {
@@ -141,7 +141,7 @@ export interface ModelForm {
   api: string;
   /** Left out: keep the key that is there. Empty: take it away. */
   apiKey?: string;
-  model?: { id: string; name?: string; reasoning: boolean; image: boolean; contextWindow?: number; maxTokens?: number };
+  model?: { id: string; name?: string; reasoning: boolean; image: boolean; xhigh: boolean; max: boolean; contextWindow?: number; maxTokens?: number };
 }
 
 export const api = {
@@ -219,6 +219,8 @@ export const api = {
   /** provider → model id → the reasoning level its provider recommends (only providers that say). */
   recommendedLevels: () => call<Record<string, Record<string, string>>>('/api/models/recommended'),
   setLimitsPoll: (enabled: boolean) => call<{ enabled: boolean }>('/api/limits/poll', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  lensSettings: () => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens'),
+  setLens: (inject: boolean) => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens', { method: 'PUT', body: JSON.stringify({ inject }) }),
   claudeCache: () => call<{ enabled: boolean; fromEnv: boolean }>('/api/claude-cache'),
   setClaudeCache: (enabled: boolean) => call<{ enabled: boolean; fromEnv: boolean }>('/api/claude-cache', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   resumeSettings: () => call<ResumeSettings>('/api/resume'),

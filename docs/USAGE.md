@@ -244,3 +244,20 @@ pi가 `edit`·`write`로 **성공시킨** 변경을 실시간으로 보여줍니
 | 다른 기기에서 주소가 안 열림 | `--host 0.0.0.0`으로 띄웠는지, 같은 네트워크(VPN)인지 |
 | 바뀐 UI가 안 보임 | `npm run build` → `touch src/web.rs` → `cargo build --release` → 서버 재시작 후 강력 새로고침 |
 | Git 탭 "저장소가 아닙니다" | 세션 폴더가 git 저장소 안에 있는지 |
+| 사용량이 갑자기 많이 줄었다 | 아래 "로그"의 `events-날짜.jsonl`에서 `"cacheBreak":true`인 `reply`를 찾습니다. 그 줄의 `req.first`가 직전 요청과 처음 달라진 메시지 위치입니다(0이면 맨 앞, 직전 요청의 마지막 근처면 확장이 매 요청 끝에 붙였다 빼는 메시지). `limits` 줄로 한도 숫자가 언제 뛰었는지 같이 봅니다 |
+| 같은 오류가 쉬지 않고 반복된다 | 서버가 1.5초 안에 연달아 6번 실패하면 실행을 멈추고 알립니다(`halt`). 로그의 `retry`·`limit`·`resume` 줄이 그때 서버가 한 판단입니다 |
+
+### 로그
+
+서버는 `$XDG_CACHE_HOME/pi-oven/logs/`(없으면 `~/.cache/pi-oven/logs/`)에 남깁니다. 대화 내용(프롬프트·답·파일)은 쓰지 않습니다.
+
+- `server.log`: 터미널에 나오는 서버 로그와 같은 줄. 10MB가 되면 `server.log.1`로 넘깁니다.
+- `events-YYYY-MM-DD.jsonl`(UTC 날짜): 한 줄에 하나, `kind`로 구분합니다. 기간으로 지우지 않고 계속 둡니다(바쁜 한 주에 1MB 안팎). 모두 합쳐 512MB를 넘을 때만 가장 오래된 날부터 지웁니다.
+  - `reply`: 모델 응답마다 제공자·모델·종료 이유·토큰(입력·출력·캐시 읽기·캐시 쓰기), 캐시가 깨졌는지(`cacheBreak`), 요청의 모양(`req`: 메시지 수 `n`, 직전 요청과 처음 달라진 위치 `first`와 그 역할 `role`, 시스템 프롬프트·도구가 바뀌었는지 `sys`·`tools`, 크기 `bytes`)
+  - `limits`: 구독 한도 숫자가 바뀔 때마다(창별 `used`, 직전 값 `was`)
+  - `limit`·`baton`·`resume`·`retry`·`100h`·`halt`: 응답이 실패했을 때 서버가 내린 판단
+
+```sh
+# 캐시가 깨진 응답만
+grep '"cacheBreak":true' ~/.cache/pi-oven/logs/events-*.jsonl
+```

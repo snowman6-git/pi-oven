@@ -4,6 +4,7 @@
     "locale": "ko-KR"
   },
   "common": {
+    "dayClock": "{d}일 {hm}",
     "appName": "pi-oven",
     "newSession": "새 세션",
     "openFolder": "폴더 열기",
@@ -187,6 +188,13 @@
       "signOut": "로그아웃",
       "signOutAsk": "로그아웃할까요?",
       "signOutBody": "이 브라우저에 저장된 토큰을 지웁니다. 다시 쓰려면 토큰이나 비밀번호를 입력해야 합니다."
+    },
+    "lens": {
+      "title": "pi-lens",
+      "name": "요청에 진단 결과 덧붙이기",
+      "hint": "pi-lens가 진단·테스트 결과·남은 문제를 요청 끝에 붙였다 다음 요청에서 뺍니다. 그러면 Claude 캐시가 대화를 다시 쓰게 되어 구독 한도가 빨리 닳습니다. 꺼도 pi-lens의 도구·LSP·포맷팅과 편집 결과에 붙는 진단은 그대로입니다.",
+      "fromEnv": "서버를 띄운 환경의 PI_LENS_NO_CONTEXT_INJECTION 값을 따릅니다.",
+      "restart": "새로 여는 세션부터 적용됩니다. 지금 세션에 적용하려면 다시 시작하세요."
     },
     "cache": {
       "title": "Claude 캐시",
@@ -740,6 +748,8 @@
     "displayPh": "목록에 보일 이름",
     "reasoning": "추론(thinking) 모델",
     "image": "이미지 입력",
+    "xhigh": "xhigh 추론",
+    "max": "max 추론",
     "ctxWin": "컨텍스트 창",
     "tokens": "(토큰)",
     "maxOut": "최대 출력",
@@ -748,6 +758,9 @@
     "notVisible": "열려 있는 세션에는 아직 보이지 않습니다. 세션을 다시 열면 목록에 나타납니다.",
     "saving": "저장 중…",
     "addModel": "모델 추가",
+    "saveModel": "모델 저장",
+    "editModel": "모델 고치기: {id}",
+    "editModelHint": "이 모델의 설정을 불러와 고칩니다",
     "saveProvider": "제공자 저장",
     "newSessions": "새로 여는 세션의 모델 목록에 나타납니다.",
     "ctxUse": {
@@ -862,7 +875,8 @@
     "compactFailed": "압축 실패: {err}",
     "retrying": "요청이 실패해 다시 시도합니다 ({n}/{max}): {err}",
     "retryFailed": "재시도 실패: {err}",
-    "retryFailedShort": "다시 시도해도 실패했습니다"
+    "retryFailedShort": "다시 시도해도 실패했습니다",
+    "halted": "요청이 쉬지 않고 {n}번 연달아 실패해서 멈췄습니다. 대기열의 메시지는 그대로 있습니다."
   },
   "slash": {
     "desc": {
@@ -949,7 +963,7 @@
   "resume": {
     "name": "Zero-Waste",
     "title": "구독 한도",
-    "hint": "5시간 한도에 걸려 멈추면 초기화된 뒤 아래 문구를 보내 이어서 진행합니다. 창을 닫아도 서버에서 계속합니다.",
+    "hint": "구독 한도(5시간·주간)에 걸려 멈추면 초기화된 뒤 아래 문구를 보내 이어서 진행합니다. 한도인 동안 보낸 메시지도 붙잡아 두었다가 그때 보냅니다. Claude와 ChatGPT 구독 모두에 적용되고, 창을 닫아도 서버에서 계속합니다.",
     "textLabel": "보낼 문구",
     "default": "계속해",
     "now": "지금 보내기",
@@ -959,8 +973,7 @@
     "tipGuess": "초기화 시각을 몰라 1시간 뒤 보내 봅니다",
     "reached": "한도 도달",
     "about": "약",
-    "then": "뒤 \"{text}\"",
-    "skippedLong": "{window} 한도에 걸렸습니다. {date}에 풀리므로 Zero-Waste는 기다리지 않습니다."
+    "then": "뒤 \"{text}\""
   },
   "oven": {
     "check": "업데이트 확인",

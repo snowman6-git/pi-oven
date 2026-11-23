@@ -143,6 +143,23 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>) {
                         if v["type"] == "set_model" {
                             if let (Some(p), Some(m)) = (v["provider"].as_str(), v["modelId"].as_str()) { rt.model_chosen(p, m); }
                         }
+                        // a message to a plan that is used up is held back, unless the person says send it anyway
+                        if v["type"] == "prompt" {
+                            let forced = v.as_object_mut().and_then(|o| o.remove("oven_force")).is_some_and(|f| f == true);
+                            if forced {
+                                forward = v.to_string();
+                            } else if !v["message"].as_str().is_some_and(|m| m.trim_start().starts_with('/')) {
+                                // Zero-Waste keeps it and sends it when the limit resets (the strip shows it)
+                                if let Some(held) = rt.limit_hold().filter(|h| rt.hold(v.clone(), h)) {
+                                    let mut r = serde_json::json!({ "type": "response", "command": "prompt", "success": true, "data": { "held": held } });
+                                    if let Some(id) = v["id"].as_str() {
+                                        r["id"] = id.into();
+                                    }
+                                    if !send(&mut sock, Message::text(r.to_string())).await { break }
+                                    continue;
+                                }
+                            }
+                        }
                     }
                     if ok && !rt.send(forward).await { break }
                 }

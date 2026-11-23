@@ -95,7 +95,7 @@
     {:else if chat.link === 'connecting'}{S.connecting}
     {:else if chat.compacting}{S.compacting}
     {:else if long}
-      <span title={showcase.tip('hosts', long.error)}>
+      <span class="msg" title={showcase.tip('hosts', long.error)}>
         <b>{t('long.name')}</b>
         {#if long.at != null}{t('long.nextPre')} <b class="clock">{runClock(long.at - now)}</b> {t('long.nextPost', { n: long.attempt, max: long.max })}
         {:else}{t('long.trying', { n: long.attempt, max: long.max })}{/if}
@@ -105,7 +105,7 @@
         <button class="btn" type="button" onclick={() => chat.longAct('stop')}>{t('long.stop')}</button>
       </span>
     {:else if resume}
-      <span title={resume.known ? (resume.window ? t('resume.tipWindow', { window: windowName(resume.window), clock: clock(resume.at) }) : t('resume.tip', { clock: clock(resume.at) })) : t('resume.tipGuess')}>
+      <span class="msg" title={(resume.known ? (resume.window ? t('resume.tipWindow', { window: windowName(resume.window), clock: clock(resume.at) }) : t('resume.tip', { clock: clock(resume.at) })) : t('resume.tipGuess')) + '\n' + resume.text}>
         {t('resume.reached')} · {#if !resume.known}{t('resume.about')} {/if}<b class="clock">{runClock(resume.at - now)}</b> {t('resume.then', { text: resume.text })}
       </span>
       <span class="acts">
@@ -236,8 +236,16 @@
   .strip.long {
     background: var(--accent);
     color: var(--accent-ink);
-    flex-wrap: wrap;
-    row-gap: 6px;
+  }
+  /* one line on a phone too: the words give way (cut with …, whole in the tooltip), the buttons never */
+  .strip.long .msg {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .strip.long .acts {
+    flex-shrink: 0;
   }
   .strip.long b {
     font-weight: inherit;

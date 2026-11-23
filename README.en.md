@@ -84,10 +84,13 @@ Open the server address in a browser, or enter the server address and token once
 - **Work folder**: file explorer and editor (CodeMirror, notices changes on disk), Diff, Git staging and commits.
 - **Pins**: addresses and tokens from the chat in one place, plus your own regex rules.
 - **Adding models**: an endpoint and key are saved to pi's `models.json` (backed up first).
-- **Plan limits**: a ChatGPT subscription's 5-hour and weekly usage, as a chip under the message box and cards in the Info tab (from the numbers that come with each reply)
-- **Zero-Waste**: when a ChatGPT usage limit stops a run, a chosen message (default "계속해") is sent once it resets
+- **Supported plans**: Claude (Pro, Max) and ChatGPT (Plus, Pro). Everything below works for whichever pi is signed in to.
+- **Plan limits**: 5-hour and weekly usage, as a chip under the message box and cards in the Info tab, from the numbers each reply brings (Claude: response headers; ChatGPT: events and headers) and from the server asking every 5 minutes
+- **Zero-Waste**: when a plan limit (5-hour or weekly) stops a run, waits for the reset and sends a chosen message (default "계속해") to carry on. Messages sent while the plan is used up are held instead of sent, and go then ("Send now" on the strip sends them at once). The server keeps going with every window closed.
+- **Baton Touch**: with several accounts of a plan saved, a limit hands the session to one that has some left and it carries on (to another plan's model too, if allowed)
+- **Logs**: tokens, cache breaks and changes in the plan numbers for every reply, and what the server decided when one failed, in `~/.cache/pi-oven/logs/` (nothing of the conversation)
 - **Image preview**: PNG, JPG, GIF, WebP, SVG and the like open as pictures from the file explorer
-- **100h mode**: when a temporary API error has failed 3 times, tries again every 60 minutes, up to 100 times. The server keeps going with every window closed; turn it off in Settings → Chat.
+- **100h mode**: when a temporary API error has failed 3 times, tries again every 60 minutes, up to 100 times. The server keeps going with every window closed; turn it off in Settings → Auto.
 - **Showcase mode**: for sharing your screen, blurs or replaces paths, addresses, tokens, file names and more.
 - **Languages**: Korean and English. It follows the browser language and can be changed in Settings or with the globe button under the session list. Server errors follow the page's language; the terminal messages and `--help` follow the system locale (`LANG`). Adding one JSON file (`web/src/locales/<code>.json`) adds a language ([how](web/src/locales/README.md)).
 - **About**: the About tab in Settings shows the pi version, the installed packages with their versions, and the MCP servers (name, transport, tool count). MCP commands, addresses and keys are never sent to the page.
@@ -101,6 +104,8 @@ Each part appears only when its package is installed.
 | [`pi-background-tasks`](https://www.npmjs.com/package/pi-background-tasks) | Background task chips with running time, completion notices, a task list |
 | [`@juicesharp/rpiv-todo`](https://www.npmjs.com/package/@juicesharp/rpiv-todo) | A to-do tray above the message box |
 | [`pi-updater`](https://www.npmjs.com/package/pi-updater) | An "Update available" card under the session list instead of a dialog in every new session; one click runs `pi update` on the server |
+| [`pi-subagents`](https://www.npmjs.com/package/pi-subagents) | Subagent run chips (or a tray) with their steps and progress, and the agent family tree in the Info tab |
+| [`pi-lens`](https://www.npmjs.com/package/pi-lens) | A "Add findings to each request" switch in Settings → Auto (off by default: on, the end of every request changes and Claude's cache writes the conversation again) |
 
 ## Options
 

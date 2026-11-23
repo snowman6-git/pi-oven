@@ -4,6 +4,7 @@
     "locale": "en-US"
   },
   "common": {
+    "dayClock": "{d}d {hm}",
     "appName": "pi-oven",
     "newSession": "New session",
     "openFolder": "Open folder",
@@ -187,6 +188,13 @@
       "signOut": "Sign out",
       "signOutAsk": "Sign out?",
       "signOutBody": "This removes the token saved in this browser. To come back you will need the token or password again."
+    },
+    "lens": {
+      "title": "pi-lens",
+      "name": "Add findings to each request",
+      "hint": "pi-lens adds diagnostics, test results and open problems to the end of a request and takes them out of the next. Claude's cache then writes the conversation again, and the plan runs out faster. Off, pi-lens keeps its tools, LSP, formatting and the findings on each edit.",
+      "fromEnv": "Follows PI_LENS_NO_CONTEXT_INJECTION in the server's environment.",
+      "restart": "Applies to sessions started from now. Restart this one to apply it here."
     },
     "cache": {
       "title": "Claude cache",
@@ -758,6 +766,8 @@
     "displayPh": "The name shown in lists",
     "reasoning": "Reasoning (thinking) model",
     "image": "Image input",
+    "xhigh": "xhigh reasoning",
+    "max": "max reasoning",
     "ctxWin": "Context window",
     "tokens": "(tokens)",
     "maxOut": "Max output",
@@ -766,6 +776,9 @@
     "notVisible": "Open sessions do not show it yet. Reopen the session to see it in the list.",
     "saving": "Saving…",
     "addModel": "Add model",
+    "saveModel": "Save model",
+    "editModel": "Edit model: {id}",
+    "editModelHint": "Load this model's settings to change them",
     "saveProvider": "Save provider",
     "newSessions": "It appears in the model list of sessions you open from now on.",
     "ctxUse": {
@@ -889,7 +902,8 @@
     "compactFailed": "Compaction failed: {err}",
     "retrying": "The request failed; retrying ({n}/{max}): {err}",
     "retryFailed": "Retry failed: {err}",
-    "retryFailedShort": "The retries failed too"
+    "retryFailedShort": "The retries failed too",
+    "halted": "Stopped: {n} requests failed back to back. Queued messages are kept."
   },
   "slash": {
     "desc": {
@@ -979,7 +993,7 @@
   "resume": {
     "name": "Zero-Waste",
     "title": "Plan limits",
-    "hint": "When the 5-hour limit stops a run, the message below is sent once it resets so the work carries on. Runs on the server, with every window closed.",
+    "hint": "When a plan limit (5-hour or weekly) stops the session, send the message below once it resets and carry on. Messages sent while the plan is used up are held and sent then too. Works for Claude and ChatGPT plans, and keeps going on the server with every window closed.",
     "textLabel": "Message to send",
     "default": "계속해",
     "now": "Send now",
@@ -989,8 +1003,7 @@
     "tipGuess": "Reset time unknown: tries in an hour",
     "reached": "Limit reached",
     "about": "about",
-    "then": "then \"{text}\"",
-    "skippedLong": "The {window} limit was hit. It resets {date}, too far off for Zero-Waste to wait."
+    "then": "then \"{text}\""
   },
   "oven": {
     "check": "Check for updates",

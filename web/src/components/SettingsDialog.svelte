@@ -47,6 +47,21 @@
   async function setCache(on: boolean) {
     try { cache = await api.setClaudeCache(on); cacheError = ''; } catch (e) { cacheError = (e as Error).message; }
   }
+  // pi-lens add-on: shown only when the open session has pi-lens
+  const hasLens = $derived(!!app.current?.hasLens);
+  let lens = $state<{ inject: boolean; fromEnv: boolean } | null>(null);
+  let lensError = $state('');
+  let lensChanged = $state(false);
+  $effect(() => { if (hasLens) api.lensSettings().then((l) => (lens = l)).catch(() => {}); });
+  async function setLens(on: boolean) {
+    try { lens = await api.setLens(on); lensError = ''; lensChanged = true; } catch (e) { lensError = (e as Error).message; }
+  }
+  async function restartForLens() {
+    const c = app.current;
+    if (!c) return;
+    app.settingsOpen = false;
+    await app.restartChat(c);
+  }
   let resumeSet = $state<ResumeSettings | null>(null);
   let resumeText = $state('');
   let resumeError = $state('');
@@ -329,6 +344,20 @@
         {/if}
         {#if cacheError}<p class="note err">{cacheError}</p>{/if}
       </section>
+      {#if hasLens}
+      <section>
+        <h3>{t('settings.lens.title')}</h3>
+        {#if lens}
+          <label class="row">
+            <span>{t('settings.lens.name')}<small>{t('settings.lens.hint')}</small></span>
+            <input class="switch" type="checkbox" role="switch" disabled={lens.fromEnv} checked={lens.inject} onchange={(e) => setLens(e.currentTarget.checked)} />
+          </label>
+          {#if lens.fromEnv}<p class="note">{t('settings.lens.fromEnv')}</p>{/if}
+          {#if lensChanged && !lens.fromEnv}<p class="note">{t('settings.lens.restart')} <button class="btn" type="button" onclick={restartForLens}>{S.restart}</button></p>{/if}
+        {/if}
+        {#if lensError}<p class="note err">{lensError}</p>{/if}
+      </section>
+      {/if}
       {:else if tab === 'accounts'}
       <AccountsSection />
       {:else if tab === 'pins'}

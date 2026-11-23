@@ -25,8 +25,6 @@ pub const EARLY_RETRY_MS: u64 = 60_000;
 pub const EARLY_WINDOW_MS: u64 = 10 * 60_000;
 /// When nothing says when the limit resets: look again in an hour.
 const FALLBACK_MS: u64 = 60 * 60_000;
-/// Windows up to a day are worth waiting for (the 5-hour one); a weekly limit is not.
-pub const SHORT_WINDOW_MAX: u32 = 24 * 60;
 /// A message that runs into the limit again waits again, but not forever.
 pub const MAX_TRIES: u32 = 10;
 const MAX_TEXT: usize = 2000;
@@ -88,12 +86,17 @@ pub struct Pending {
     pub window: Option<u32>,
     /// Whether the reset time is known (from the error or the limits) or only a guess.
     pub known: bool,
+    /// Messages the person sent while the plan was used up, held back to go in its place (pi's `prompt` records,
+    /// without their ids). Empty: the chosen continue message goes, and only if the run failed.
+    pub held: Vec<serde_json::Value>,
 }
 
 impl Pending {
     /// For the page: the time left, since a phone's clock need not agree with the server's.
     pub fn view(&self, now: u64, text: &str) -> serde_json::Value {
-        serde_json::json!({ "inMs": self.at.saturating_sub(now), "text": text, "tries": self.tries, "window": self.window, "known": self.known })
+        let held: Vec<&str> = self.held.iter().filter_map(|h| h["message"].as_str()).collect();
+        let text = if held.is_empty() { text.to_owned() } else { held.join(" / ") };
+        serde_json::json!({ "inMs": self.at.saturating_sub(now), "text": text, "tries": self.tries, "window": self.window, "known": self.known, "held": held.len() })
     }
 }
 

@@ -85,7 +85,7 @@
 
   <span class="grow"></span>
 
-  <div class="pop" use:dismiss={() => { if (menu === 'model') menu = null; }}>
+  <div class="pop shrink" use:dismiss={() => { if (menu === 'model') menu = null; }}>
     <button class="chip" type="button" aria-haspopup="listbox" aria-expanded={menu === 'model'} onclick={() => toggle('model')}>
       <span class="mname">{model?.name ?? model?.id ?? S.model}</span><Icon name="down" size={12} />
     </button>
@@ -199,6 +199,8 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap; /* "자동", "3일": never a letter per line on a phone */
+    flex-shrink: 0;
     height: 28px;
     padding: 0 8px;
     border-radius: 8px;
@@ -218,7 +220,14 @@
   .chip.ring {
     padding: 0 6px;
   }
+  /* the model's name gives way when the row is short (a phone): the other chips keep their size */
+  .pop.shrink,
+  .pop.shrink > .chip {
+    min-width: 0;
+    flex-shrink: 1;
+  }
   .mname {
+    min-width: 0;
     max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
