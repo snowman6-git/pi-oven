@@ -221,6 +221,16 @@ export class Chat {
     this.#replaying = true;
     for (const rec of queued) this.#onRecord(rec);
     this.#replaying = false;
+    this.#settleNotices();
+  }
+
+  /** A notice that came with history (a reload, a reconnect, records replayed meanwhile) is not met live, so a chip
+      still waiting for it would wait for ever: hand those over now. */
+  #settleNotices() {
+    for (const i of this.items) {
+      if (i.kind !== 'task' || this.#noticed.has(i.id)) continue;
+      if (this.bgFresh.includes(i.id) || this.#awaitingNotice.has(i.id)) this.#taskArrived(i.id, i.status);
+    }
   }
 
   /** Chips showing now: what is running, and what ended while someone was looking. In the order they started. */
@@ -313,7 +323,12 @@ export class Chat {
             if (rec.type !== 'custom_message' || rec.customType !== 'background-task-notification') continue;
             const id = String(rec.details?.id ?? '');
             if (!id || !this.#awaitingNotice.has(id)) continue;
-            if (this.items.some((i) => i.kind === 'task' && i.id === id)) continue;
+            // already in the conversation (a history load brought it): only the chip is left to hand over
+            const shown = this.items.find((i) => i.kind === 'task' && i.id === id);
+            if (shown) {
+              this.#taskArrived(id, shown.kind === 'task' ? shown.status : undefined);
+              continue;
+            }
             const t = taskItem(rec);
             if (t) {
               this.items.push(t);
@@ -387,8 +402,6 @@ export class Chat {
     this.#hold(id);
     if (!this.#pendingSince) this.#pendingSince = Date.now();
     clearTimeout(this.#placeTimer);
-    clearTimeout(this.#noticeTimer);
-    clearTimeout(this.#rereadTimer);
     // wait for a quiet moment, but never longer than a second and a half in all
     this.#placeTimer = setTimeout(() => this.#place(), Math.max(0, Math.min(350, 1500 - (Date.now() - this.#pendingSince))));
   }
@@ -493,6 +506,7 @@ export class Chat {
       this.items = keepKeys(this.items, next);
       this.todo = todoFromItems(this.items);
       this.sa.restore(this.items);
+      this.#settleNotices();
       this.loaded = true;
       this.loadError = null;
       this.host.changed();

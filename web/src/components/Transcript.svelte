@@ -43,16 +43,40 @@
   }
   const toBottom = (smooth = false) => scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
 
+  // A finger on the conversation, and where the last scroll left it. Within the last 96px the reader still counted as
+  // parked, so a streaming answer snapped a phone's slow upward drag back down on every growth: it stuck and shook.
+  // Now any upward move lets go at once, and nothing follows growth while a finger is down.
+  let touching = false;
+  let lastTop = 0;
+  function onScroll() {
+    const top = scroller.scrollTop;
+    const gap = scroller.scrollHeight - top - scroller.clientHeight;
+    // up, and not just the browser pulling the view in because the content got shorter (that leaves it at the end)
+    if (top < lastTop - 1 && gap > 2) stick = false;
+    else if (!touching) stick = atBottom();
+    lastTop = top;
+  }
+  function touchEnd() {
+    touching = false;
+    stick = atBottom();
+  }
+
   onMount(() => {
     // Follow growth (streaming, expanding tools) only while the reader is parked at the bottom.
-    const ro = new ResizeObserver(() => stick && toBottom());
+    const ro = new ResizeObserver(() => stick && !touching && toBottom());
     ro.observe(inner);
     toBottom();
+    // passive: the browser must not wait on these before it scrolls
+    const on = (type: string, f: (e: any) => void) => scroller.addEventListener(type, f, { passive: true });
+    on('touchstart', () => (touching = true));
+    on('touchend', touchEnd);
+    on('touchcancel', touchEnd);
+    on('wheel', (e: WheelEvent) => { if (e.deltaY < 0) stick = false; });
     return () => ro.disconnect();
   });
 </script>
 
-<div class="scroller" bind:this={scroller} onscroll={() => (stick = atBottom())}>
+<div class="scroller" bind:this={scroller} onscroll={onScroll}>
   <div class="inner" bind:this={inner}>
     {#if !chat.loaded && !chat.loadError}
       <div class="hint"><WaitBubble {chat} text={chat.link === 'open' ? t('transcript.starting') : S.connecting} /></div>

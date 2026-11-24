@@ -17,7 +17,7 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
-import { Marked, type Token, type TokensList } from 'marked';
+import { Marked, type Token, type Tokens, type TokensList } from 'marked';
 import { S } from './strings';
 
 const langs: Record<string, any> = {
@@ -39,6 +39,17 @@ export function highlight(code: string, lang?: string): string {
 
 const md = new Marked({
   gfm: true,
+  tokenizer: {
+    // Strikethrough only with two tildes. marked also takes one, but a single `~` in Korean (and much other) text
+    // means "about" or a range (`~80만`, `11만~17만`), and two of those in a line struck out everything between.
+    del(src) {
+      const m = /^~~(?=[^\s~])([^\n]{0,2000}?[^\s~\\])~~(?!~)/.exec(src);
+      if (m) return { type: 'del', raw: m[0], text: m[1], tokens: this.lexer.inlineTokens(m[1]) };
+      const run = /^~+/.exec(src)?.[0];
+      // a plain text token in the place of the del one: the tilde stays as it is
+      return run ? ({ type: 'text', raw: run, text: run } as unknown as Tokens.Del) : false;
+    },
+  },
   renderer: {
     code({ text, lang }) {
       const label = (lang ?? '').split(/\s/)[0];
