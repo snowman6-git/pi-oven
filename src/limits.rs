@@ -53,7 +53,8 @@ impl Entry {
         self.windows.retain(|w| (1..=100_000).contains(&w.minutes) && w.used.is_finite());
         self.windows.truncate(4);
         for w in &mut self.windows {
-            w.used = w.used.clamp(0.0, 100.0);
+            // a fraction × 100 leaves noise (7.000000000000001)
+            w.used = (w.used.clamp(0.0, 100.0) * 10.0).round() / 10.0;
         }
         self.windows.sort_by_key(|w| w.minutes);
         self.reset_kinds.retain(|k| k.len() <= 80 && !k.contains(['<', '>', '\n']));
@@ -76,6 +77,23 @@ impl Entry {
                 "resetInMs": w.reset_at.map(|t| t as i64 - now as i64),
             })).collect::<Vec<_>>(),
         })
+    }
+}
+
+/// Two readings of the same window that differ only by rounding. The response headers give a fraction cut to two
+/// places and the usage answer a rounded percentage, so the two took turns a point apart (9, 10, 9, 10…). Use within a
+/// window that has not reset only goes up, so a small drop is the other source's rounding: keep the higher. A larger
+/// drop is a real correction (a window marked used up on a guess) and stands.
+const ROUNDING: f64 = 2.0;
+
+fn steady(old: &Entry, new: &mut Entry) {
+    for w in &mut new.windows {
+        let Some(o) = old.windows.iter().find(|o| o.minutes == w.minutes) else { continue };
+        // the same window: its reset has not passed and the two agree on it (sources differ by seconds)
+        let same = matches!((o.reset_at, w.reset_at), (Some(a), Some(b)) if a > new.at && a.abs_diff(b) <= 10 * 60_000);
+        if same && o.used > w.used && o.used - w.used <= ROUNDING {
+            w.used = o.used;
+        }
     }
 }
 
@@ -217,6 +235,9 @@ impl Limits {
             if e.resets.is_none() {
                 e.resets = old.and_then(|o| o.resets);
                 e.reset_kinds = old.map(|o| o.reset_kinds.clone()).unwrap_or_default();
+            }
+            if let Some(old) = old {
+                steady(old, &mut e);
             }
             // for the log: a jump in the numbers, to put next to the replies before it
             let used = |x: &Entry| x.windows.iter().map(|w| (w.minutes, (w.used * 10.0).round() as i64)).collect::<Vec<_>>();
@@ -428,5 +449,25 @@ mod tests {
         l.record(e(7_000, 40.0));
         assert_eq!(l.blocked("anthropic", 8_000), None);
         assert_eq!(l.blocked("openai-codex", 8_000), None);
+    }
+
+    #[test]
+    fn two_sources_a_point_apart_do_not_take_turns() {
+        let l = Limits::load(None);
+        let e = |at, used, reset_at| Entry { provider: "anthropic".into(), plan: None, at, limit_reached: false, windows: vec![Window { minutes: 300, used, reset_at: Some(reset_at) }], resets: None, reset_kinds: vec![] };
+        let used = |l: &Limits| l.entry("anthropic").unwrap().windows[0].used;
+        let reset = 10_000_000;
+        l.record(e(1_000, 10.0, reset)); // usage answer
+        l.record_reply(e(2_000, 9.0, reset + 30_000)); // header: same window, cut lower
+        assert_eq!(used(&l), 10.0);
+        l.record_reply(e(3_000, 11.0, reset));
+        assert_eq!(used(&l), 11.0, "up is always taken");
+        l.record(e(4_000, 40.0, reset));
+        l.record(e(5_000, 12.0, reset));
+        assert_eq!(used(&l), 12.0, "a large drop is a correction");
+        l.record(e(reset + 1, 3.0, reset + 18_000_000));
+        assert_eq!(used(&l), 3.0, "a new window starts low");
+        // noise from fraction × 100 is rounded away
+        assert_eq!(read(&super::tests::line(r#"{"provider":"anthropic","plan":null,"at":1,"windows":[{"minutes":300,"used":7.000000000000001,"resetAt":null}]}"#)).unwrap().windows[0].used, 7.0);
     }
 }
