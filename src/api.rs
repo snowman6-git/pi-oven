@@ -69,7 +69,9 @@ pub async fn delete_session(State(app): State<Arc<AppState>>, Query(q): Query<Pa
         }
     }
     match std::fs::remove_file(&file) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        // the runtimes it closed: a page drops their chats by these, not by matching the path it last knew for them
+        // (a chat whose pi had not reported its file yet stayed on screen, cut off)
+        Ok(()) => Json(serde_json::json!({ "closed": using })).into_response(),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }

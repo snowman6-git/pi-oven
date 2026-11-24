@@ -201,7 +201,7 @@ export const api = {
   renameSession: (path: string, name: string) => call<void>('/api/sessions/rename', { method: 'POST', body: JSON.stringify({ path, name }) }),
   /** `close`: an open session is closed first (wherever it is open) instead of refused. */
   deleteSession: (path: string, close = false) =>
-    call<void>(`/api/sessions?path=${encodeURIComponent(path)}${close ? '&close=true' : ''}`, { method: 'DELETE' }),
+    call<{ closed?: string[] } | undefined>(`/api/sessions?path=${encodeURIComponent(path)}${close ? '&close=true' : ''}`, { method: 'DELETE' }),
   runtimes: () => call<RuntimeInfo[]>('/api/runtimes'),
   openRuntime: (body: { cwd: string; sessionPath?: string }) =>
     call<RuntimeInfo>('/api/runtimes', { method: 'POST', body: JSON.stringify(body) }),

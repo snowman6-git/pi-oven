@@ -193,6 +193,7 @@ class App {
     }
     if (open.some((c) => c.runtime.id === this.currentId)) this.select(this.chats[0]?.runtime.id ?? null);
     const results = await Promise.allSettled(doomed.map((s) => api.deleteSession(s.path, true)));
+    this.#dropClosed(results.flatMap((r) => (r.status === 'fulfilled' ? r.value?.closed ?? [] : [])));
     const gone = new Set(doomed.filter((_, i) => results[i].status === 'fulfilled').map((s) => s.path));
     this.sessions = this.sessions.filter((s) => !gone.has(s.path));
     this.picked = this.picked.filter((p) => !gone.has(p));
@@ -200,6 +201,15 @@ class App {
     if (failed) this.error = t('appmsg.delFailedN', { n: failed });
     this.flash(failed ? t('appmsg.delPartial', { ok: gone.size, failed }) : t('appmsg.deleted', { n: gone.size }));
     if (this.selecting && (failed === 0 || this.picked.length === 0)) this.stopSelect();
+  }
+
+  /** The server stopped these runtimes to delete their session: a chat this page still has for one is gone too. */
+  #dropClosed(ids: string[]) {
+    const left = this.chats.filter((c) => ids.includes(c.runtime.id));
+    if (!left.length) return;
+    for (const chat of left) chat.dispose();
+    this.chats = this.chats.filter((c) => !left.includes(c));
+    if (left.some((c) => c.runtime.id === this.currentId)) this.select(this.chats[0]?.runtime.id ?? null);
   }
 
   flash(text: string) {
@@ -440,7 +450,7 @@ class App {
       this.chats = this.chats.filter((c) => c !== open);
     }
     try {
-      await api.deleteSession(s.path, true);
+      this.#dropClosed((await api.deleteSession(s.path, true))?.closed ?? []);
       this.sessions = this.sessions.filter((x) => x.path !== s.path);
       this.flash(t('appmsg.movedDeleted'));
     } catch (e) { this.#fail(e); }
