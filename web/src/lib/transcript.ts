@@ -19,6 +19,9 @@ export interface ToolBlock {
   durationMs?: number;
   /** When this page saw the call start (for the running clock). The final time comes from pi (`durationMs`). */
   startedAt?: number;
+  /** The model is still writing the arguments; `partial` is what came of them so far (file tools only). */
+  composing?: boolean;
+  partial?: Record<string, any>;
 }
 export type Block = { type: 'text'; text: string } | { type: 'thinking'; text: string; redacted?: boolean } | ToolBlock;
 

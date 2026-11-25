@@ -452,3 +452,37 @@ html[data-showcase~='chat'][data-showcase-style='example'] [data-priv~='chat'] :
   75% { transform: translateX(-2px); }
   90% { transform: translateX(1px); }
 }
+
+/* Syntax colours follow the palette instead of a stock highlight theme. */
+:is(.md, .hl) .hljs-comment,
+:is(.md, .hl) .hljs-quote {
+  color: var(--ink-3);
+  font-style: italic;
+}
+:is(.md, .hl) .hljs-keyword,
+:is(.md, .hl) .hljs-selector-tag,
+:is(.md, .hl) .hljs-built_in {
+  color: var(--accent);
+}
+:is(.md, .hl) .hljs-string,
+:is(.md, .hl) .hljs-attr,
+:is(.md, .hl) .hljs-addition {
+  color: var(--ok);
+}
+:is(.md, .hl) .hljs-number,
+:is(.md, .hl) .hljs-literal,
+:is(.md, .hl) .hljs-symbol {
+  color: var(--heat);
+}
+:is(.md, .hl) .hljs-title,
+:is(.md, .hl) .hljs-function,
+:is(.md, .hl) .hljs-section {
+  font-weight: 650;
+}
+:is(.md, .hl) .hljs-deletion {
+  color: var(--bad);
+}
+:is(.md, .hl) .hljs-meta,
+:is(.md, .hl) .hljs-type {
+  color: var(--ink-2);
+}

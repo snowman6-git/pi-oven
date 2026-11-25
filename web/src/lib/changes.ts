@@ -34,8 +34,9 @@ export function countDiff(diff: string): { added: number; removed: number } {
 
 const lines = (s: string) => (s === '' ? 0 : s.endsWith('\n') ? s.split('\n').length - 1 : s.split('\n').length);
 
-/** Only calls that succeeded count: a refused or failed edit changed nothing. */
-export function sessionChanges(items: Item[]): FileChange[] {
+/** Only calls that succeeded count: a refused or failed edit changed nothing. `key`: the name a path goes by (two ways
+    of writing one file are one file). */
+export function sessionChanges(items: Item[], key: (path: string) => string = (p) => p): FileChange[] {
   const byPath = new Map<string, FileChange>();
   let seq = 0;
   for (const item of items) {
@@ -44,7 +45,7 @@ export function sessionChanges(items: Item[]): FileChange[] {
       if (!block || block.type !== 'tool') continue;
       const t = block as ToolBlock;
       if (t.status !== 'ok' || (t.name !== 'edit' && t.name !== 'write')) continue;
-      const path = typeof t.args?.path === 'string' ? t.args.path : '';
+      const path = typeof t.args?.path === 'string' ? key(t.args.path) : '';
       if (!path) continue;
       let f = byPath.get(path);
       if (!f) byPath.set(path, (f = { path, touches: [], added: 0, removed: 0, edits: 0, writes: 0, lastSeq: 0 }));
@@ -65,33 +66,4 @@ export function sessionChanges(items: Item[]): FileChange[] {
     }
   }
   return [...byPath.values()];
-}
-
-/** A path relative to the session's folder when it is inside it, for display. */
-export function shortPath(path: string, cwd: string): string {
-  const base = cwd.endsWith('/') ? cwd : cwd + '/';
-  return cwd && path.startsWith(base) ? path.slice(base.length) : path;
-}
-
-/** The content of a write as a pi-style diff, so one viewer shows both. Capped; the rest is noted. */
-export function contentAsDiff(content: string, max = 400): string {
-  const all = content.split('\n');
-  if (all[all.length - 1] === '') all.pop();
-  const shown = all.slice(0, max).map((l, i) => `+ ${i + 1} ${l}`);
-  if (all.length > max) shown.push(`     ... ${all.length - max} more lines`);
-  return shown.join('\n');
-}
-
-/** Edits and writes pi has started and not finished: the file is being changed right now. */
-export function runningEdits(items: Item[]): string[] {
-  const out = new Set<string>();
-  for (const item of items) {
-    if (item.kind !== 'assistant') continue;
-    for (const block of item.blocks) {
-      if (!block || block.type !== 'tool') continue;
-      const t = block as ToolBlock;
-      if ((t.name === 'edit' || t.name === 'write') && (t.status === 'running' || t.status === 'pending') && typeof t.args?.path === 'string') out.add(t.args.path);
-    }
-  }
-  return [...out];
 }

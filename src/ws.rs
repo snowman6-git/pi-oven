@@ -13,7 +13,7 @@ use crate::{runtime::Runtime, AppState};
 
 pub async fn handler(State(app): State<Arc<AppState>>, Path(id): Path<String>, ws: WebSocketUpgrade) -> Response {
     match app.runtimes.get(&id).await {
-        Some(rt) => ws.max_message_size(32 << 20).on_upgrade(move |sock| attach(sock, rt)).into_response(),
+        Some(rt) => ws.max_message_size(32 << 20).on_upgrade(move |sock| attach(sock, rt, app)).into_response(),
         None => (StatusCode::NOT_FOUND, "no such runtime").into_response(),
     }
 }
@@ -163,7 +163,15 @@ fn shape(line: &str, want: Want) -> Option<String> {
     Some(v.to_string())
 }
 
-async fn attach(mut sock: WebSocket, rt: Arc<Runtime>) {
+/// The next word of what changed in the folder (never, once the watcher is gone or there is none).
+async fn changed(rx: &mut Option<tokio::sync::broadcast::Receiver<Arc<str>>>) -> Result<Arc<str>, RecvError> {
+    match rx {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>) {
     let (mut events, replay) = rt.attach();
 
     let hello = serde_json::json!({
@@ -185,6 +193,10 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>) {
     // The requests this page sent and is waiting for: pi's answers go to every page of the session, and one page's
     // history (megabytes) is no business of another's. `Some(want)`: a history request, and the part of it the page wants.
     let mut mine: std::collections::HashMap<String, Option<Want>> = std::collections::HashMap::new();
+    // (resolving the folder may touch a slow disk; the handle keeps the watcher alive as long as this page looks)
+    let cwd = std::path::PathBuf::from(&rt.info.cwd);
+    let hub = tokio::task::spawn_blocking(move || app.watches.of(&cwd)).await.ok().flatten();
+    let mut files = hub.as_ref().map(|h| h.subscribe());
     let mut ping = tokio::time::interval(Duration::from_secs(25));
     loop {
         tokio::select! {
@@ -256,6 +268,12 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>) {
                 }
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 _ => {}
+            },
+            f = changed(&mut files) => match f {
+                Ok(line) => { if !send(&mut sock, Message::text(line.to_string())).await { break } }
+                // some were missed: the page looks at the folder itself
+                Err(RecvError::Lagged(_)) => { if !send(&mut sock, Message::text(r#"{"type":"oven_files","files":[],"more":true}"#)).await { break } }
+                Err(RecvError::Closed) => files = None,
             },
             _ = ping.tick() => {
                 if !send(&mut sock, Message::Ping(Vec::new().into())).await { break }

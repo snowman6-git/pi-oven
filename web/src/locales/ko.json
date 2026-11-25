@@ -282,7 +282,7 @@
     },
     "files": {
       "label": "파일 이름",
-      "hint": "탐색기, 편집기 탭, Git·Diff 목록의 파일 이름을 흐리게 합니다."
+      "hint": "탐색기, 편집기 탭, Git 목록의 파일 이름을 흐리게 합니다."
     },
     "chat": {
       "label": "대화 본문",
@@ -499,20 +499,49 @@
     "ignored": "무시됨",
     "recent": "최근 커밋"
   },
-  "diff": {
-    "summary": {
-      "other": "{n}개 파일, 수정 {edits}번"
-    },
-    "empty": "pi가 고친 파일이 여기에 나타납니다.",
-    "followHint": "새 수정이 생기면 그 파일을 자동으로 펼칩니다",
+  "live": {
+    "label": "실시간 변경",
+    "grip": "트리와 실시간 변경의 높이",
     "follow": "따라가기",
-    "editing": "수정 중…",
-    "nth": "{n}번째 {kind}",
-    "write": "쓰기",
-    "edit": "수정",
-    "noDiff": "diff가 기록되어 있지 않습니다.",
+    "followHint": "지금 쓰거나 바꾼 파일을 자동으로 보여 줍니다",
+    "composing": "작성 중 · 저장 전",
+    "waiting": "저장 전",
+    "ask": "승인 대기 · 저장 전",
+    "running": "실행 중",
+    "append": "끝에 덧붙임",
+    "shell": "셸이 쓸 내용이라 변수는 아직 바뀌기 전입니다.",
+    "saved": "저장됨",
+    "new": "새 파일",
+    "failed": "실패 · 파일은 그대로",
+    "declined": "거절함 · 파일은 그대로",
+    "nothingYet": "내용을 기다리는 중입니다. 다 쓴 뒤 한 번에 보내는 모델도 있습니다.",
+    "nth": "수정 {n}",
+    "above": {
+      "other": "위로 {n}줄 더 있음"
+    },
+    "below": {
+      "other": "아래로 {n}줄 더 있음"
+    },
+    "edit": "{n}번째 변경",
     "rewritten": "파일 전체를 새로 썼습니다.",
-    "bashNote": "<code class=\"mono\">bash</code>로 바뀐 파일은 여기 없습니다. Git 탭에서 보세요."
+    "noDiff": "diff가 기록되어 있지 않습니다.",
+    "fromDisk": "디스크에서 바뀐 내용",
+    "noPreview": "미리 볼 수 없는 파일입니다.",
+    "gone": "지금은 없는 파일입니다.",
+    "earlier": {
+      "other": "앞의 변경 {n}번은 줄였습니다."
+    },
+    "jump": "최신 변경으로",
+    "open": "편집기로 열기",
+    "history": "바뀐 파일",
+    "draftTag": "저장 전",
+    "askTag": "승인 대기",
+    "marks": {
+      "other": "바뀐 파일 {n}개"
+    },
+    "clear": "변경 표시 지우기",
+    "modified": "바뀜",
+    "busy": "파일을 쓰는 중"
   },
   "point": {
     "notFound": "대화에서 이 메시지를 찾지 못했습니다",
@@ -567,7 +596,6 @@
     "tab": {
       "info": "정보",
       "files": "파일",
-      "diff": "Diff",
       "git": "Git",
       "point": "Pin"
     },
@@ -654,7 +682,6 @@
       "ok": "완료",
       "pending": "대기"
     },
-    "showImage": "이미지가 있는 도구 결과 펼치기",
     "lines": {
       "other": "{n}줄"
     }
@@ -1181,5 +1208,15 @@
     "reviewA": "정확성 검토",
     "reviewB": "상태 갱신 검토",
     "reviewC": "이벤트 누락 검토"
+  },
+  "viewer": {
+    "title": "이미지 보기",
+    "open": "이미지 크게 보기",
+    "hint": "끌어서 옮기고, 휠이나 두 손가락으로 확대",
+    "prev": "이전 이미지",
+    "next": "다음 이미지",
+    "fullOn": "전체 화면",
+    "fullOff": "전체 화면 끝내기",
+    "reset": "창에 맞추기"
   }
 }

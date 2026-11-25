@@ -166,37 +166,4 @@
   .md :global(pre code) {
     font-size: 0.84em;
   }
-  /* Syntax colours follow the palette instead of a stock highlight theme. */
-  .md :global(.hljs-comment),
-  .md :global(.hljs-quote) {
-    color: var(--ink-3);
-    font-style: italic;
-  }
-  .md :global(.hljs-keyword),
-  .md :global(.hljs-selector-tag),
-  .md :global(.hljs-built_in) {
-    color: var(--accent);
-  }
-  .md :global(.hljs-string),
-  .md :global(.hljs-attr),
-  .md :global(.hljs-addition) {
-    color: var(--ok);
-  }
-  .md :global(.hljs-number),
-  .md :global(.hljs-literal),
-  .md :global(.hljs-symbol) {
-    color: var(--heat);
-  }
-  .md :global(.hljs-title),
-  .md :global(.hljs-function),
-  .md :global(.hljs-section) {
-    font-weight: 650;
-  }
-  .md :global(.hljs-deletion) {
-    color: var(--bad);
-  }
-  .md :global(.hljs-meta),
-  .md :global(.hljs-type) {
-    color: var(--ink-2);
-  }
 </style>

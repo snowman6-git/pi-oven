@@ -5,8 +5,6 @@
   import { S } from '../lib/strings';
   import Icon from './Icon.svelte';
   import { compactNumber } from '../lib/util';
-  import { sessionChanges } from '../lib/changes';
-  import DiffTab from './DiffTab.svelte';
   import FilesTab from './FilesTab.svelte';
   import GitTab from './GitTab.svelte';
   import PointTab from './PointTab.svelte';
@@ -20,11 +18,10 @@
   const statuses = $derived(Object.entries(chat.statuses));
   const widgets = $derived(Object.entries(chat.widgets));
   const tab = $derived(app.inspectorTab);
-  const changed = $derived(sessionChanges(chat.items).length);
+  const changed = $derived(chat.live.history.length);
   const tabs = $derived([
     { id: 'info', n: 0 },
-    { id: 'files', n: 0 },
-    { id: 'diff', n: changed },
+    { id: 'files', n: changed },
     { id: 'git', n: 0 },
     { id: 'point', n: 0 },
   ] as const);
@@ -45,7 +42,7 @@
   <div class="tabs" role="tablist" tabindex="-1" aria-label={t('inspector.sections')} onkeydown={onTabKey}>
     {#each tabs as tb (tb.id)}
       <button role="tab" type="button" id="itab-{tb.id}" aria-selected={tab === tb.id} aria-controls="ipane" tabindex={tab === tb.id ? 0 : -1} onclick={() => app.setInspectorTab(tb.id)}>
-        {t(`inspector.tab.${tb.id}`)}{#if tb.n}<span class="n">{tb.n}</span>{/if}
+        {t(`inspector.tab.${tb.id}`)}{#if tb.id === 'files' && chat.live.drafts.length}<i class="busy" role="img" aria-label={t('live.busy')}></i>{:else if tb.n}<span class="n">{tb.n}</span>{/if}
       </button>
     {/each}
     <span class="grow"></span>
@@ -54,11 +51,9 @@
     {/if}
   </div>
 
-  <div class="pane" id="ipane" role="tabpanel" aria-labelledby="itab-{tab}">
+  <div class="pane" class:fill={tab === 'files'} id="ipane" role="tabpanel" aria-labelledby="itab-{tab}">
   {#if tab === 'files'}
     <FilesTab {chat} />
-  {:else if tab === 'diff'}
-    <DiffTab {chat} />
   {:else if tab === 'git'}
     <GitTab {chat} />
   {:else if tab === 'point'}
@@ -172,6 +167,22 @@
     grid-template-columns: minmax(0, 1fr);
     align-content: start;
     gap: 22px;
+  }
+  /* the file tab: the tree and the live changes share the height and scroll by themselves */
+  .pane.fill {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    gap: 0;
+  }
+  .busy {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-left: 7px;
+    border-radius: 2px;
+    background: var(--heat);
   }
   h3 {
     margin: 0 0 8px;

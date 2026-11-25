@@ -158,7 +158,7 @@
         {#if item.text}<div class="text" data-priv="chat">{showcase.text(item.text)}</div>{/if}
         {#if item.images.length}
           <div class="thumbs">
-            {#each item.images as img}<img alt="" src={`data:${img.mimeType};base64,${img.data}`} />{/each}
+            {#each item.images as img, n}<button type="button" aria-label={t('viewer.open')} onclick={() => app.view(item.images, n)}><img alt="" src={`data:${img.mimeType};base64,${img.data}`} /></button>{/each}
           </div>
         {/if}
       </div>

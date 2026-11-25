@@ -81,7 +81,7 @@ Open the server address in a browser, or enter the server address and token once
 - **Chat**: streaming, tool calls with running time, image attachments and image previews in tool results, steering, follow-ups and "send now" (Ctrl+Enter) while pi works, tok/s and time to first token.
 - **Permissions**: auto, or manual (write and run tools are approved on screen). The mode is kept on the server, so every device and new session uses it.
 - **Sessions**: listed by folder, renamable, with a session tree to branch or regenerate (the original session is left as it was). When the server restarts, open sessions are reopened by themselves; an ended session has a "Reopen" button.
-- **Work folder**: file explorer and editor (CodeMirror, notices changes on disk), Diff, Git staging and commits.
+- **Work folder**: file explorer and editor (CodeMirror, notices changes on disk), live view of file changes, Git staging and commits.
 - **Pins**: addresses and tokens from the chat in one place, plus your own regex rules.
 - **Adding models**: an endpoint and key are saved to pi's `models.json` (backed up first).
 - **Supported plans**: Claude (Pro, Max) and ChatGPT (Plus, Pro). Everything below works for whichever pi is signed in to.

@@ -114,7 +114,7 @@
   const overlayCount = () => {
     const c = app.current;
     return [
-      !!c?.bgOpen, !!c?.extTitle, app.folderPicker, app.settingsOpen, !!app.treeTarget, !!app.dialog, menu.open,
+      !!c?.bgOpen, !!c?.extTitle, app.folderPicker, app.settingsOpen, !!app.treeTarget, !!app.viewer, !!app.dialog, menu.open,
       app.narrow && app.sidebarOpen, app.narrow && app.inspectorDrawer,
     ].filter(Boolean).length + popovers.count;
   };
@@ -275,6 +275,7 @@
   {#if app.folderPicker}{#await import('./components/FolderPicker.svelte') then m}<m.default />{/await}{/if}
   {#if app.settingsOpen}{#await import('./components/SettingsDialog.svelte') then m}<m.default />{/await}{/if}
   {#if app.treeTarget}{#await import('./components/TreePanel.svelte') then m}<m.default target={app.treeTarget} />{/await}{/if}
+  {#if app.viewer}{#await import('./components/ImageViewer.svelte') then m}{#if app.viewer}<m.default {...app.viewer} />{/if}{/await}{/if}
   <ConfirmDialog />
   <ContextMenu />
   {#if app.flashText}<div class="flash" role="status">{app.flashText}</div>{/if}

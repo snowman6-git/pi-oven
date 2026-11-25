@@ -283,7 +283,7 @@
     },
     "files": {
       "label": "File names",
-      "hint": "Blurs file names in the explorer, editor tabs and the Git and Diff lists."
+      "hint": "Blurs file names in the explorer, editor tabs and the Git list."
     },
     "chat": {
       "label": "Chat text",
@@ -506,21 +506,53 @@
     "ignored": "Ignored",
     "recent": "Recent commits"
   },
-  "diff": {
-    "summary": {
-      "one": "{n} file, {edits} edits",
-      "other": "{n} files, {edits} edits"
-    },
-    "empty": "Files pi changes show up here.",
-    "followHint": "Expands a file by itself when it is changed again",
+  "live": {
+    "label": "Live changes",
+    "grip": "Height of the tree and the live changes",
     "follow": "Follow",
-    "editing": "being edited…",
-    "nth": "#{n} {kind}",
-    "write": "write",
-    "edit": "edit",
-    "noDiff": "No diff was recorded.",
+    "followHint": "Shows the file being written or changed as it happens",
+    "composing": "Writing · not saved",
+    "waiting": "Not saved",
+    "ask": "Waiting for approval · not saved",
+    "running": "Running",
+    "append": "Adds to the end",
+    "shell": "The shell writes this: variables are not filled in yet.",
+    "saved": "Saved",
+    "new": "New file",
+    "failed": "Failed · file unchanged",
+    "declined": "Declined · file unchanged",
+    "nothingYet": "Waiting for the content. Some models send it in one piece when done.",
+    "nth": "Edit {n}",
+    "above": {
+      "one": "{n} more line above",
+      "other": "{n} more lines above"
+    },
+    "below": {
+      "one": "{n} more line below",
+      "other": "{n} more lines below"
+    },
+    "edit": "Change {n}",
     "rewritten": "The whole file was rewritten.",
-    "bashNote": "Files changed by <code class=\"mono\">bash</code> are not here. See the Git tab."
+    "noDiff": "No diff was recorded.",
+    "fromDisk": "Changed on disk",
+    "noPreview": "This file cannot be previewed.",
+    "gone": "This file is no longer there.",
+    "earlier": {
+      "one": "{n} earlier change left out.",
+      "other": "{n} earlier changes left out."
+    },
+    "jump": "To the latest change",
+    "open": "Open in editor",
+    "history": "Changed files",
+    "draftTag": "not saved",
+    "askTag": "approval",
+    "marks": {
+      "one": "{n} changed file",
+      "other": "{n} changed files"
+    },
+    "clear": "Clear change marks",
+    "modified": "Changed",
+    "busy": "Writing a file"
   },
   "point": {
     "notFound": "Could not find this message in the chat",
@@ -579,7 +611,6 @@
     "tab": {
       "info": "Info",
       "files": "Files",
-      "diff": "Diff",
       "git": "Git",
       "point": "Pin"
     },
@@ -669,7 +700,6 @@
       "ok": "Done",
       "pending": "Waiting"
     },
-    "showImage": "Expand the tool result with an image",
     "lines": {
       "one": "{n} line",
       "other": "{n} lines"
@@ -1212,5 +1242,15 @@
     "reviewA": "Review correctness",
     "reviewB": "Review state updates",
     "reviewC": "Review missed events"
+  },
+  "viewer": {
+    "title": "Image",
+    "open": "View image",
+    "hint": "Drag to move; wheel or pinch to zoom",
+    "prev": "Previous image",
+    "next": "Next image",
+    "fullOn": "Full screen",
+    "fullOff": "Leave full screen",
+    "reset": "Fit to window"
   }
 }

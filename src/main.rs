@@ -26,6 +26,7 @@ mod resume;
 mod retry;
 mod update;
 mod usage;
+mod watch;
 mod web;
 mod ws;
 
@@ -51,6 +52,7 @@ pub struct AppState {
     /// `--root`, resolved: the only folder (and below) this server works in.
     pub root: Option<PathBuf>,
     pub self_update: Arc<selfupdate::SelfUpdate>,
+    pub watches: watch::Watches,
 }
 
 /// Browsers on another origin (a Tauri webview, a dev server) need explicit permission.
@@ -122,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
         sessions: Default::default(),
         root: cfg.root.clone(),
         self_update: Default::default(),
+        watches: Default::default(),
     });
     tokio::spawn(app.self_update.clone().watch());
     runtimes.accounts.load_numbers();

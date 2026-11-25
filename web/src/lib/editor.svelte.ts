@@ -94,6 +94,8 @@ export class Editors {
   #polling = false;
   /** A revision seen on disk once: it is only taken in when it is seen again, so a file caught half-written is not. */
   #seen = new Map<string, string>();
+  /** Saved, made or renamed here a moment ago: the folder watch telling of it is no news. */
+  #saved = new Map<string, number>();
   readonly #key: string;
 
   constructor(private runtimeId: string, cwd: string, private host: EditorHost) {
@@ -278,9 +280,11 @@ export class Editors {
     const text = this.textOf?.(path);
     if (!doc || doc.image || doc.saving || doc.error || text == null) return;
     doc.saving = true;
+    this.ownChange(path);
     try {
       const r = await api.writeFile(this.runtimeId, { path, content: text, rev: doc.rev, overwrite, eol: doc.eol, bom: doc.bom });
       doc.rev = r.rev;
+      this.ownChange(path);
       doc.base = text;
       doc.dirty = false;
       doc.conflict = null;
@@ -291,6 +295,13 @@ export class Editors {
     } finally {
       doc.saving = false;
     }
+  }
+
+  ownChange(path: string) {
+    this.#saved.set(path, Date.now());
+  }
+  savedHere(path: string) {
+    return Date.now() - (this.#saved.get(path) ?? 0) < 2000;
   }
 
   setDirty(path: string, dirty: boolean) {

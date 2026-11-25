@@ -1,7 +1,7 @@
 <script lang="ts">
   import { S } from '../lib/strings';
   import { t } from '../lib/i18n.svelte';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { api, HttpError, type FileEntry } from '../lib/api';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
@@ -11,6 +11,7 @@
   import { baseName } from '../lib/util';
   import FileIcon from './FileIcon.svelte';
   import Icon from './Icon.svelte';
+  import LivePane from './LivePane.svelte';
 
   let { chat }: { chat: Chat } = $props();
   const id = $derived(chat.runtime.id);
@@ -63,11 +64,70 @@
   });
   $effect(() => { if (!chat.running) untrack(() => void loadAll()); });
 
+  // The folder watch names the folders to read again; together, a few times a second at most.
+  let due: Set<string> | null = new Set();
+  let dueTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const live = chat.live;
+    live.onDirs = (list) => {
+      if (!list) due = null;
+      else for (const d of list) due?.add(d);
+      dueTimer ??= setTimeout(() => {
+        dueTimer = undefined;
+        const now = due;
+        due = new Set();
+        if (!now) void loadAll();
+        else for (const d of now) if (dirs[d]) void load(d);
+      }, 60);
+    };
+    return () => {
+      live.onDirs = null;
+      clearTimeout(dueTimer);
+      dueTimer = undefined;
+    };
+  });
+
+  // Following: the folders down to the file being written or changed open by themselves (not remembered as opened).
+  const following = $derived(chat.live.follow && chat.running ? chat.live.target : null);
+  $effect(() => {
+    const p = following;
+    chat.live.order;
+    chat.live.n;
+    if (!p || !inTree(p)) return;
+    // (again when a folder on the way shows up)
+    for (let i = p.indexOf('/'); i >= 0; i = p.indexOf('/', i + 1)) dirs[p.slice(0, i)]?.entries;
+    dirs['']?.entries;
+    untrack(() => void showPath(p));
+  });
+  /** Folded up by hand during this run: left so. */
+  let shut = new Set<string>();
+  $effect(() => { chat.running; shut = new Set(); });
+  async function showPath(p: string) {
+    const parts = p.split('/').slice(0, -1);
+    for (let i = 0; i < parts.length; i++) {
+      const dir = parts.slice(0, i + 1).join('/');
+      const e = dirs[parts.slice(0, i).join('/')]?.entries.find((x) => x.name === parts[i]);
+      if (!e || e.kind !== 'dir' || e.blocked || shut.has(dir)) return;
+      if (!expanded.includes(dir)) expanded = [...expanded, dir];
+      if (!dirs[dir]) await load(dir);
+    }
+    await tick();
+    const row = box?.querySelector<HTMLElement>(`[data-path="${CSS.escape(p)}"]`);
+    if (!row || !box || following !== p) return;
+    // (only the tree scrolls: scrollIntoView would move the panel too)
+    const r = row.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (r.top < b.top) box.scrollTop -= b.top - r.top + 8;
+    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 8;
+  }
+
   function remember() {
     try { localStorage.setItem(KEY, JSON.stringify(expanded)); } catch { /* private mode */ }
   }
 
   async function toggle(path: string) {
+    if (expanded.includes(path)) shut.add(path);
+    else shut.delete(path);
     if (expanded.includes(path)) expanded = expanded.filter((x) => x !== path && !x.startsWith(path + '/'));
     else {
       expanded = [...expanded, path];
@@ -88,12 +148,16 @@
   // ── rows ────────────────────────────────────────────────────────────────
   type Row =
     | { t: 'item'; path: string; name: string; e: FileEntry; depth: number; dir: boolean; open: boolean }
+    | { t: 'draft'; path: string; name: string; depth: number; ask: boolean }
     | { t: 'edit'; depth: number; kind: 'file' | 'dir' | 'rename'; key: string };
 
   const rows = $derived.by<Row[]>(() => {
     const out: Row[] = [];
     const walk = (dir: string, depth: number) => {
       if (editing && editing.mode !== 'rename' && editing.parent === dir) out.push({ t: 'edit', depth, kind: editing.mode, key: 'new:' + dir });
+      const names = new Set((dirs[dir]?.entries ?? []).map((e) => e.name));
+      // files the model is writing that are not there yet
+      if (dirs[dir]) for (const d of chat.live.drafts) if (parentOf(d.key) === dir && inTree(d.key) && !names.has(baseName(d.key)) && d.draft.kind === 'write') out.push({ t: 'draft', path: d.key, name: baseName(d.key), depth, ask: d.phase === 'ask' });
       for (const e of dirs[dir]?.entries ?? []) {
         const path = join(dir, e.name);
         const isDir = e.kind === 'dir';
@@ -107,10 +171,56 @@
     return out;
   });
 
+  const inTree = (p: string) => !p.startsWith('/') && !p.startsWith('~');
+  /** What is going on inside a folder that is folded up. */
+  function inside(dir: string) {
+    const pre = dir + '/';
+    let n = 0;
+    let fresh = true;
+    for (const [p, m] of Object.entries(chat.live.marks)) if (p.startsWith(pre)) { n++; if (m !== 'new') fresh = false; }
+    const busy = chat.live.drafts.some((d) => d.key.startsWith(pre));
+    return n || busy ? { n, busy, mark: fresh ? 'new' : 'mod' } : null;
+  }
+
+  // ── how the height is shared with the live changes ──────────────────────
+  let frac = $state(readFrac());
+  let tab = $state<HTMLElement>();
+  function readFrac() {
+    try { const v = Number(localStorage.getItem('pi-oven.live-frac')); return v >= 0.2 && v <= 0.8 ? v : 0.54; } catch { return 0.54; }
+  }
+  function setFrac(v: number, keep = false) {
+    frac = Math.min(0.8, Math.max(0.2, v));
+    if (keep) try { localStorage.setItem('pi-oven.live-frac', String(frac)); } catch { /* private mode */ }
+  }
+  function grip(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => {
+      const r = tab!.getBoundingClientRect();
+      setFrac((r.bottom - m.clientY) / r.height);
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      setFrac(frac, true);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+  function gripKey(e: KeyboardEvent) {
+    const d = e.key === 'ArrowUp' ? 0.04 : e.key === 'ArrowDown' ? -0.04 : 0;
+    if (!d) return;
+    e.preventDefault();
+    setFrac(frac + d, true);
+  }
+
   const openPaths = $derived(new Set(chat.editors.docs.map((d) => d.path)));
 
   // ── actions ─────────────────────────────────────────────────────────────
   function openFile(path: string) {
+    chat.live.seen(path);
     void chat.editors.open(path);
     if (app.narrow) app.inspectorDrawer = false;
   }
@@ -145,6 +255,7 @@
         const from = ed.path!;
         const to = join(ed.parent, name);
         if (to !== from) {
+          chat.editors.ownChange(to);
           await api.renameFile(id, from, to);
           chat.editors.renamed(from, to);
           expanded = expanded.map((x) => (x === from || x.startsWith(from + '/') ? to + x.slice(from.length) : x));
@@ -155,6 +266,7 @@
         await Promise.all([load(ed.parent), ...(to !== from ? expanded.filter((x) => x === to || x.startsWith(to + '/')).map(load) : [])]);
       } else {
         const path = join(ed.parent, name);
+        chat.editors.ownChange(path);
         await api.createFile(id, path, ed.mode);
         editing = null;
         selected = path;
@@ -212,6 +324,7 @@
     { label: t('files.newDirMenu'), icon: 'folderPlus', run: () => startNew('dir', '') },
     'sep',
     { label: S.refresh, icon: 'refresh', run: () => void loadAll() },
+    ...(Object.keys(chat.live.marks).length ? [{ label: t('live.clear'), icon: 'check', run: () => chat.live.clearMarks() } as MenuItem] : []),
   ];
 
   function dragStart(e: DragEvent, path: string) {
@@ -257,7 +370,7 @@
   });
 </script>
 
-<div class="tab">
+<div class="tab" bind:this={tab}>
   <div class="bar">
     <span class="root mono" title={showcase.tip('paths', chat.runtime.cwd)} data-priv="paths">{baseName(chat.runtime.cwd)}</span>
     <span class="acts">
@@ -273,9 +386,22 @@
     {#if root && !root.loading && root.entries.length === 0 && !editing && !root.error}
       <p class="note">{t('files.empty')}</p>
     {/if}
-    {#each rows as r (r.t === 'item' ? r.path : r.key)}
-      {#if r.t === 'item'}
-        <div class="row" class:sel={selected === r.path} class:open-doc={openPaths.has(r.path)} class:active={chat.editors.active === r.path} class:blocked={r.e.blocked}
+    {#each rows as r (r.t === 'edit' ? r.key : r.path)}
+      {#if r.t === 'draft'}
+        <div class="row draft" style="--d:{r.depth}" role="treeitem" aria-selected="false">
+          <button type="button" class="hit" data-path={r.path} tabindex="-1" onclick={() => chat.live.pick(r.path)} title={showcase.tip('files', r.path)}>
+            <span class="chev"></span>
+            <span class="ic" aria-hidden="true"><FileIcon name={r.name} /></span>
+            <span class="nm" data-priv="files">{r.name}</span>
+            <span class="end"><span class="tag">{r.ask ? t('live.askTag') : t('live.draftTag')}</span><i class="sq run" aria-hidden="true"></i></span>
+          </button>
+        </div>
+      {:else if r.t === 'item'}
+        {@const draft = r.dir ? undefined : chat.live.draftOf(r.path)}
+        {@const mark = chat.live.marks[r.path]}
+        {@const sum = r.dir && !r.open ? inside(r.path) : null}
+        {@const ch = mark ? chat.live.changes.get(r.path) : undefined}
+        <div class="row" class:run={!!draft} class:new={mark === 'new'} class:mod={mark === 'mod'} class:born={chat.live.fresh[r.path] && mark === 'new'} class:saved={chat.live.fresh[r.path] && mark === 'mod'} class:sel={selected === r.path} class:open-doc={openPaths.has(r.path)} class:active={chat.editors.active === r.path} class:blocked={r.e.blocked}
           style="--d:{r.depth}" role="treeitem" aria-selected={selected === r.path} aria-expanded={r.dir ? r.open : undefined}
           use:contextMenu={() => itemsFor(r)}>
           <button type="button" class="hit" data-path={r.path} tabindex={selected === r.path || (!selected && r.path === rows.find((x) => x.t === 'item')?.['path' as never]) ? 0 : -1}
@@ -285,7 +411,16 @@
             <span class="ic" class:dot={r.name.startsWith('.')} aria-hidden="true">{#if r.dir}<Icon name={r.open ? 'folderOpen' : 'folder'} size={15} />{:else}<FileIcon name={r.name} />{/if}</span>
             <span class="nm" data-priv="files">{r.name}</span>
             {#if r.e.link}<span class="lk" aria-label={t('files.link')}>↗</span>{/if}
-            {#if openPaths.has(r.path)}<i class="od" role="img" aria-label={t('files.isOpen')}></i>{/if}
+            <span class="end">
+              {#if draft}<span class="tag">{draft.phase === 'ask' ? t('live.askTag') : t('live.draftTag')}</span><i class="sq run" aria-hidden="true"></i>
+              {:else if mark}
+                {#if ch}<span class="num">{#if ch.added}<b class="p">+{ch.added}</b>{/if}{#if ch.removed} <b class="m">−{ch.removed}</b>{/if}</span>{/if}
+                <i class="sq {mark}" role="img" aria-label={mark === 'new' ? t('live.new') : t('live.modified')}></i>
+              {:else if sum}
+                {#if sum.n}<span class="cnt" title={t('live.marks', { n: sum.n })}>{sum.n}</span>{/if}<i class="sq {sum.busy ? 'run' : sum.mark}" aria-hidden="true"></i>
+              {/if}
+              {#if openPaths.has(r.path)}<i class="od" role="img" aria-label={t('files.isOpen')}></i>{/if}
+            </span>
           </button>
         </div>
         {#if r.dir && r.open && dirs[r.path]?.loading && !dirs[r.path]?.entries.length}
@@ -312,20 +447,50 @@
     {/each}
     {#if root?.truncated}<p class="note">{t('files.truncated')}</p>{/if}
   </div>
-  <p class="hint">{t('files.hint')}</p>
+  {#if chat.live.active}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+    <div class="grip" role="separator" aria-orientation="horizontal" aria-label={t('live.grip')} aria-valuenow={Math.round(frac * 100)} aria-valuemin="20" aria-valuemax="80" tabindex="0" onpointerdown={grip} onkeydown={gripKey}></div>
+    <div class="low" style="flex-basis:{frac * 100}%"><LivePane {chat} /></div>
+  {:else}
+    <p class="hint">{t('files.hint')}</p>
+  {/if}
 </div>
 
 <style>
-  .tab { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; align-content: start; }
-  .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .tab { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+  .bar { flex: none; padding: 14px 16px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
   .bar .acts { flex: none; }
   .root { min-width: 0; font-size: 12.5px; font-weight: 650; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .acts { display: flex; flex: none; }
   .sm { width: 28px; height: 28px; }
-  .tree { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; min-width: 0; margin: 0 -6px; min-height: 55dvh; }
+  .tree { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; min-width: 0; flex: 1 1 0; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 10px; }
   .note, .err { margin: 2px 0; padding-left: calc(30px + var(--d, 0) * 14px); font-size: 12.5px; color: var(--ink-3); }
   .err { color: var(--bad); }
-  .hint { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
+  .grip { flex: none; height: 11px; display: grid; place-items: center; border-top: 1px solid var(--rule); cursor: row-resize; touch-action: none; }
+  .grip::after { content: ''; width: 34px; height: 3px; border-radius: 2px; background: var(--rule); }
+  .grip:focus-visible { outline: none; }
+  .grip:focus-visible::after { background: var(--accent); }
+  .low { flex: 0 0 auto; min-height: 120px; display: flex; }
+  .end { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 7px; padding-left: 6px; }
+  .end:empty { display: none; }
+  .tag { font-size: 11.5px; color: var(--ink-3); font-style: normal; }
+  .cnt, .num { font: 11.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+  .num b { font-weight: 500; }
+  .num .p { color: var(--ok); }
+  .num .m { color: var(--bad); }
+  .sq { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+  .sq.run { background: var(--heat); }
+  .sq.new { background: var(--ok); }
+  .sq.mod { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .row.new .nm { color: var(--ok); }
+  .row.mod .nm, .row.run .nm { color: var(--ink); }
+  .row.draft .nm { color: var(--ink-3); font-style: italic; }
+  .row.born { animation: born 0.42s cubic-bezier(0.3, 1.5, 0.5, 1); }
+  .row.saved { animation: saved 0.52s cubic-bezier(0.3, 1.5, 0.5, 1); }
+  @keyframes born { from { transform: translateX(-10px); opacity: 0; } }
+  @keyframes saved { 40% { transform: translateX(5px); } }
+  @media (prefers-reduced-motion: reduce) { .row.born, .row.saved { animation: none; } }
+  .hint { flex: none; margin: 4px 16px 14px; font-size: 12px; color: var(--ink-3); }
   .row { min-width: 0; border-radius: 6px; }
   .hit {
     width: 100%;
@@ -346,7 +511,7 @@
   .ic.dot { opacity: 0.6; }
   .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lk { flex: none; color: var(--ink-3); font-size: 11px; }
-  .od { flex: none; margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .od { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
   .row.sel .hit { background: color-mix(in srgb, var(--rule) 55%, transparent); color: var(--ink); }
   .row.active .hit { color: var(--ink); font-weight: 620; }
   .row.blocked .hit { opacity: 0.5; cursor: default; }

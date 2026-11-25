@@ -73,8 +73,8 @@
   <!-- a picture the tool brought back (a screenshot, an image it read) shows without opening the row, unless the setting says otherwise -->
   {#if !open && settings.toolImages === 'always' && tool.images?.length}
     <div class="shots" data-priv="files">
-      {#each tool.images as img}
-        <button class="shotbtn" type="button" aria-label={t('tool.showImage')} onclick={() => (open = true)}>
+      {#each tool.images as img, n}
+        <button class="shotbtn" type="button" aria-label={t('viewer.open')} onclick={() => app.view(tool.images ?? [], n)}>
           <img class="shot" alt="" src={`data:${img.mimeType};base64,${img.data}`} />
         </button>
       {/each}
@@ -110,8 +110,10 @@
         <pre class="out mono err">{showcase.text(tool.output)}</pre>
       {/if}
 
-      {#each tool.images ?? [] as img}
-        <img class="shot" alt="" src={`data:${img.mimeType};base64,${img.data}`} />
+      {#each tool.images ?? [] as img, n}
+        <button class="shotbtn" type="button" aria-label={t('viewer.open')} onclick={() => app.view(tool.images ?? [], n)}>
+          <img class="shot" alt="" src={`data:${img.mimeType};base64,${img.data}`} />
+        </button>
       {/each}
     </div>
   {/if}
@@ -229,6 +231,8 @@
     gap: 8px;
   }
   .shotbtn {
+    justify-self: start;
+    cursor: zoom-in;
     display: block;
     padding: 0;
     max-width: 100%;

@@ -9,7 +9,9 @@ import { Connection } from './connection.svelte';
 import { Subagents } from './subagents.svelte';
 import { COMMAND as SA_COMMAND } from '../addons/subagents';
 import { COMMAND as LENS_COMMAND } from '../addons/lens';
+import { partialJson } from './composing';
 import { Editors, type EditorHost } from './editor.svelte';
+import { Live } from './live.svelte';
 import { pinsFor } from './pins.svelte';
 import { StreamTimer, type Speed } from './speed';
 import type {
@@ -45,6 +47,9 @@ const PERMISSION_KEY = 'pi-oven.permission';
 export const storedPermission = (): Permission => {
   try { return localStorage.getItem(PERMISSION_KEY) === 'manual' ? 'manual' : 'auto'; } catch { return 'auto'; }
 };
+
+/** The tools whose arguments say what will become of a file. */
+const COMPOSED = /^(write|edit|bash)$/;
 
 type Dialog = Extract<ExtensionRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }>;
 
@@ -84,6 +89,8 @@ export class Chat {
   conn: Connection;
   /** The files open for editing here. */
   editors: Editors;
+  /** What is happening to the folder's files (the file tab). */
+  live: Live;
   /** What is pinned in this folder. */
   pins;
   /** The model's task list (the todo add-on), when the package is installed and has been used. */
@@ -183,6 +190,9 @@ export class Chat {
   /** Subagent runs (pi-subagents): chips, tray and their notices. */
   sa: Subagents;
 
+  /** Arguments of the calls being composed, by their place in the message. */
+  #argText = new Map<number, { text: string; timer: ReturnType<typeof setTimeout> | undefined }>();
+
   constructor(runtime: RuntimeInfo, private host: ChatHost) {
     this.runtime = runtime;
     this.sa = new Subagents({
@@ -201,6 +211,14 @@ export class Chat {
     });
     this.pins = pinsFor(runtime.cwd);
     this.editors = new Editors(runtime.id, runtime.cwd, host);
+    this.live = new Live({
+      cwd: runtime.cwd,
+      items: () => this.items,
+      running: () => this.running,
+      asking: (tool) => this.dialogs.some((d) => d.method === 'confirm' && d.title === `Allow ${tool} to run?`),
+      reread: (paths) => { if (!paths || this.editors.docs.some((d) => paths.includes(d.path))) this.editors.pollSoon(); },
+      savedHere: (path) => this.editors.savedHere(path),
+    });
     this.editors.onChatShown = () => (this.unreadReply = false);
     this.conn = new Connection(
       runtime.id,
@@ -852,6 +870,8 @@ export class Chat {
     clearTimeout(this.#todoTimer);
     clearTimeout(this.#placeTimer);
     this.sa.dispose();
+    this.live.dispose();
+    this.#dropArgs();
     this.editors.dispose();
     this.conn.dispose();
   }
@@ -898,7 +918,11 @@ export class Chat {
 
   #onRecord(rec: any) {
     switch (rec.type) {
+      case 'oven_files':
+        this.live.watched(rec.files ?? [], !!rec.more);
+        break;
       case 'oven_attached':
+        this.live.resync();
         this.stderr = rec.stderrTail ?? [];
         this.#setLong(rec.long);
         this.#setResume(rec.resume);
@@ -990,6 +1014,7 @@ export class Chat {
         this.#delivered(rec.message as WireMessage);
         if (rec.message?.role === 'assistant') {
           const ts = rec.message.timestamp as number | undefined;
+          this.#dropArgs();
           // Replayed events for a message history already holds: ignore them through its message_end.
           if (ts != null && this.items.some((i) => i.kind === 'assistant' && !i.live && i.ts === ts)) this.#skipTs = ts;
           else {
@@ -1036,6 +1061,7 @@ export class Chat {
         if (t) {
           applyResult(t, { content: rec.result?.content, details: rec.result?.details, isError: rec.isError });
           t.durationMs = rec.durationMs;
+          if (!this.#replaying) this.live.ended(t, /declined this tool call/.test(t.output));
         }
         this.sa.ended(rec.toolCallId, rec.toolName, rec.result?.details, !!rec.isError);
         if (/^bg_(run|delegate)/.test(rec.toolName)) {
@@ -1121,14 +1147,47 @@ export class Chat {
       case 'text_end': { const b = live.blocks[i]; if (b?.type === 'text') b.text = ev.content; break; }
       case 'thinking_end': { const b = live.blocks[i]; if (b?.type === 'thinking') b.text = ev.content; break; }
       case 'toolcall_start':
-        live.blocks[i] = { type: 'tool', id: ev.id, name: ev.toolName, args: {}, status: 'pending', output: '' };
+        live.blocks[i] = { type: 'tool', id: ev.id, name: ev.toolName, args: {}, status: 'pending', output: '', composing: true };
+        if (COMPOSED.test(ev.toolName)) this.#argText.set(i, { text: '', timer: undefined });
         break;
+      case 'toolcall_delta': {
+        const a = this.#argText.get(i);
+        if (!a || typeof ev.delta !== 'string') break;
+        a.text += ev.delta;
+        a.timer ??= setTimeout(() => {
+          a.timer = undefined;
+          const b = live.blocks[i];
+          if (b?.type === 'tool' && b.composing) this.#readArgs(b, a.text);
+        }, a.text.length > 60_000 ? 250 : 100); // (a long one takes longer to read)
+        break;
+      }
       case 'toolcall_end': {
         const b = live.blocks[i];
-        if (b?.type === 'tool') b.args = ev.toolCall?.arguments ?? b.args;
+        clearTimeout(this.#argText.get(i)?.timer);
+        this.#argText.delete(i);
+        if (b?.type === 'tool') {
+          b.args = ev.toolCall?.arguments ?? b.args;
+          b.composing = false;
+          b.partial = undefined;
+        }
         break;
       }
     }
+  }
+
+  /** What the model is writing into a file tool's arguments, as far as it has come. */
+  #readArgs(b: ToolBlock, text: string) {
+    const v = partialJson(text);
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+    const args = v as Record<string, any>;
+    b.partial = args;
+    // the path is whole once something follows it
+    if (b.name !== 'bash' && typeof args.path === 'string' && !b.args.path && Object.keys(args).length > 1) b.args = { path: args.path };
+  }
+
+  #dropArgs() {
+    for (const a of this.#argText.values()) clearTimeout(a.timer);
+    this.#argText.clear();
   }
 
   #onMessageEnd(m: WireMessage) {
@@ -1137,6 +1196,7 @@ export class Chat {
         if (this.#skipTs != null && this.#skipTs === m.timestamp) { this.#skipTs = null; return; }
         const live = this.#liveAssistant();
         if (!live) return;
+        this.#dropArgs();
         live.blocks = blocksFromContent(m.content, this.#knownTools());
         live.live = false;
         live.model = m.model;

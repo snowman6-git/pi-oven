@@ -7,7 +7,7 @@ import { t } from './i18n';
 import { S } from './strings';
 
 type Theme = 'auto' | 'light' | 'dark';
-export type InspectorTab = 'info' | 'files' | 'diff' | 'git' | 'point';
+export type InspectorTab = 'info' | 'files' | 'git' | 'point';
 
 function load<T>(key: string, fallback: T): T {
   try { const v = localStorage.getItem(key); return v == null ? fallback : (JSON.parse(v) as T); } catch { return fallback; }
@@ -32,6 +32,11 @@ class App {
   moveTarget = $state<SessionSummary | null>(null);
   flashText = $state<string | null>(null);
   /** A question that needs a yes/no (replaces the browser's confirm()). */
+  /** Pictures from the conversation, shown large. */
+  viewer = $state.raw<{ images: { mimeType: string; data: string }[]; start: number } | null>(null);
+  view(images: { mimeType: string; data: string }[], start = 0) {
+    if (images.length) this.viewer = { images, start };
+  }
   dialog = $state<{ title: string; body?: string; items?: string[]; confirm: string; danger?: boolean; resolve: (ok: boolean) => void } | null>(null);
   /** Multi-select mode in the session list. */
   selecting = $state(false);
@@ -50,7 +55,8 @@ class App {
   /** Phones and small tablets: panels are drawers instead of columns. */
   narrow = $state(false);
   inspectorDrawer = $state(false);
-  inspectorTab = $state<InspectorTab>(load('pi-oven.inspector-tab', 'info'));
+  // (the diff tab is part of the file tab now)
+  inspectorTab = $state<InspectorTab>(((t: string) => (t === 'diff' ? 'files' : t) as InspectorTab)(load<string>('pi-oven.inspector-tab', 'info')));
   inspectorW = $state(Math.min(760, Math.max(280, load('pi-oven.inspector-w', 340))));
   /** The session list folded to a strip of icons. */
   sidebarFolded = $state(load('pi-oven.sidebar-folded', false));

@@ -68,15 +68,16 @@
           <button role="menuitem" type="button" disabled={chat.running} onclick={() => ((menu = null), chat.newSession())}>{S.newSession}</button>
           <hr />
           <button role="menuitem" type="button" disabled={!chat.sessionFile} onclick={() => ((menu = null), chat.sessionFile && (app.treeTarget = { path: chat.sessionFile, cwd: chat.runtime.cwd, title }))}>{t('header.tree')}</button>
-          <button role="menuitem" type="button" onclick={() => ((menu = null), app.openInspector('diff'))}>{t('header.changed')}</button>
+          <button role="menuitem" type="button" onclick={() => ((menu = null), app.openInspector('files'))}>{t('header.changed')}</button>
           <hr />
           <button role="menuitem" type="button" onclick={() => ((menu = null), app.closeChat(chat))}>{S.closeSession}</button>
         </div>
       {/if}
     </div>
 
-    <button class="icon-btn" type="button" aria-label={S.inspector} aria-pressed={app.inspectorOpen} onclick={() => app.toggleInspector()}>
+    <button class="icon-btn panel-btn" type="button" aria-label={S.inspector} aria-pressed={app.inspectorOpen} onclick={() => app.toggleInspector()}>
       <Icon name="panel" />
+      {#if chat.live.drafts.length && !(app.narrow ? app.inspectorDrawer : app.inspectorOpen)}<i class="busy" role="img" aria-label={t('live.busy')}></i>{/if}
     </button>
   </div>
 </header>
@@ -295,5 +296,17 @@
     header {
       padding-inline: 12px;
     }
+  }
+  .panel-btn {
+    position: relative;
+  }
+  .busy {
+    position: absolute;
+    top: 6px;
+    right: 5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--heat);
   }
 </style>
