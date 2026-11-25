@@ -74,23 +74,6 @@
     background: var(--heat);
     position: relative;
   }
-  .run .dot::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 0 4px var(--heat-ring);
-    opacity: 0;
-    pointer-events: none;
-    will-change: opacity;
-    animation: strip-ember 1.2s ease-in-out infinite;
-  }
-  /* the glow is a fixed ring that only fades (composited): animating box-shadow itself repaints every frame */
-  @keyframes strip-ember {
-    50% {
-      opacity: 1;
-    }
-  }
   .t {
     flex: 1;
     min-width: 0;

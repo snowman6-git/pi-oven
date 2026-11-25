@@ -653,40 +653,12 @@
     box-shadow: inset 0 0 0 1.5px var(--heat);
     position: relative;
   }
-  .state.bg::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 0 4px var(--heat-ring);
-    opacity: 0;
-    pointer-events: none;
-    will-change: opacity;
-    animation: ember 1.6s ease-in-out infinite;
-  }
   .state.unseen {
     background: var(--accent);
   }
   .state.run {
     background: var(--heat);
     position: relative;
-  }
-  .state.run::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 0 4px var(--heat-ring);
-    opacity: 0;
-    pointer-events: none;
-    will-change: opacity;
-    animation: ember 1.1s ease-in-out infinite;
-  }
-  /* the glow is a fixed ring that only fades (composited): animating box-shadow itself repaints every frame */
-  @keyframes ember {
-    50% {
-      opacity: 1;
-    }
   }
   .del {
     position: absolute;

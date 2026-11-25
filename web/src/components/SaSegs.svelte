@@ -41,26 +41,4 @@
     background: var(--heat);
     position: relative;
   }
-  i.running::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 0 3px var(--heat-ring);
-    opacity: 0;
-    pointer-events: none;
-    will-change: opacity;
-    animation: sa-ember 1.2s ease-in-out infinite;
-  }
-  /* composited: a fixed ring that only fades */
-  @keyframes sa-ember {
-    50% {
-      opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    i.running::after {
-      animation: none;
-    }
-  }
 </style>

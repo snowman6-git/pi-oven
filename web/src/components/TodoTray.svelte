@@ -148,26 +148,6 @@
     background: var(--heat);
     position: relative;
   }
-  .seg.in_progress::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--heat) 26%, transparent);
-    opacity: 0;
-    pointer-events: none;
-    will-change: opacity;
-    animation: todo-ember 1.2s ease-in-out infinite;
-  }
-  /* the glow is a fixed ring that only fades (composited): animating box-shadow itself repaints every frame */
-  @keyframes todo-ember {
-    50% {
-      opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .seg.in_progress::after { animation: none; }
-  }
   .meter {
     flex: none;
     width: 96px;
@@ -279,7 +259,6 @@
   .row.in_progress .mark {
     border: 0;
     background: var(--heat);
-    box-shadow: 0 0 0 4px var(--heat-glow);
   }
   .sj {
     flex: 1;

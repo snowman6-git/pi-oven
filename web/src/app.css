@@ -380,8 +380,6 @@ pre,
    :root after the themes, so they follow whichever theme is in force. */
 :root {
   /* the soft ring around something that is working (pulses, running chips) */
-  --heat-ring: color-mix(in srgb, var(--heat) 28%, transparent);
-  --heat-glow: color-mix(in srgb, var(--heat) 22%, transparent);
   /* the edge of a running chip or row */
   --heat-edge: color-mix(in srgb, var(--heat) 50%, var(--rule));
   /* text on a filled --ok mark */
