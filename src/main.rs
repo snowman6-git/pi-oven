@@ -11,6 +11,7 @@ mod config;
 mod files;
 mod fs;
 mod git;
+mod model_prefs;
 mod models;
 mod pet;
 mod runtime;
@@ -136,6 +137,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/limits/poll", get(usage::get_poll).put(usage::set_poll))
         .route("/api/claude-cache", get(cache_ttl::get).put(cache_ttl::set))
         .route("/api/addons/lens", get(lens::get).put(lens::set))
+        .route("/api/models/prefs", get(model_prefs::get))
+        .route("/api/models/thinking", axum::routing::put(model_prefs::set_level))
         .route("/api/subagents/status", get(subagents::status))
         .route("/api/subagents/agents", get(subagents::agents_route))
         .route("/api/accounts", get(accounts::get))

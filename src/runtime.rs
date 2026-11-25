@@ -223,6 +223,17 @@ pub struct Runtime {
     accounts: Arc<crate::accounts::Accounts>,
     /// The provider of the last reply, failed or not (the session's provider before any reply got through).
     reply_provider: Mutex<Option<String>>,
+    prefs: Arc<crate::model_prefs::ModelPrefs>,
+    /// A `set_model` waiting for pi's answer: whether to remember it as picked (a page asked), and the level to give the
+    /// model once pi has taken it (a new session's start).
+    want_model: Mutex<Option<WantModel>>,
+}
+
+struct WantModel {
+    provider: String,
+    model: String,
+    remember: bool,
+    level: Option<String>,
 }
 
 impl Runtime {
@@ -251,8 +262,23 @@ impl Runtime {
     }
 
     /// A page picked a model: the session is on it from now (Baton Touch's way back leaves the person's choice alone).
+    /// pi answered a `set_model`: only a switch it made is remembered, and only then is the model's level given.
+    fn model_answered(&self, ok: bool) {
+        let Some(w) = self.want_model.lock().unwrap().take() else { return };
+        if !ok {
+            return;
+        }
+        if w.remember {
+            self.prefs.chosen(&w.provider, &w.model);
+        }
+        if let Some(level) = w.level {
+            let _ = self.stdin_tx.try_send(serde_json::json!({ "type": "set_thinking_level", "level": level }).to_string());
+        }
+    }
+
     pub fn model_chosen(&self, provider: &str, model: &str) {
         *self.last_model.lock().unwrap() = Some((provider.to_owned(), model.to_owned()));
+        *self.want_model.lock().unwrap() = Some(WantModel { provider: provider.to_owned(), model: model.to_owned(), remember: true, level: None });
     }
 
     /// A message the page is about to send would go to a plan that is used up (its numbers say 100 %, or the provider
@@ -778,6 +804,8 @@ pub struct Manager {
     pub usage: Arc<crate::usage::Usage>,
     pub cache_ttl: crate::cache_ttl::CacheTtl,
     pub lens: crate::lens::Lens,
+    /// The model a new session starts on, and each model's starting level (`model_prefs.rs`).
+    pub prefs: Arc<crate::model_prefs::ModelPrefs>,
     pub accounts: Arc<crate::accounts::Accounts>,
 }
 
@@ -809,7 +837,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), accounts: Default::default() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), prefs: Default::default(), accounts: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -998,8 +1026,18 @@ impl Manager {
             fails: Default::default(),
             accounts: self.accounts.clone(),
             reply_provider: Mutex::new(None),
+            prefs: self.prefs.clone(),
+            want_model: Mutex::new(None),
         });
         self.pet.attach(rt.clone());
+        // a new session starts on the model last picked here; one that exists stays on its own (model_prefs.rs)
+        if req.session_path.is_none() && req.provider.is_none() {
+            if let Some((provider, model, level)) = self.prefs.for_new_session() {
+                let cmd = serde_json::json!({ "type": "set_model", "provider": provider, "modelId": model });
+                *rt.want_model.lock().unwrap() = Some(WantModel { provider, model, remember: false, level });
+                let _ = rt.stdin_tx.try_send(cmd.to_string());
+            }
+        }
 
         // the account in use is one for every session: tell this one's page when another session or Settings changes it
         {
@@ -1079,6 +1117,9 @@ impl Manager {
                             }
                             if let Some(f) = state_session_file(&line) {
                                 *rt.session_file.lock().unwrap() = Some(f);
+                            }
+                            if line.contains(r#""command":"set_model""#) && is_response(&line) {
+                                rt.model_answered(line.contains(r#""success":true"#));
                             }
                             // the session's provider before any reply (a message held for a used-up plan needs it)
                             if line.contains(r#""command":"get_state""#) && rt.reply_provider.lock().unwrap().is_none() {
@@ -1385,6 +1426,12 @@ fn slim_update(line: &str) -> Option<String> {
     Some(out)
 }
 
+/// A path with its links and `..` resolved, also for a file not written yet: a new session's pi names its file at once
+/// but writes it only with the first reply, and such a session must still be found (to delete it, for one).
+pub fn resolve_path(p: &std::path::Path) -> Option<PathBuf> {
+    p.canonicalize().ok().or_else(|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?)))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1503,10 +1550,4 @@ mod tests {
             assert_eq!(serde_json::from_str::<serde_json::Value>(&f).unwrap()["type"], "oven_exit");
         }
     }
-}
-
-/// A path with its links and `..` resolved, also for a file not written yet: a new session's pi names its file at once
-/// but writes it only with the first reply, and such a session must still be found (to delete it, for one).
-pub fn resolve_path(p: &std::path::Path) -> Option<PathBuf> {
-    p.canonicalize().ok().or_else(|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?)))
 }

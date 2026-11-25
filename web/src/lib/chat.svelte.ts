@@ -677,16 +677,18 @@ export class Chat {
     } catch (e) { this.notice('error', (e as Error).message); }
   }
 
-  /** A model was picked: if its provider recommends a reasoning level for it (ChatGPT does), start from that one.
-      Where the provider says nothing, the level stays as it was: no level is made up here. */
+  /** A model was picked: start from the level set for it in Settings, else the one its provider recommends (ChatGPT
+      does). Where neither says, the level stays as pi set it: no level is made up here. */
   async #recommendedLevel(m: ModelInfo) {
     try {
-      const [rec, lv] = await Promise.all([
-        api.recommendedLevels(),
+      const [prefs, rec, lv] = await Promise.all([
+        api.modelPrefs().catch(() => null),
+        api.recommendedLevels().catch(() => ({}) as Record<string, Record<string, string>>),
         this.conn.request<{ levels: ThinkingLevel[] }>({ type: 'get_available_thinking_levels' }),
       ]);
       this.levels = lv.levels;
-      const want = rec[m.provider]?.[m.id] as ThinkingLevel | undefined;
+      // the level set for this model in Settings wins over the provider's recommendation
+      const want = (prefs?.thinking[`${m.provider}/${m.id}`] ?? rec[m.provider]?.[m.id]) as ThinkingLevel | undefined;
       if (want && lv.levels.includes(want) && this.state?.thinkingLevel !== want) await this.setThinking(want);
     } catch { /* no recommendation: keep the level */ }
   }

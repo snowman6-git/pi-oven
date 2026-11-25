@@ -1,4 +1,4 @@
-import type { BgTask, DirListing, RuntimeInfo, SessionSummary } from './protocol';
+import type { BgTask, DirListing, RuntimeInfo, SessionSummary, ThinkingLevel } from './protocol';
 import type { LimitWire, LimitProblemWire } from './limits';
 import type { Entry } from './tree';
 
@@ -218,6 +218,9 @@ export const api = {
   limitsPoll: () => call<{ enabled: boolean }>('/api/limits/poll'),
   /** provider → model id → the reasoning level its provider recommends (only providers that say). */
   recommendedLevels: () => call<Record<string, Record<string, string>>>('/api/models/recommended'),
+  modelPrefs: () => call<ModelPrefs>('/api/models/prefs', {}, BG),
+  setModelLevel: (provider: string, model: string, level: ThinkingLevel | null) =>
+    call<ModelPrefs>('/api/models/thinking', { method: 'PUT', body: JSON.stringify({ provider, model, level }) }),
   setLimitsPoll: (enabled: boolean) => call<{ enabled: boolean }>('/api/limits/poll', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   lensSettings: () => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens'),
   setLens: (inject: boolean) => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens', { method: 'PUT', body: JSON.stringify({ inject }) }),
@@ -276,3 +279,6 @@ export interface AgentDef {
   name: string; description?: string | null; model?: string | null; modelFrom?: 'override' | 'agent' | 'default' | 'cli' | null;
   thinking?: string | null; role?: string | null; kind: 'builtin' | 'user' | 'project' | 'external'; context?: string | null; tools: number; edits: boolean;
 }
+
+/** The model a new session starts on (the one last picked) and each model's starting level, `provider/model` → level. */
+export interface ModelPrefs { last?: [string, string]; thinking: Record<string, ThinkingLevel> }

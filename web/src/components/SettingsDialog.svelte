@@ -9,6 +9,7 @@
   import { api, auth, type LongMode, type ResumeSettings } from '../lib/api';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
+  import ModelLevels from './ModelLevels.svelte';
   import ModelManager from './ModelManager.svelte';
   import type { IconName } from '../lib/icons';
   import Icon from './Icon.svelte';
@@ -386,6 +387,11 @@
         <h3>{t('settings.models.title')}</h3>
         <p class="note">{t('settings.models.note')}</p>
         <ModelManager chat={app.current} />
+      </section>
+      <section>
+        <h3>{t('settings.models.levelsTitle')}</h3>
+        <p class="note">{t('settings.models.levelsNote')}</p>
+        <ModelLevels chat={app.current} />
       </section>
       {:else if tab === 'showcase'}
       <section>

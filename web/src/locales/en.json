@@ -164,7 +164,13 @@
     },
     "models": {
       "title": "Models",
-      "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs."
+      "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs.",
+      "levelsTitle": "Starting reasoning level per model",
+      "levelsNote": "New sessions open on the model you picked last. The level set here is used when a new session opens on that model and when you switch to it. Existing sessions open on the model they were using.",
+      "levelsNoChat": "Open a session to see its models.",
+      "levelsFailed": "Could not load these settings. Check the server connection.",
+      "levelDefault": "pi default",
+      "levelFor": "Starting level for {model}"
     },
     "showcase": {
       "title": "Showcase mode",
