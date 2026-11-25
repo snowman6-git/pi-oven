@@ -5,6 +5,7 @@
   import { S } from '../lib/strings';
   import { baseName, tildePath } from '../lib/util';
   import { app } from '../lib/app.svelte';
+  import { SHOW } from '../lib/showin';
   import Icon from './Icon.svelte';
   import Turn from './Turn.svelte';
   import WaitBubble from './WaitBubble.svelte';
@@ -39,28 +40,73 @@
     return last?.kind === 'assistant' && last.live;
   });
 
-  function atBottom() {
-    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 96;
+  const maxTop = () => scroller.scrollHeight - scroller.clientHeight;
+  const atBottom = () => maxTop() - scroller.scrollTop < 96;
+  function toBottom(smooth = false) {
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    if (!smooth) settle();
   }
-  const toBottom = (smooth = false) => scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
 
   // A finger on the conversation, and where the last scroll left it. Within the last 96px the reader still counted as
   // parked, so a streaming answer snapped a phone's slow upward drag back down on every growth: it stuck and shook.
   // Now any upward move lets go at once, and nothing follows growth while a finger is down.
   //
-  // Only a move up lets go; reaching the end takes hold again. Whether the view is at the end is not asked at other
-  // times: a finger held at the end while the answer grows (no following meanwhile), or the smooth scroll of the jump
-  // button overtaken by the answer, leave the view short of the end without the reader having moved away, and
+  // Only the reader's move up lets go; reaching the end takes hold again. Whether the view is at the end is not asked
+  // at other times: a finger held at the end while the answer grows (no following meanwhile), or the smooth scroll of
+  // the jump button overtaken by the answer, leave the view short of the end without the reader having moved away, and
   // following then stopped for good.
+  //
+  // The browser moves the view up too: when the content gets shorter (a thought folds, a command's last lines go) the
+  // view is pulled in, and if more arrives before that move is reported, it looks just like someone scrolling up. So a
+  // move up counts only with the reader's hand in it, or when nothing changed its height since the view was last known.
   let touching = false;
-  let lastTop = 0;
+  let lastTop = 0, lastH = 0, lastC = 0;
+  function settle() {
+    lastTop = scroller.scrollTop;
+    lastH = scroller.scrollHeight;
+    lastC = scroller.clientHeight;
+  }
+  /** When the reader last did something that scrolls (a wheel, a key, a pointer held down). */
+  let handAt = -1e9;
+  let held = false;
+  const hand = () => touching || held || performance.now() - handAt < 800;
+  /** A wheel going up holds the following back for a moment, so its first step is not overtaken by the answer. If the
+      view does not move (nothing above, or the wheel went to a box inside), it never lets go. */
+  let pausedTo = 0;
+  let resume: ReturnType<typeof setTimeout> | undefined;
+  function pause(ms: number) {
+    pausedTo = Math.max(pausedTo, performance.now() + ms);
+    clearTimeout(resume);
+    resume = setTimeout(() => following() && toBottom(), pausedTo - performance.now() + 20);
+  }
+  /** A move up with no hand seen in it yet, and when: the view scrolls before the page hears of the wheel. */
+  let doubtAt = -1e9;
+  const following = () => stick && !touching && performance.now() >= pausedTo;
+  /** Where the end was when the reader set out for it. A tool's output can move the end on while they are on the way;
+      getting to where it was is getting there. */
+  let aim = 0, aimAt = -1e9;
+  let height = 0, heightWas = 0, grewAt = -1e9; // the last step the content grew by: too new to have been aimed past
+  function setOut() {
+    const now = performance.now();
+    if (now - aimAt > 1200) { aim = now - grewAt < 150 ? heightWas : scroller.scrollHeight; aimAt = now; }
+  }
+
   function onScroll() {
     const top = scroller.scrollTop;
-    const gap = scroller.scrollHeight - top - scroller.clientHeight;
-    // up, and not just the browser pulling the view in because the content got shorter (that leaves it at the end)
-    if (top < lastTop - 1 && gap > 2) stick = false;
-    else if (atBottom()) stick = true;
-    lastTop = top;
+    const gap = maxTop() - top;
+    const layout = scroller.scrollHeight !== lastH || scroller.clientHeight !== lastC;
+    if (top < lastTop - 1 && gap > 2) {
+      if (hand() || !layout) stick = false;
+      else if (stick) { // pulled in by the layout, it seems: back to the end, unless the wheel turns up late
+        doubtAt = performance.now();
+        pause(60);
+      }
+    } else if (atBottom()) stick = true;
+    else if (top > lastTop && hand() && performance.now() - aimAt < 1200 && top + scroller.clientHeight > aim - 96) {
+      stick = true;
+      if (!touching) toBottom();
+    }
+    settle();
     if (top < NEAR_TOP) void older();
   }
   // The older part of a long session comes as the reader nears the top. What is put in front pushes the view down by
@@ -72,7 +118,7 @@
     await chat.loadOlder();
     await tick();
     scroller.scrollTop += scroller.scrollHeight - h;
-    lastTop = scroller.scrollTop;
+    settle();
   }
   // too little loaded to scroll at all (a short last turn): the next part comes without waiting for a scroll
   $effect(() => {
@@ -85,19 +131,29 @@
   function touchEnd() {
     if (!touching) return;
     touching = false;
+    handAt = performance.now(); // a flick runs on after the finger
     // still holding on to the end: catch up with what came while the finger was down
     if (stick) toBottom();
   }
 
   onMount(() => {
     // Follow growth (streaming, expanding tools) only while the reader is parked at the bottom.
-    const ro = new ResizeObserver(() => stick && !touching && toBottom());
+    // The view's own height too: the message box growing (a tray, chips, an attachment) covers the end.
+    const ro = new ResizeObserver(() => {
+      const h = scroller.scrollHeight;
+      if (h > height) { heightWas = height; grewAt = performance.now(); }
+      height = h;
+      if (following()) toBottom();
+      else if (scroller.scrollTop > maxTop() - 2) settle(); // pulled in, not scrolled
+    });
     ro.observe(inner);
+    ro.observe(scroller);
     toBottom();
     // passive: the browser must not wait on these before it scrolls
     const on = (type: string, f: (e: any) => void) => scroller.addEventListener(type, f, { passive: true });
     on('touchstart', (e: TouchEvent) => {
       touching = true;
+      setOut();
       // the touched node may be redrawn mid-touch (a streaming answer is): the end of the touch then goes to the node
       // that is no longer in the page and never reaches the conversation, so it is listened for on the node itself
       const t = e.target;
@@ -109,8 +165,38 @@
     });
     on('touchend', touchEnd);
     on('touchcancel', touchEnd);
-    on('wheel', (e: WheelEvent) => { if (e.deltaY < 0) stick = false; });
-    return () => ro.disconnect();
+    on('wheel', (e: WheelEvent) => {
+      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return; // zooming, or sideways
+      handAt = performance.now();
+      if (e.deltaY > 0) {
+        setOut();
+        // its scroll may have been reported first
+        if (!stick && scroller.scrollTop + scroller.clientHeight > aim - 96) { stick = true; toBottom(); }
+        return;
+      }
+      if (handAt - doubtAt < 100) stick = false;
+      pause(200);
+    });
+    // the page scrolls the conversation by key also when the focus is on nothing in particular
+    const key = (e: KeyboardEvent) => {
+      if (!/^(Arrow(Up|Down)|Page(Up|Down)|Home|End| |Tab)$/.test(e.key) || (e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable]')) return;
+      handAt = performance.now();
+      setOut();
+    };
+    window.addEventListener('keydown', key);
+    on('pointerdown', (e: PointerEvent) => { if (e.pointerType !== 'touch') held = true; });
+    // selecting text drags the view along, and the button may come up anywhere
+    const up = () => (held = false);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    on(SHOW, () => (stick = false));
+    return () => {
+      ro.disconnect();
+      clearTimeout(resume);
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
   });
 </script>
 

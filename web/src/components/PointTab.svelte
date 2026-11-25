@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { showIn } from '../lib/showin';
   import { S } from '../lib/strings';
   import { t } from '../lib/i18n.svelte';
   import { onMount, tick, untrack } from 'svelte';
@@ -53,7 +54,7 @@
     const el = document.querySelector<HTMLElement>(`[data-msg="${CSS.escape(p.mkey ?? '')}"]`);
     if (!el) { app.flash(t('point.notFound')); return; }
     if (app.narrow) app.inspectorDrawer = false;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    showIn(el);
     el.classList.add('pinflash');
     setTimeout(() => el.classList.remove('pinflash'), 1800);
   }

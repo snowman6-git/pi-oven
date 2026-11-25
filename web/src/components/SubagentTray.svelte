@@ -2,6 +2,7 @@
   // Subagent runs as a bar over the message box, like the task list (Settings → Theme → Subagents → Tray; chips are
   // the default). Folded, one line follows the newest run going: who, in order, what the one at work is doing, and
   // for how long. Opened, every run is listed in full.
+  import { showIn } from '../lib/showin';
   import { t as tr } from '../lib/i18n.svelte';
   import { runClock } from '../lib/util';
   import type { Chat } from '../lib/chat.svelte';
@@ -33,7 +34,7 @@
     const t = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(t);
   });
-  const showCall = (r: Run) => document.querySelector(`[data-tool="${CSS.escape(r.toolId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const showCall = (r: Run) => showIn(document.querySelector(`[data-tool="${CSS.escape(r.toolId)}"]`));
 </script>
 
 {#if lead}

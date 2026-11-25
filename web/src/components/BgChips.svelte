@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { showIn } from '../lib/showin';
   import { t as tr } from '../lib/i18n.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import type { BgTask } from '../lib/protocol';
@@ -55,7 +56,7 @@
   const goingRuns = $derived(runs.filter((r) => r.state === 'running').length);
   const showCall = (r: Run) => {
     sa.open = null;
-    document.querySelector(`[data-tool="${CSS.escape(r.toolId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    showIn(document.querySelector(`[data-tool="${CSS.escape(r.toolId)}"]`));
   };
   const runBad = (r: Run) => r.state === 'failed';
 </script>
