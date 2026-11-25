@@ -49,16 +49,19 @@ pub struct PathQuery {
 /// Only files inside the sessions directory may be deleted.
 pub async fn delete_session(State(app): State<Arc<AppState>>, Query(q): Query<PathQuery>) -> Response {
     let Some(path) = q.path else { return fail(StatusCode::BAD_REQUEST, "path is required") };
-    let (Ok(file), Ok(root)) = (PathBuf::from(&path).canonicalize(), app.sessions_dir.canonicalize()) else {
+    // a new session's file may not be written yet (pi writes it with the first reply): its pi is still closed
+    let (Some(file), Ok(root)) = (crate::runtime::resolve_path(std::path::Path::new(&path)), app.sessions_dir.canonicalize()) else {
         return fail(StatusCode::NOT_FOUND, "session not found");
     };
     if !file.starts_with(&root) || file.extension().and_then(|e| e.to_str()) != Some("jsonl") {
         return fail(StatusCode::FORBIDDEN, "not a session file");
     }
-    if !crate::scope::allows_session(app.root.as_deref(), &file) {
+    let using = app.runtimes.using_file(&file).await;
+    // a file not written yet has no folder to read: its pi was only started inside the allowed one
+    let unwritten = !file.exists() && !using.is_empty();
+    if !unwritten && !crate::scope::allows_session(app.root.as_deref(), &file) {
         return fail(StatusCode::FORBIDDEN, "outside the allowed folder");
     }
-    let using = app.runtimes.using_file(&file).await;
     if !using.is_empty() {
         if q.close != Some(true) {
             return fail(StatusCode::CONFLICT, "session is open — close it first");
@@ -72,6 +75,8 @@ pub async fn delete_session(State(app): State<Arc<AppState>>, Query(q): Query<Pa
         // the runtimes it closed: a page drops their chats by these, not by matching the path it last knew for them
         // (a chat whose pi had not reported its file yet stayed on screen, cut off)
         Ok(()) => Json(serde_json::json!({ "closed": using })).into_response(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !using.is_empty() => Json(serde_json::json!({ "closed": using })).into_response(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => fail(StatusCode::NOT_FOUND, "session not found"),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }

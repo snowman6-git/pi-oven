@@ -203,6 +203,17 @@ class App {
     if (this.selecting && (failed === 0 || this.picked.length === 0)) this.stopSelect();
   }
 
+  /** Delete an open chat that has no row from disk: its file if pi has one, else there is nothing to delete but itself. */
+  async deleteChat(chat: Chat) {
+    const file = chat.sessionFile;
+    if (file) {
+      const s: SessionSummary = { path: file, id: '', cwd: chat.runtime.cwd, name: chat.title || null, preview: null, modified: Date.now(), turns: 0 };
+      return this.deleteSessions([s]);
+    }
+    const ok = await this.ask({ title: t('appmsg.delOne'), body: t('appmsg.delBody'), items: [chat.title || S.newSession], confirm: t('appmsg.del'), danger: true });
+    if (ok) await this.closeChat(chat);
+  }
+
   /** The server stopped these runtimes to delete their session: a chat this page still has for one is gone too. */
   #dropClosed(ids: string[]) {
     const left = this.chats.filter((c) => ids.includes(c.runtime.id));

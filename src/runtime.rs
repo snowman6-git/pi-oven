@@ -833,8 +833,9 @@ impl Manager {
     }
 
     /// The runtimes that have this session file open (by what pi last reported, or what they were opened with).
+    /// The runtimes whose session file is `file` (resolved by `resolve_path`).
     pub async fn using_file(&self, file: &std::path::Path) -> Vec<String> {
-        let same = |p: &str| PathBuf::from(p).canonicalize().is_ok_and(|p| p == file);
+        let same = |p: &str| resolve_path(std::path::Path::new(p)).is_some_and(|p| p == file);
         self.map
             .read()
             .await
@@ -1502,4 +1503,10 @@ mod tests {
             assert_eq!(serde_json::from_str::<serde_json::Value>(&f).unwrap()["type"], "oven_exit");
         }
     }
+}
+
+/// A path with its links and `..` resolved, also for a file not written yet: a new session's pi names its file at once
+/// but writes it only with the first reply, and such a session must still be found (to delete it, for one).
+pub fn resolve_path(p: &std::path::Path) -> Option<PathBuf> {
+    p.canonicalize().ok().or_else(|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?)))
 }

@@ -90,7 +90,7 @@
       { label: t('sidebar.copyFile'), icon: 'link', disabled: !file, run: () => app.copy(file ?? '') },
       'sep',
       ...(e.chat ? [{ label: S.closeSession, icon: 'x', run: () => app.closeChat(e.chat!) } as MenuItem] : []),
-      ...(e.session ? [{ label: S.deleteSession, icon: 'trash', danger: true, run: () => remove(e) } as MenuItem] : []),
+      ...(e.session || e.chat ? [{ label: S.deleteSession, icon: 'trash', danger: true, run: () => remove(e) } as MenuItem] : []),
       ...(e.session ? [{ label: t('sidebar.selectToDelete'), icon: 'select', danger: true, run: () => app.startSelect(e.session) } as MenuItem] : []),
     ];
   };
@@ -131,6 +131,8 @@
 
   function remove(e: Entry) {
     if (e.session) void app.deleteSessions([e.session]);
+    // open, but not in the list from disk (pi has not written it yet, or the list is behind)
+    else if (e.chat) void app.deleteChat(e.chat);
   }
 
   function deleteSelected() {
@@ -299,7 +301,7 @@
                 <span class="m">{relativeTime(e.when)}</span>
               </button>
               {/if}
-              {#if e.session && !app.selecting && renaming !== e.key}
+              {#if (e.session || e.chat) && !app.selecting && renaming !== e.key}
                 <button class="del icon-btn sm" type="button" aria-label={S.deleteSession} title={S.deleteSession} onclick={() => remove(e)}>
                   <Icon name="trash" size={15} />
                 </button>
