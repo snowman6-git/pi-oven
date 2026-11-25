@@ -47,6 +47,11 @@
   // A finger on the conversation, and where the last scroll left it. Within the last 96px the reader still counted as
   // parked, so a streaming answer snapped a phone's slow upward drag back down on every growth: it stuck and shook.
   // Now any upward move lets go at once, and nothing follows growth while a finger is down.
+  //
+  // Only a move up lets go; reaching the end takes hold again. Whether the view is at the end is not asked at other
+  // times: a finger held at the end while the answer grows (no following meanwhile), or the smooth scroll of the jump
+  // button overtaken by the answer, leave the view short of the end without the reader having moved away, and
+  // following then stopped for good.
   let touching = false;
   let lastTop = 0;
   function onScroll() {
@@ -54,7 +59,7 @@
     const gap = scroller.scrollHeight - top - scroller.clientHeight;
     // up, and not just the browser pulling the view in because the content got shorter (that leaves it at the end)
     if (top < lastTop - 1 && gap > 2) stick = false;
-    else if (!touching) stick = atBottom();
+    else if (atBottom()) stick = true;
     lastTop = top;
     if (top < NEAR_TOP) void older();
   }
@@ -78,8 +83,10 @@
   });
 
   function touchEnd() {
+    if (!touching) return;
     touching = false;
-    stick = atBottom();
+    // still holding on to the end: catch up with what came while the finger was down
+    if (stick) toBottom();
   }
 
   onMount(() => {
@@ -89,7 +96,17 @@
     toBottom();
     // passive: the browser must not wait on these before it scrolls
     const on = (type: string, f: (e: any) => void) => scroller.addEventListener(type, f, { passive: true });
-    on('touchstart', () => (touching = true));
+    on('touchstart', (e: TouchEvent) => {
+      touching = true;
+      // the touched node may be redrawn mid-touch (a streaming answer is): the end of the touch then goes to the node
+      // that is no longer in the page and never reaches the conversation, so it is listened for on the node itself
+      const t = e.target;
+      if (t instanceof Node && t !== scroller) {
+        const end = () => { t.removeEventListener('touchend', end); t.removeEventListener('touchcancel', end); touchEnd(); };
+        t.addEventListener('touchend', end, { passive: true });
+        t.addEventListener('touchcancel', end, { passive: true });
+      }
+    });
     on('touchend', touchEnd);
     on('touchcancel', touchEnd);
     on('wheel', (e: WheelEvent) => { if (e.deltaY < 0) stick = false; });
