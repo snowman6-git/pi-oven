@@ -352,7 +352,8 @@
     "noHistory": "No closed sessions.",
     "selectDay": "Select all from {day}",
     "unselectDay": "Unselect {day}",
-    "deleteDay": "Delete sessions from {day}…"
+    "deleteDay": "Delete sessions from {day}…",
+    "stIdle": "idle"
   },
   "header": {
     "tree": "Session tree",

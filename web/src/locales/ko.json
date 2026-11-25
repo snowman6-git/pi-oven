@@ -347,7 +347,8 @@
     "noHistory": "닫힌 세션이 없어요.",
     "selectDay": "{day} 모두 선택",
     "unselectDay": "{day} 선택 해제",
-    "deleteDay": "{day}의 세션 여러 개 삭제…"
+    "deleteDay": "{day}의 세션 여러 개 삭제…",
+    "stIdle": "대기 중"
   },
   "header": {
     "tree": "세션 트리",

@@ -7,7 +7,7 @@
   import { contextMenu, menu, type MenuItem } from '../lib/contextmenu.svelte';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import { S } from '../lib/strings';
-  import { baseName, relativeTime, tildePath } from '../lib/util';
+  import { baseName, relativeTime, runClock, tildePath } from '../lib/util';
   import { locale } from '../lib/i18n';
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
@@ -84,7 +84,17 @@
 
   /** What an open session is doing, for the second line of its row. */
   const doing = (c: Chat) =>
-    c.running ? t('sidebar.stRunning') : c.bg.running > 0 ? t('sidebar.stBg', { n: c.bg.running }) : c.unseen ? t('sidebar.stUnseen') : '';
+    c.running ? t('sidebar.stRunning') : c.bg.running > 0 ? t('sidebar.stBg', { n: c.bg.running }) : c.unseen ? t('sidebar.stUnseen') : t('sidebar.stIdle');
+
+  // A running session shows how long its run has taken; the clock ticks only while one is running.
+  let now = $state(Date.now());
+  const ticking = $derived(app.chats.some((c) => c.running && c.runSince != null));
+  $effect(() => {
+    if (!ticking) return;
+    now = Date.now();
+    const id = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
 
   const rowItems = (e: Entry): MenuItem[] => {
     const file = e.chat?.sessionFile ?? e.session?.path;
@@ -300,9 +310,13 @@
         {#if open2}
           <span class="lines">
             <span class="t" data-priv="titles">{e.title}</span>
-            <span class="sub"><span data-priv="paths">{baseName(e.cwd)}</span>{#if e.chat && doing(e.chat)} · {doing(e.chat)}{/if}</span>
+            <span class="sub"><span data-priv="paths">{baseName(e.cwd)}</span>{#if e.chat}{` · ${doing(e.chat)}`}{/if}</span>
           </span>
-          <span class="m">{relativeTime(e.when)}</span>
+          {#if e.chat?.running && e.chat.runSince != null}
+            <span class="m clock">{runClock(Math.max(0, now - e.chat.runSince))}</span>
+          {:else}
+            <span class="m">{relativeTime(e.when)}</span>
+          {/if}
         {:else}
           <span class="t" data-priv="titles">{e.title}</span>
           <span class="tag mono" data-priv="paths">{baseName(e.cwd)}</span>
@@ -624,17 +638,16 @@
   }
   li.active {
     background: var(--raised);
-    box-shadow: inset 3px 0 0 var(--accent);
   }
   .row {
     -webkit-touch-callout: none;
     user-select: none;
     width: 100%;
     display: grid;
-    grid-template-columns: 10px minmax(0, 1fr) auto;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    padding: 7px 10px;
+    gap: 8px;
+    padding: 6px 8px;
     text-align: left;
     border-radius: 8px;
   }
@@ -670,16 +683,19 @@
     white-space: nowrap;
     font-size: 14px;
   }
-  li.active .t {
-    font-weight: 620;
-  }
   .m {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .m.clock {
+    color: var(--heat);
+    font-family: var(--font-mono);
+    font-size: 11px;
   }
   .state {
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
     border-radius: 2px;
   }
   .state.open {

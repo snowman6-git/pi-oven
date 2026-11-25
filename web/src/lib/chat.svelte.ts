@@ -81,6 +81,8 @@ export class Chat {
   state = $state<SessionState | null>(null);
   stats = $state<SessionStats | null>(null);
   running = $state(false);
+  /** When the run under way started, as this page saw it (none after a reload mid-run: the list then shows no clock). */
+  runSince = $state<number | null>(null);
   compacting = $state(false);
   retry = $state<string | null>(null);
   /** The 100h mode's place for this session: `at` is when the next try is due, empty while one is under way. */
@@ -496,6 +498,7 @@ export class Chat {
       if (seq !== this.#loadSeq) return; // a later load is under way: an older answer must not overwrite it
       this.#takeState(state);
       this.running = state.isStreaming;
+      if (!this.running) this.runSince = null;
       this.compacting = state.isCompacting;
       this.#raw = msgs.from != null ? [...this.#raw.slice(0, msgs.from), ...msgs.messages] : msgs.messages;
       const next = itemsFromMessages(this.#raw);
@@ -852,6 +855,7 @@ export class Chat {
         break;
       case 'oven_exit':
         this.running = false;
+        this.runSince = null;
         this.long = null;
         this.resume = null;
         this.notice('error', t('chatmsg.exited', { code: rec.code != null ? t('chatmsg.code', { n: rec.code }) : '' }));
@@ -863,6 +867,7 @@ export class Chat {
         break;
       case 'oven_gone':
         this.running = false;
+        this.runSince = null;
         this.long = null;
         this.resume = null;
         this.host.gone(this);
@@ -876,10 +881,12 @@ export class Chat {
         if (!this.#sending) this.waitSince = Date.now(); // a message just sent has been waited on since it was sent
         this.#sending = false;
         this.running = true;
+        this.runSince = Date.now();
         this.host.changed();
         break;
       case 'agent_settled':
         this.running = false;
+        this.runSince = null;
         // pi delivers or drops what was queued before a run settles
         this.queue = { steering: [], followUp: [] };
         this.#sending = false;
