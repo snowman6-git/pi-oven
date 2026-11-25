@@ -8,70 +8,90 @@
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import { S } from '../lib/strings';
   import { baseName, relativeTime, tildePath } from '../lib/util';
+  import { locale } from '../lib/i18n';
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
   import UpdateCard from './UpdateCard.svelte';
 
-  type Entry = { key: string; title: string; when: number; turns: number; session?: SessionSummary; chat?: Chat };
-  type Group = { cwd: string; entries: Entry[]; latest: number };
+  type Entry = { key: string; cwd: string; title: string; when: number; turns: number; session?: SessionSummary; chat?: Chat };
+  type Day = { key: string; label: string; entries: Entry[] };
+  type Tab = 'open' | 'history';
 
   let query = $state('');
   let searchEl = $state<HTMLInputElement>();
   /** The session whose name is being edited in its row. */
   let renaming = $state<string | null>(null);
   let draft = $state('');
-  let expanded = $state<Record<string, boolean>>({});
-  const LIMIT = 6;
 
-  // Folded folders show only their open sessions; the rest wait until the folder is unfolded. Folded is the default,
-  // and the unfolded ones are remembered in this browser.
-  const OPEN_KEY = 'pi-oven.folders-open';
-  let unfolded = $state<string[]>((() => {
-    try { const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
-  })());
-  const isOpen = (cwd: string) => unfolded.includes(cwd);
-  function toggleFold(cwd: string) {
-    unfolded = isOpen(cwd) ? unfolded.filter((c) => c !== cwd) : [...unfolded, cwd];
-    try { localStorage.setItem(OPEN_KEY, JSON.stringify(unfolded)); } catch { /* private mode */ }
+  // Two lists: sessions with a pi running (open) and the ones only on disk (history). The tab is remembered here.
+  const TAB_KEY = 'pi-oven.sidebar-tab';
+  let tab = $state<Tab>((() => { try { return localStorage.getItem(TAB_KEY) === 'history' ? 'history' : 'open'; } catch { return 'open'; } })());
+  function setTab(next: Tab) {
+    tab = next;
+    try { localStorage.setItem(TAB_KEY, next); } catch { /* private mode */ }
+  }
+  function tabKey(e: KeyboardEvent) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    const next: Tab = e.key === 'Home' ? 'open' : e.key === 'End' ? 'history' : tab === 'open' ? 'history' : 'open';
+    setTab(next);
+    (e.currentTarget as HTMLElement).parentElement?.querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus();
   }
 
-  const groups = $derived.by<Group[]>(() => {
+  const entries = $derived.by<Entry[]>(() => {
     const q = query.trim().toLowerCase();
-    const byCwd = new Map<string, Entry[]>();
-    const add = (cwd: string, e: Entry) => (byCwd.get(cwd) ?? byCwd.set(cwd, []).get(cwd)!).push(e);
-
+    const out: Entry[] = [];
     const claimed = new Set<Chat>();
     for (const s of app.sessions) {
       const chat = app.chatFor(s.path);
       if (chat) claimed.add(chat);
-      add(s.cwd, {
-        key: s.path,
-        title: chat?.state?.sessionName || s.name || s.preview || S.untitled,
-        when: s.modified, turns: s.turns, session: s, chat,
-      });
+      out.push({ key: s.path, cwd: s.cwd, title: chat?.state?.sessionName || s.name || s.preview || S.untitled, when: s.modified, turns: s.turns, session: s, chat });
     }
     // Open sessions pi has not written to disk yet.
     for (const c of app.chats) {
-      if (claimed.has(c)) continue;
-      add(c.runtime.cwd, { key: c.runtime.id, title: c.title || S.newSession, when: Date.now(), turns: 0, chat: c });
+      if (!claimed.has(c)) out.push({ key: c.runtime.id, cwd: c.runtime.cwd, title: c.state?.sessionName || c.title || S.newSession, when: Date.now(), turns: 0, chat: c });
     }
+    return q ? out.filter((e) => `${e.title} ${e.cwd}`.toLowerCase().includes(q)) : out;
+  });
+  // Open ones keep the order they were opened in, so a row does not jump each time its session writes.
+  const openList = $derived(entries.filter((e) => e.chat).sort((a, b) => app.chats.indexOf(a.chat!) - app.chats.indexOf(b.chat!)));
+  const closedList = $derived(entries.filter((e) => !e.chat).sort((a, b) => b.when - a.when));
 
-    const out: Group[] = [];
-    for (const [cwd, all] of byCwd) {
-      const hay = (e: Entry) => `${e.title} ${cwd}`.toLowerCase();
-      const entries = (q ? all.filter((e) => hay(e).includes(q)) : all).sort((a, b) => b.when - a.when);
-      if (entries.length) out.push({ cwd, entries, latest: entries[0].when });
+  // History is long: it is drawn a page at a time.
+  const PAGE = 80;
+  let pages = $state(1);
+  const days = $derived.by<Day[]>(() => {
+    const list = query ? closedList : closedList.slice(0, pages * PAGE);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const DAY = 86_400_000;
+    const bucket = (ms: number): [string, string] => {
+      if (ms >= today) return ['today', t('sidebar.today')];
+      if (ms >= today - DAY) return ['yesterday', t('sidebar.yesterday')];
+      if (ms >= today - 6 * DAY) return ['week', t('sidebar.week')];
+      if (ms >= today - 29 * DAY) return ['month', t('sidebar.month')];
+      const d = new Date(ms);
+      return [`${d.getFullYear()}-${d.getMonth()}`, d.toLocaleDateString(locale(), { year: 'numeric', month: 'long' })];
+    };
+    const out: Day[] = [];
+    for (const e of list) {
+      const [key, label] = bucket(e.when);
+      if (out.at(-1)?.key === key) out.at(-1)!.entries.push(e);
+      else out.push({ key, label, entries: [e] });
     }
-    return out.sort((a, b) => b.latest - a.latest);
+    return out;
   });
 
-  const rowItems = (g: Group, e: Entry): MenuItem[] => {
+  /** What an open session is doing, for the second line of its row. */
+  const doing = (c: Chat) =>
+    c.running ? t('sidebar.stRunning') : c.bg.running > 0 ? t('sidebar.stBg', { n: c.bg.running }) : c.unseen ? t('sidebar.stUnseen') : '';
+
+  const rowItems = (e: Entry): MenuItem[] => {
     const file = e.chat?.sessionFile ?? e.session?.path;
     if (app.selecting) {
       const on = !!e.session && app.picked.includes(e.session.path);
       return [
         { label: on ? t('sidebar.unselect') : t('sidebar.select'), icon: on ? 'x' : 'check', disabled: !e.session || !app.canDelete(e.session), run: () => e.session && app.togglePick(e.session) },
-        { label: t('sidebar.selectFolder', { folder: shortName(g.cwd) }), icon: 'select', run: () => app.pickMany(deletable(g), true) },
         { label: t('sidebar.selectAll'), icon: 'select', run: () => app.pickMany(allSessions(), true) },
         'sep',
         { label: t('sidebar.deletePicked', { n: app.picked.length }), icon: 'trash', danger: true, disabled: app.picked.length === 0, run: () => deleteSelected() },
@@ -81,12 +101,12 @@
     return [
       { label: t('sidebar.open'), icon: 'chat', run: () => open(e) },
       { label: S.rename, icon: 'edit', disabled: !e.chat && !e.session, run: () => startRename(e) },
-      { label: t('sidebar.newIn', { folder: shortName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
+      { label: t('sidebar.newIn', { folder: shortName(e.cwd) }), icon: 'plus', run: () => app.openFolder(e.cwd) },
       'sep',
-      { label: t('sidebar.tree'), icon: 'fork', disabled: !file, run: () => file && (app.treeTarget = { path: file, cwd: g.cwd, title: e.title }) },
+      { label: t('sidebar.tree'), icon: 'fork', disabled: !file, run: () => file && (app.treeTarget = { path: file, cwd: e.cwd, title: e.title }) },
       { label: t('sidebar.move'), icon: 'folderOpen', disabled: !e.session, run: () => e.session && app.startMove(e.session) },
       'sep',
-      { label: t('sidebar.copyFolder'), icon: 'folder', run: () => app.copy(g.cwd) },
+      { label: t('sidebar.copyFolder'), icon: 'folder', run: () => app.copy(e.cwd) },
       { label: t('sidebar.copyFile'), icon: 'link', disabled: !file, run: () => app.copy(file ?? '') },
       'sep',
       ...(e.chat ? [{ label: S.closeSession, icon: 'x', run: () => app.closeChat(e.chat!) } as MenuItem] : []),
@@ -94,30 +114,25 @@
       ...(e.session ? [{ label: t('sidebar.selectToDelete'), icon: 'select', danger: true, run: () => app.startSelect(e.session) } as MenuItem] : []),
     ];
   };
-  const groupItems = (g: Group): MenuItem[] => app.selecting
+  const dayItems = (d: Day): MenuItem[] => app.selecting
     ? [
-        { label: t('sidebar.selectFolder', { folder: shortName(g.cwd) }), icon: 'select', run: () => app.pickMany(deletable(g), true) },
-        { label: t('sidebar.unselectFolder', { folder: shortName(g.cwd) }), icon: 'x', run: () => app.pickMany(deletable(g), false) },
+        { label: t('sidebar.selectDay', { day: d.label }), icon: 'select', run: () => app.pickMany(deletable(d.entries), true) },
+        { label: t('sidebar.unselectDay', { day: d.label }), icon: 'x', run: () => app.pickMany(deletable(d.entries), false) },
       ]
-    : [
-        { label: t('sidebar.newIn', { folder: shortName(g.cwd) }), icon: 'plus', run: () => app.openFolder(g.cwd) },
-        { label: isOpen(g.cwd) ? t('sidebar.fold') : t('sidebar.unfold'), icon: isOpen(g.cwd) ? 'up' : 'down', run: () => toggleFold(g.cwd) },
-        { label: t('sidebar.copyFolder'), icon: 'folder', run: () => app.copy(g.cwd) },
-        'sep',
-        { label: t('sidebar.deleteInFolder'), icon: 'select', danger: true, disabled: deletable(g).length === 0, run: () => { app.startSelect(); app.pickMany(deletable(g), false); } },
-      ];
+    : [{ label: t('sidebar.deleteDay', { day: d.label }), icon: 'select', danger: true, run: () => { app.startSelect(); app.pickMany(deletable(d.entries), true); } }];
 
   /** A folder name for a menu label: a long one keeps its start and end, so the rest of the label still shows. */
   const shortName = (cwd: string) => {
     const n = baseName(cwd);
     return n.length > 16 ? `${n.slice(0, 10)}…${n.slice(-5)}` : n;
   };
-  const deletable = (g: Group) => g.entries.flatMap((e) => (e.session && app.canDelete(e.session) ? [e.session] : []));
-  const allSessions = () => groups.flatMap(deletable);
-  const groupState = (g: Group): 'all' | 'some' | 'none' => {
-    const list = deletable(g);
-    const n = list.filter((s) => app.picked.includes(s.path)).length;
-    return n === 0 ? 'none' : n === list.length ? 'all' : 'some';
+  const deletable = (list: Entry[]) => list.flatMap((e) => (e.session && app.canDelete(e.session) ? [e.session] : []));
+  /** "All" while selecting is the list on screen: the other tab's sessions are not picked unseen. */
+  const allSessions = () => deletable(tab === 'open' ? openList : closedList);
+  const pickState = (list: Entry[]): 'all' | 'some' | 'none' => {
+    const ok = deletable(list);
+    const n = ok.filter((s) => app.picked.includes(s.path)).length;
+    return n === 0 ? 'none' : n === ok.length ? 'all' : 'some';
   };
 
   function open(e: Entry) {
@@ -251,73 +266,87 @@
     <input class="field" type="search" bind:this={searchEl} placeholder={S.searchSessions} aria-label={S.searchSessions} bind:value={query} />
   </div>
 
-  <nav aria-label={t('sidebar.sessions')}>
-    {#each groups as g (g.cwd)}
-      {@const all = !!query || app.selecting || isOpen(g.cwd)}
-      {@const visible = all ? g.entries : g.entries.filter((e) => e.chat)}
-      {@const hiddenN = g.entries.length - visible.length}
-      {@const shown = expanded[g.cwd] || query || !all ? visible : visible.slice(0, LIMIT)}
-      <section>
-        <div class="gh" use:contextMenu={() => groupItems(g)}>
-          {#if app.selecting}
-            {@const st = groupState(g)}
-            <button class="box" class:on={st !== 'none'} type="button" role="checkbox" aria-checked={st === 'all' ? 'true' : st === 'some' ? 'mixed' : 'false'}
-              aria-label={t('sidebar.selectFolder', { folder: shortName(g.cwd) })} disabled={deletable(g).length === 0}
-              onclick={() => app.pickMany(deletable(g), st !== 'all')}>
-              {#if st === 'all'}<Icon name="check" size={12} />{:else if st === 'some'}<span class="dash"></span>{/if}
-            </button>
-          {/if}
-          <button class="gt" type="button" title={showcase.tip('paths', g.cwd)} aria-expanded={all} disabled={!!query || app.selecting} onclick={() => toggleFold(g.cwd)}>
-            <span class="gname" data-priv="paths"><span class="chev" class:open={all} aria-hidden="true"><Icon name="right" size={12} /></span>{baseName(g.cwd)}{#if hiddenN > 0}<span class="hidden-n" aria-label={t('sidebar.hiddenN', { n: hiddenN })}>{hiddenN}</span>{/if}</span>
-            <span class="gpath mono" data-priv="paths">{tildePath(g.cwd, app.home)}</span>
-          </button>
-          <button class="icon-btn sm" class:hide={app.selecting} type="button" title="{S.newSession} ({baseName(g.cwd)})" aria-label={t('sidebar.newIn', { folder: baseName(g.cwd) })} onclick={() => app.openFolder(g.cwd)}>
-            <Icon name="plus" size={16} />
-          </button>
+  <div class="tabs" role="tablist" aria-label={t('sidebar.sessions')}>
+    <button type="button" role="tab" data-tab="open" aria-selected={tab === 'open'} tabindex={tab === 'open' ? 0 : -1} class:on={tab === 'open'} onclick={() => setTab('open')} onkeydown={tabKey}>
+      {t('sidebar.tabOpen')}<span class="n">{openList.length}</span>
+    </button>
+    <button type="button" role="tab" data-tab="history" aria-selected={tab === 'history'} tabindex={tab === 'history' ? 0 : -1} class:on={tab === 'history'} onclick={() => setTab('history')} onkeydown={tabKey}>
+      {t('sidebar.tabHistory')}<span class="n">{closedList.length}</span>
+    </button>
+  </div>
+
+  {#snippet row(e: Entry, open2: boolean)}
+    {@const checked = !!e.session && app.picked.includes(e.session.path)}
+    {@const locked = app.selecting && (!e.session || !app.canDelete(e.session))}
+    {@const cur = !app.selecting && !!e.chat && e.chat.runtime.id === app.currentId}
+    <li class:active={cur} class:checked class:two={open2}>
+      {#if renaming === e.key}
+        <div class="row editing">
+          <span class="state" class:open={!!e.chat} aria-hidden="true"></span>
+          <input class="rename" aria-label={t('sidebar.sessionName')} placeholder={t('sidebar.sessionName')} bind:value={draft} use:focusSelect
+            onkeydown={(ev) => { if (ev.isComposing) return; if (ev.key === 'Enter') { ev.preventDefault(); void commitRename(e); } else if (ev.key === 'Escape') { ev.preventDefault(); renaming = null; } }}
+            onblur={() => void commitRename(e)} />
         </div>
-        <ul>
-          {#each shown as e (e.key)}
-            {@const checked = !!e.session && app.picked.includes(e.session.path)}
-            {@const locked = app.selecting && (!e.session || !app.canDelete(e.session))}
-            <li class:active={!app.selecting && e.chat && e.chat.runtime.id === app.currentId} class:checked>
-              {#if renaming === e.key}
-                <div class="row editing">
-                  <span class="state" class:open={!!e.chat} aria-hidden="true"></span>
-                  <input class="rename" aria-label={t('sidebar.sessionName')} placeholder={t('sidebar.sessionName')} bind:value={draft} use:focusSelect
-                    onkeydown={(ev) => { if (ev.isComposing) return; if (ev.key === 'Enter') { ev.preventDefault(); void commitRename(e); } else if (ev.key === 'Escape') { ev.preventDefault(); renaming = null; } }}
-                    onblur={() => void commitRename(e)} />
-                </div>
-              {:else}
-              <button class="row" class:selecting={app.selecting} class:locked type="button" onclick={() => open(e)} use:contextMenu={() => rowItems(g, e)}
-                role={app.selecting ? 'checkbox' : undefined} aria-checked={app.selecting ? checked : undefined} aria-disabled={locked || undefined}
-                title={locked ? t('sidebar.lockedHint') : undefined}
-                aria-current={!app.selecting && e.chat && e.chat.runtime.id === app.currentId ? 'true' : undefined}>
-                {#if app.selecting}
-                  <span class="box" class:on={checked} aria-hidden="true">{#if checked}<Icon name="check" size={12} />{/if}</span>
-                {:else}
-                <span class="state" class:run={e.chat?.running} class:open={!!e.chat} class:unseen={e.chat?.unseen} class:bg={!e.chat?.running && (e.chat?.bg.running ?? 0) > 0} role="img" aria-label={e.chat?.running ? S.running : e.chat ? t('sidebar.opened') : ''}></span>
-                {/if}
-                <span class="t" data-priv="titles">{e.title}</span>
-                <span class="m">{relativeTime(e.when)}</span>
-              </button>
-              {/if}
-              {#if (e.session || e.chat) && !app.selecting && renaming !== e.key}
-                <button class="del icon-btn sm" type="button" aria-label={S.deleteSession} title={S.deleteSession} onclick={() => remove(e)}>
-                  <Icon name="trash" size={15} />
-                </button>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-        {#if !query && all && g.entries.length > LIMIT}
-          <button class="more" type="button" onclick={() => (expanded[g.cwd] = !expanded[g.cwd])}>
-            {expanded[g.cwd] ? S.showLess : `${S.showMore} (${g.entries.length - LIMIT})`}
-          </button>
+      {:else}
+      <button class="row" class:selecting={app.selecting} class:locked type="button" onclick={() => open(e)} use:contextMenu={() => rowItems(e)}
+        role={app.selecting ? 'checkbox' : undefined} aria-checked={app.selecting ? checked : undefined} aria-disabled={locked || undefined}
+        title={locked ? t('sidebar.lockedHint') : open2 ? undefined : showcase.tip('paths', `${tildePath(e.cwd, app.home)} · ${relativeTime(e.when)}`)}
+        aria-current={cur ? 'true' : undefined}>
+        {#if app.selecting}
+          <span class="box" class:on={checked} aria-hidden="true">{#if checked}<Icon name="check" size={12} />{/if}</span>
+        {:else}
+          <span class="state" class:run={e.chat?.running} class:open={!!e.chat} class:unseen={e.chat?.unseen} class:bg={!e.chat?.running && (e.chat?.bg.running ?? 0) > 0} role="img" aria-label={e.chat?.running ? S.running : e.chat ? t('sidebar.opened') : ''}></span>
         {/if}
-      </section>
+        {#if open2}
+          <span class="lines">
+            <span class="t" data-priv="titles">{e.title}</span>
+            <span class="sub"><span data-priv="paths">{baseName(e.cwd)}</span>{#if e.chat && doing(e.chat)} · {doing(e.chat)}{/if}</span>
+          </span>
+          <span class="m">{relativeTime(e.when)}</span>
+        {:else}
+          <span class="t" data-priv="titles">{e.title}</span>
+          <span class="tag mono" data-priv="paths">{baseName(e.cwd)}</span>
+        {/if}
+      </button>
+      {/if}
+      {#if (e.session || e.chat) && !app.selecting && renaming !== e.key}
+        <button class="del icon-btn sm" type="button" aria-label={S.deleteSession} title={S.deleteSession} onclick={() => remove(e)}>
+          <Icon name="trash" size={15} />
+        </button>
+      {/if}
+    </li>
+  {/snippet}
+
+  <nav aria-label={tab === 'open' ? t('sidebar.tabOpen') : t('sidebar.tabHistory')}>
+    {#if tab === 'open'}
+      {#if openList.length}
+        <ul>{#each openList as e (e.key)}{@render row(e, true)}{/each}</ul>
+      {:else}
+        <p class="empty">{query ? S.noMatch : t('sidebar.noOpen')}</p>
+      {/if}
     {:else}
-      <p class="empty">{query ? S.noMatch : S.noSessions}</p>
-    {/each}
+      {#each days as d (d.key)}
+        <section>
+          <div class="day" use:contextMenu={() => dayItems(d)}>
+            {#if app.selecting}
+              {@const st = pickState(d.entries)}
+              <button class="box" class:on={st !== 'none'} type="button" role="checkbox" aria-checked={st === 'all' ? 'true' : st === 'some' ? 'mixed' : 'false'}
+                aria-label={t('sidebar.selectDay', { day: d.label })} disabled={deletable(d.entries).length === 0}
+                onclick={() => app.pickMany(deletable(d.entries), st !== 'all')}>
+                {#if st === 'all'}<Icon name="check" size={12} />{:else if st === 'some'}<span class="dash"></span>{/if}
+              </button>
+            {/if}
+            <span>{d.label}</span>
+          </div>
+          <ul>{#each d.entries as e (e.key)}{@render row(e, false)}{/each}</ul>
+        </section>
+      {:else}
+        <p class="empty">{query ? S.noMatch : t('sidebar.noHistory')}</p>
+      {/each}
+      {#if !query && closedList.length > pages * PAGE}
+        <button class="more" type="button" onclick={() => pages++}>{S.showMore} ({closedList.length - pages * PAGE})</button>
+      {/if}
+    {/if}
   </nav>
 
   {#if app.selecting}
@@ -503,74 +532,82 @@
     scrollbar-width: none;
     padding: 0 8px 12px;
   }
-  section {
-    margin-top: 14px;
+  section + section {
+    margin-top: 6px;
   }
-  .gh {
+  .tabs {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0 6px 2px 10px;
+    gap: 2px;
+    margin: 0 14px 8px;
+    padding: 2px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
   }
-  .gt {
+  .tabs button {
     flex: 1;
-    min-width: 0;
-    display: grid;
-    line-height: 1.3;
-    text-align: left;
-    padding: 2px 4px;
-    margin-left: -4px;
+    height: 28px;
     border-radius: 6px;
-    color: inherit;
+    color: var(--ink-3);
+    font-size: 13px;
+    font-weight: 560;
   }
-  .gt:disabled {
-    cursor: default;
+  .tabs button.on {
+    background: var(--raised);
+    color: var(--ink);
   }
   @media (hover: hover) {
-    .gt:not(:disabled):hover {
-      background: var(--paper-sunk);
+    .tabs button:not(.on):hover {
+      color: var(--ink-2);
     }
   }
-  .chev {
-    display: inline-grid;
-    place-items: center;
-    width: 14px;
-    margin-right: 3px;
-    vertical-align: -1px;
+  .tabs .n {
+    margin-left: 5px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
     color: var(--ink-3);
-    transition: transform 0.15s;
   }
-  .chev.open {
-    transform: rotate(90deg);
+  .day {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 10px 4px;
+    font-size: 12px;
+    color: var(--ink-3);
   }
-  .hidden-n {
-    margin-left: 6px;
-    padding: 0 6px;
-    border-radius: 999px;
-    background: var(--rule);
+  .lines {
+    display: grid;
+    min-width: 0;
+    line-height: 1.3;
+  }
+  .sub {
+    font-size: 12px;
+    color: var(--ink-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tag {
+    font-size: 11px;
+    color: var(--ink-3);
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  li:not(.two) .t {
     color: var(--ink-2);
-    font-size: 11px;
-    font-weight: 560;
-    vertical-align: 1px;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .chev {
-      transition: none;
-    }
+  li.two .row {
+    align-items: start;
   }
-  .gname {
-    font-weight: 680;
-    font-size: 13.5px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  li.two .state {
+    margin-top: 6px;
   }
-  .gpath {
-    font-size: 11px;
-    color: var(--ink-3);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  /* closed: an empty square where an open one has its colour */
+  li:not(.two) .row .state {
+    box-shadow: inset 0 0 0 1px var(--ink-3);
+    opacity: 0.6;
   }
   .sm {
     width: 28px;
@@ -676,7 +713,8 @@
   }
 
   @media (hover: hover) {
-    li:hover:has(.del) .m {
+    li:hover:has(.del) .m,
+    li:hover:has(.del) .tag {
       visibility: hidden;
     }
   }
@@ -704,12 +742,6 @@
     height: 2px;
     border-radius: 1px;
     background: var(--accent-ink);
-  }
-  .gh .box {
-    margin-right: 8px;
-  }
-  .icon-btn.hide {
-    visibility: hidden;
   }
   .row.selecting {
     grid-template-columns: 18px minmax(0, 1fr) auto;

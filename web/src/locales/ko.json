@@ -294,7 +294,6 @@
   "sidebar": {
     "unselect": "선택 해제",
     "select": "선택",
-    "selectFolder": "{folder}의 세션 모두 선택",
     "selectAll": "모든 세션 선택",
     "deletePicked": {
       "other": "선택한 {n}개 삭제…"
@@ -306,19 +305,17 @@
     "copyFolder": "폴더 경로 복사",
     "copyFile": "세션 파일 경로 복사",
     "selectToDelete": "여러 개 선택해서 삭제…",
-    "unselectFolder": "{folder}의 선택 해제",
-    "deleteInFolder": "이 폴더의 세션 여러 개 삭제…",
     "renameOpen": "지금 열려 있어서 바꿀 수 없습니다",
     "renameFailed": "이름을 바꾸지 못했습니다",
     "packagesN": {
       "other": "패키지 {n}개"
     },
-    "unfold": "모든 세션 보기",
+    "unfold": "목록 펼치기",
     "openChats": "열린 세션",
     "session": "세션",
     "settings": "설정",
     "settingsShowcase": "설정 (쇼케이스 모드 켜짐)",
-    "fold": "닫힌 세션 숨기기",
+    "fold": "목록 접기",
     "closeList": "목록 닫기",
     "sessions": "세션",
     "sessionName": "세션 이름",
@@ -334,10 +331,23 @@
     "showcaseOn": "쇼케이스 모드가 켜져 있습니다. 누르면 설정이 열립니다.",
     "showcase": "쇼케이스",
     "language": "언어: {name}",
-    "hiddenN": {
-      "other": "숨긴 세션 {n}개"
+    "move": "다른 폴더로 옮기기",
+    "tabOpen": "열림",
+    "tabHistory": "기록",
+    "today": "오늘",
+    "yesterday": "어제",
+    "week": "지난 7일",
+    "month": "지난 30일",
+    "stRunning": "작업 중",
+    "stBg": {
+      "other": "배경 작업 {n}개"
     },
-    "move": "다른 폴더로 옮기기"
+    "stUnseen": "답이 왔어요",
+    "noOpen": "열린 세션이 없어요. 기록에서 고르거나 폴더를 여세요.",
+    "noHistory": "닫힌 세션이 없어요.",
+    "selectDay": "{day} 모두 선택",
+    "unselectDay": "{day} 선택 해제",
+    "deleteDay": "{day}의 세션 여러 개 삭제…"
   },
   "header": {
     "tree": "세션 트리",

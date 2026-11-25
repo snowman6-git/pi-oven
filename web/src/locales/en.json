@@ -296,7 +296,6 @@
   "sidebar": {
     "unselect": "Deselect",
     "select": "Select",
-    "selectFolder": "Select all sessions in {folder}",
     "selectAll": "Select all sessions",
     "deletePicked": {
       "one": "Delete {n} selected…",
@@ -309,20 +308,18 @@
     "copyFolder": "Copy folder path",
     "copyFile": "Copy session file path",
     "selectToDelete": "Select several to delete…",
-    "unselectFolder": "Deselect {folder}",
-    "deleteInFolder": "Delete several sessions in this folder…",
     "renameOpen": "It is open right now, so it cannot be changed",
     "renameFailed": "Could not rename",
     "packagesN": {
       "one": "{n} package",
       "other": "{n} packages"
     },
-    "unfold": "Show all sessions",
+    "unfold": "Expand list",
     "openChats": "Open sessions",
     "session": "Session",
     "settings": "Settings",
     "settingsShowcase": "Settings (showcase mode on)",
-    "fold": "Hide closed sessions",
+    "fold": "Collapse list",
     "closeList": "Close list",
     "sessions": "Sessions",
     "sessionName": "Session name",
@@ -338,11 +335,24 @@
     "showcaseOn": "Showcase mode is on. Click to open Settings.",
     "showcase": "Showcase",
     "language": "Language: {name}",
-    "hiddenN": {
-      "one": "{n} hidden session",
-      "other": "{n} hidden sessions"
+    "move": "Move to another folder",
+    "tabOpen": "Open",
+    "tabHistory": "History",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "week": "Last 7 days",
+    "month": "Last 30 days",
+    "stRunning": "working",
+    "stBg": {
+      "one": "{n} background task",
+      "other": "{n} background tasks"
     },
-    "move": "Move to another folder"
+    "stUnseen": "new reply",
+    "noOpen": "No open sessions. Pick one from History or open a folder.",
+    "noHistory": "No closed sessions.",
+    "selectDay": "Select all from {day}",
+    "unselectDay": "Unselect {day}",
+    "deleteDay": "Delete sessions from {day}…"
   },
   "header": {
     "tree": "Session tree",
