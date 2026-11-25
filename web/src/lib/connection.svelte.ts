@@ -13,6 +13,10 @@ const BACKOFF = [250, 500, 1000, 2000, 4000];
 const IDLE_PROBE = 20_000;
 /** How long that question may take. */
 const PROBE_TIMEOUT = 4000;
+/** A history answer on its way is not a dead socket: nothing is heard until all of it is in (one frame), which on a
+    slow link can take longer than the idle probe allows, and the probe's own answer waits behind it. So no probe
+    while one is awaited, up to this long. */
+const HISTORY_GRACE = 90_000;
 
 /** One WebSocket to one pi process, with request/response correlation and reconnect. */
 export class Connection {
@@ -20,6 +24,8 @@ export class Connection {
 
   #ws: WebSocket | null = null;
   #pending = new Map<string, Pending>();
+  /** History requests awaited, and when each was sent. */
+  #big = new Map<string, number>();
   #seq = 0;
   /** Responses go to every device attached to the same pi; ids that start differently per connection keep each
       device from taking another's answer as its own (events carry no id and still reach everyone). */
@@ -41,7 +47,7 @@ export class Connection {
     this.#connect();
     // A phone that has been asleep, or a network that dropped without telling, leaves a socket that looks open and isn't.
     this.#idleTimer = setInterval(() => {
-      if (!document.hidden && this.link === 'open' && performance.now() - this.#lastRx > IDLE_PROBE) void this.#probe();
+      if (!document.hidden && this.link === 'open' && performance.now() - this.#lastRx > IDLE_PROBE && !this.#awaitingHistory()) void this.#probe();
     }, 5000);
   }
 
@@ -134,7 +140,14 @@ export class Connection {
     if (ws.readyState === WebSocket.OPEN) void this.#probe();
   }
 
+  #awaitingHistory() {
+    const now = performance.now();
+    for (const at of this.#big.values()) if (now - at < HISTORY_GRACE) return true;
+    return false;
+  }
+
   #failPending(err: Error) {
+    this.#big.clear();
     for (const p of this.#pending.values()) p.reject(err);
     this.#pending.clear();
   }
@@ -146,9 +159,10 @@ export class Connection {
     const res = await new Promise<Response>((resolve, reject) => {
       if (this.#ws?.readyState !== WebSocket.OPEN) return reject(new Error('not connected'));
       this.#pending.set(id, { resolve, reject });
+      if (cmd.type === 'get_messages') this.#big.set(id, performance.now());
       if (timeoutMs) timer = setTimeout(() => { this.#pending.delete(id); reject(new Error('timeout')); }, timeoutMs);
       this.#ws.send(JSON.stringify({ ...cmd, id }));
-    }).finally(() => clearTimeout(timer));
+    }).finally(() => { clearTimeout(timer); this.#big.delete(id); });
     if (!res.success) {
       const err = new Error(res.error ?? `${res.command} failed`) as Error & { response?: Response };
       err.response = res; // the server's own fields (`oven_held`) come with it

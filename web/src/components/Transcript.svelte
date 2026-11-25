@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { S } from '../lib/strings';
   import { baseName, tildePath } from '../lib/util';
@@ -16,15 +16,16 @@
   let stick = $state(true);
 
   // Index of each user message among user messages only, used to address pi's fork entries.
+  // Counted from the start of the session, also when its older part is not loaded.
   const userIndex = $derived.by(() => {
-    let n = 0;
+    let n = chat.userBase;
     return chat.items.map((it) => (it.kind === 'user' ? n++ : -1));
   });
 
   // For each item: the user message its turn began with, and whether it is the last thing in that turn
   // (that is where the actions for the whole answer go: copy, regenerate).
   const turns = $derived.by(() => {
-    let u = -1, n = 0;
+    let u = -1, n = chat.userBase;
     return chat.items.map((it, i) => {
       if (it.kind === 'user') u = n++;
       const next = chat.items[i + 1];
@@ -55,7 +56,27 @@
     if (top < lastTop - 1 && gap > 2) stick = false;
     else if (!touching) stick = atBottom();
     lastTop = top;
+    if (top < NEAR_TOP) void older();
   }
+  // The older part of a long session comes as the reader nears the top. What is put in front pushes the view down by
+  // its height, so the view is moved back by as much: what the reader was looking at stays where it was.
+  const NEAR_TOP = 900;
+  async function older() {
+    if (!chat.hasOlder || chat.loadingOlder) return;
+    const h = scroller.scrollHeight;
+    await chat.loadOlder();
+    await tick();
+    scroller.scrollTop += scroller.scrollHeight - h;
+    lastTop = scroller.scrollTop;
+  }
+  // too little loaded to scroll at all (a short last turn): the next part comes without waiting for a scroll
+  $effect(() => {
+    void chat.items.length;
+    if (chat.loaded && chat.hasOlder && !chat.loadingOlder) {
+      void tick().then(() => { if (scroller.scrollHeight - scroller.clientHeight < NEAR_TOP) void older(); });
+    }
+  });
+
   function touchEnd() {
     touching = false;
     stick = atBottom();
@@ -90,6 +111,9 @@
       </section>
     {/if}
 
+    {#if chat.loaded && chat.hasOlder}
+      <p class="older">{chat.loadingOlder ? t('transcript.older') : t('transcript.olderMore')}</p>
+    {/if}
     {#each chat.items as item, i (item.key)}
       <Turn {item} {chat} userIndex={userIndex[i]} turn={turns[i]} />
     {/each}
@@ -132,6 +156,12 @@
   }
   .bad {
     color: var(--bad);
+  }
+  .older {
+    margin: 4px 0 12px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--ink-3);
   }
   .welcome {
     padding: 9vh 0 4vh;

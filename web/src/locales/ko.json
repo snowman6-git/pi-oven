@@ -721,7 +721,9 @@
     "bgNote": "백그라운드 작업 알림",
     "ext": "확장",
     "compacted": "컨텍스트 압축됨",
-    "branchSummary": "분기 요약"
+    "branchSummary": "분기 요약",
+    "older": "이전 대화를 불러오는 중",
+    "olderMore": "위로 올리면 이전 대화를 더 불러옵니다"
   },
   "thinking": {
     "hidden": "(숨김)",

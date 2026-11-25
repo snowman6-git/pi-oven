@@ -49,15 +49,35 @@ export const storedPermission = (): Permission => {
 type Dialog = Extract<ExtensionRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }>;
 
 /** A reload gives every item a new key, which would rebuild the whole conversation on screen. Items that are the
-    same message as before (same place, kind and time) keep their old key, so only what changed is drawn again. */
+    same message as before (same place, kind and time) keep their old key, so only what changed is drawn again. Older
+    messages put in front (scrolling up) move the old ones along: they are matched from where the old first one is. */
 function keepKeys(old: Item[], next: Item[]): Item[] {
-  for (let i = 0; i < next.length && i < old.length; i++) {
-    const a = old[i], b = next[i];
-    if (a.kind !== b.kind || !('ts' in a) || !('ts' in b) || a.ts == null || a.ts !== b.ts) break;
+  const same = (a: Item, b: Item) => a.kind === b.kind && 'ts' in a && 'ts' in b && a.ts != null && a.ts === b.ts;
+  const off = old.length && !(next.length && same(old[0], next[0])) ? Math.max(0, next.findIndex((b) => same(old[0], b))) : 0;
+  for (let i = 0; i + off < next.length && i < old.length; i++) {
+    const a = old[i], b = next[i + off];
+    if (!same(a, b)) break;
     (b as { key: number }).key = a.key;
   }
   return next;
 }
+
+/** About how much of a session's history comes at a time (the newest first, older as the reader scrolls up): a long
+    session's whole history is megabytes, more than a slow phone link takes in before the connection gives up. */
+const HISTORY_PART = 192 * 1024;
+
+/** The server's answer to a history request: a part of pi's history and where it sits (`ws.rs`, `shape`). */
+type HistoryPart = {
+  messages: WireMessage[];
+  from?: number;
+  total?: number;
+  usersBefore?: number;
+  firstUser?: string;
+  /** What follows the messages this page has. */
+  rest?: boolean;
+  /** The history no longer starts the same: load its newest part again. */
+  reset?: boolean;
+};
 
 export class Chat {
   runtime = $state<RuntimeInfo>() as RuntimeInfo;
@@ -467,6 +487,7 @@ export class Chat {
 
   get title(): string {
     if (this.state?.sessionName) return this.state.sessionName;
+    if (this.#firstUser != null) return this.#firstUser.slice(0, 80);
     const first = this.items.find((i) => i.kind === 'user');
     return first && first.kind === 'user' && first.text ? first.text.split('\n')[0].slice(0, 80) : '';
   }
@@ -477,6 +498,56 @@ export class Chat {
       can ask for only what came after: the server answers with the rest (`from`) when its history still starts the
       same, and with all of it otherwise. */
   #raw: WireMessage[] = [];
+  /** Where `#raw` starts in pi's history: the messages before it have not been loaded (the reader has not scrolled up
+      that far). */
+  #rawFrom = 0;
+  /** Older messages are there to load (scrolling up). */
+  hasOlder = $state(false);
+  loadingOlder = $state(false);
+  /** How many of the person's messages come before the loaded ones (fork points are counted from the start). */
+  userBase = $state(0);
+  /** The first thing the person said, when it is not loaded (for the title). */
+  #firstUser = $state<string | null>(null);
+
+  #historyAsk(extra: Record<string, unknown> = {}) {
+    return { type: 'get_messages', oven_tail: { bytes: HISTORY_PART }, ...extra };
+  }
+
+  /** The conversation drawn again from the loaded history. */
+  #rebuild() {
+    const next = itemsFromMessages(this.#raw);
+    // a Baton Touch line whose note is not in the history yet (pi was busy: it comes with the next turn) stays
+    const inHistory = new Set(next.flatMap((i) => (i.kind === 'baton' ? [this.#batonSig(i.note)] : [])));
+    this.#batonLive = this.#batonLive.filter((b) => !inHistory.has(b.sig));
+    next.push(...this.#batonLive.map((b): Item => ({ kind: 'baton', key: b.key, note: b.note, ts: b.ts })));
+    this.items = keepKeys(this.items, next);
+  }
+
+  /** The part before what is loaded (the reader scrolled up to the top). */
+  async loadOlder() {
+    const first = this.#raw[0];
+    if (!this.hasOlder || this.loadingOlder || first?.timestamp == null) return;
+    this.loadingOlder = true;
+    const seq = this.#loadSeq;
+    try {
+      const r = await this.conn.request<HistoryPart>(this.#historyAsk({ oven_before: { n: this.#rawFrom, ts: first.timestamp } }));
+      if (seq !== this.#loadSeq) return; // the history was loaded again meanwhile
+      if (r.reset) return void this.load();
+      this.#raw = [...r.messages, ...this.#raw];
+      this.#rawFrom = r.from ?? 0;
+      this.#took(r);
+      this.#rebuild();
+      this.sa.restore(this.items);
+    } catch { /* stays as it is; scrolling up again asks again */ } finally {
+      this.loadingOlder = false;
+    }
+  }
+
+  #took(r: HistoryPart) {
+    this.hasOlder = this.#rawFrom > 0;
+    this.userBase = r.usersBefore ?? 0;
+    if (r.firstUser !== undefined || this.#rawFrom === 0) this.#firstUser = this.#rawFrom > 0 ? (r.firstUser ?? null) : null;
+  }
 
   /** A message ended in front of us: it is in pi's history now. */
   #rawAdd(m: WireMessage | undefined) {
@@ -489,24 +560,25 @@ export class Chat {
     const seq = ++this.#loadSeq;
     try {
       const last = this.#raw[this.#raw.length - 1];
-      const ask: Record<string, unknown> = { type: 'get_messages' };
-      if (since && last?.timestamp != null) ask.oven_since = { n: this.#raw.length, ts: last.timestamp };
+      const ask = this.#historyAsk(since && last?.timestamp != null ? { oven_since: { n: this.#rawFrom + this.#raw.length, ts: last.timestamp } } : {});
       const [state, msgs] = await Promise.all([
         this.conn.request<SessionState>({ type: 'get_state' }),
-        this.conn.request<{ messages: WireMessage[]; from?: number }>(ask),
+        this.conn.request<HistoryPart>(ask),
       ]);
       if (seq !== this.#loadSeq) return; // a later load is under way: an older answer must not overwrite it
       this.#takeState(state);
       this.running = state.isStreaming;
       if (!this.running) this.runSince = null;
       this.compacting = state.isCompacting;
-      this.#raw = msgs.from != null ? [...this.#raw.slice(0, msgs.from), ...msgs.messages] : msgs.messages;
-      const next = itemsFromMessages(this.#raw);
-      // a Baton Touch line whose note is not in the history yet (pi was busy: it comes with the next turn) stays
-      const inHistory = new Set(next.flatMap((i) => (i.kind === 'baton' ? [this.#batonSig(i.note)] : [])));
-      this.#batonLive = this.#batonLive.filter((b) => !inHistory.has(b.sig));
-      next.push(...this.#batonLive.map((b): Item => ({ kind: 'baton', key: b.key, note: b.note, ts: b.ts })));
-      this.items = keepKeys(this.items, next);
+      if (msgs.rest && msgs.from != null) {
+        // what came after what this page has (`from` counts from the start of the history)
+        this.#raw = [...this.#raw.slice(0, msgs.from - this.#rawFrom), ...msgs.messages];
+      } else {
+        this.#raw = msgs.messages;
+        this.#rawFrom = msgs.from ?? 0;
+        this.#took(msgs);
+      }
+      this.#rebuild();
       this.todo = todoFromItems(this.items);
       this.sa.restore(this.items);
       this.#settleNotices();

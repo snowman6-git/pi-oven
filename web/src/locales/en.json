@@ -738,7 +738,9 @@
     "bgNote": "Background task notice",
     "ext": "Extension",
     "compacted": "Context compacted",
-    "branchSummary": "Branch summary"
+    "branchSummary": "Branch summary",
+    "older": "Loading earlier messages",
+    "olderMore": "Scroll up for earlier messages"
   },
   "thinking": {
     "hidden": "(hidden)",
