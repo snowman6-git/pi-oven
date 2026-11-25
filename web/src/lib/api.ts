@@ -219,8 +219,9 @@ export const api = {
   /** provider → model id → the reasoning level its provider recommends (only providers that say). */
   recommendedLevels: () => call<Record<string, Record<string, string>>>('/api/models/recommended'),
   modelPrefs: () => call<ModelPrefs>('/api/models/prefs', {}, BG),
-  setModelLevel: (provider: string, model: string, level: ThinkingLevel | null) =>
-    call<ModelPrefs>('/api/models/thinking', { method: 'PUT', body: JSON.stringify({ provider, model, level }) }),
+  /** Change one model: `level` null clears it (its provider's recommended level, else pi's), `'pi'` is pi's own. */
+  updateModelPrefs: (provider: string, model: string, change: { level?: ThinkingLevel | 'pi' | null; shown?: boolean }) =>
+    call<ModelPrefs>('/api/models/prefs', { method: 'PUT', body: JSON.stringify({ provider, model, ...change }) }),
   setLimitsPoll: (enabled: boolean) => call<{ enabled: boolean }>('/api/limits/poll', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   lensSettings: () => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens'),
   setLens: (inject: boolean) => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens', { method: 'PUT', body: JSON.stringify({ inject }) }),
@@ -281,4 +282,5 @@ export interface AgentDef {
 }
 
 /** The model a new session starts on (the one last picked) and each model's starting level, `provider/model` → level. */
-export interface ModelPrefs { last?: [string, string]; thinking: Record<string, ThinkingLevel> }
+/** `thinking`: `provider/model` → level, or `pi` (pi's own, not the provider's recommended one). `hidden`: left out of the model menu. */
+export interface ModelPrefs { last?: [string, string]; thinking: Record<string, ThinkingLevel | 'pi'>; hidden: string[] }

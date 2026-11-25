@@ -8,27 +8,37 @@
 //! Both wait for pi's answer to `set_model`: a model pi could not switch to (no key for it, say) is not remembered as
 //! picked, and its level is not given to the model the session stayed on.
 //!
-//! The level for a model, where one is set, is used when a new session starts on it and when the page switches to it.
+//! The level for a model is used when a new session starts on it and when the page switches to it. Unset, a model starts
+//! on its provider's recommended level where the provider gives one (ChatGPT does), else on pi's; `pi` means pi's
+//! even where the provider recommends one.
+//!
+//! Models can also be left out of the page's model menu (`hidden`); the one in use always shows.
+//!
 //! These live in pi-oven's own file, not in pi's settings.json (that file is the person's, and pi rewrites it).
 
 use axum::{extract::State, http::StatusCode, response::{IntoResponse, Response}, Json};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use crate::{api::fail, AppState};
 
 const FILE: &str = "model-prefs.json";
 const LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+/// The stored choice "pi's own level" (no level is given, not even the provider's recommended one).
+const PI: &str = "pi";
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Prefs {
     /// `[provider, model]` last picked on a page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last: Option<(String, String)>,
-    /// `provider/model` → level.
+    /// `provider/model` → level, or `pi`.
     #[serde(default)]
     pub thinking: BTreeMap<String, String>,
+    /// `provider/model` left out of the model menu.
+    #[serde(default)]
+    pub hidden: BTreeSet<String>,
 }
 
 pub struct ModelPrefs {
@@ -71,11 +81,16 @@ impl ModelPrefs {
         }
     }
 
-    /// The model a new session is put on right after pi starts, and the level to give it once pi has taken it.
-    pub fn for_new_session(&self) -> Option<(String, String, Option<String>)> {
+    /// The model a new session is put on right after pi starts, and the level to give it once pi has taken it:
+    /// the one set for it, else its provider's recommended one (`recommended`, `provider` → model → level).
+    pub fn for_new_session(&self, recommended: &BTreeMap<String, BTreeMap<String, String>>) -> Option<(String, String, Option<String>)> {
         let p = self.inner.lock().unwrap();
         let (provider, model) = p.last.clone()?;
-        let level = p.thinking.get(&key(&provider, &model)).cloned();
+        let level = match p.thinking.get(&key(&provider, &model)) {
+            Some(l) if l == PI => None,
+            Some(l) => Some(l.clone()),
+            None => recommended.get(&provider).and_then(|m| m.get(&model)).cloned(),
+        };
         Some((provider, model, level))
     }
 
@@ -84,7 +99,7 @@ impl ModelPrefs {
     }
 
     fn set_level(&self, provider: &str, model: &str, level: Option<&str>) -> bool {
-        if level.is_some_and(|l| !LEVELS.contains(&l)) || provider.is_empty() || model.is_empty() {
+        if level.is_some_and(|l| l != PI && !LEVELS.contains(&l)) || provider.is_empty() || model.is_empty() {
             return false;
         }
         let mut p = self.inner.lock().unwrap();
@@ -95,25 +110,47 @@ impl ModelPrefs {
         Self::save(&p);
         true
     }
+
+    fn set_shown(&self, provider: &str, model: &str, shown: bool) {
+        let mut p = self.inner.lock().unwrap();
+        let changed = if shown { p.hidden.remove(&key(provider, model)) } else { p.hidden.insert(key(provider, model)) };
+        if changed {
+            Self::save(&p);
+        }
+    }
 }
 
 pub async fn get(State(app): State<Arc<AppState>>) -> Json<Prefs> {
     Json(app.runtimes.prefs.view())
 }
 
+/// A change to one model: its level (`null` clears it), whether the menu shows it, or both.
 #[derive(Deserialize)]
-pub struct SetLevel {
+pub struct Update {
     provider: String,
     model: String,
-    /// None: the model starts with pi's own level.
-    level: Option<String>,
+    /// Absent: unchanged. `null`: its provider's recommended level, else pi's. `pi`: pi's.
+    #[serde(default, deserialize_with = "present")]
+    level: Option<Option<String>>,
+    shown: Option<bool>,
 }
 
-pub async fn set_level(State(app): State<Arc<AppState>>, Json(req): Json<SetLevel>) -> Response {
-    if !app.runtimes.prefs.set_level(&req.provider, &req.model, req.level.as_deref()) {
-        return fail(StatusCode::BAD_REQUEST, "unknown level");
+/// A field that is there, even as `null`, is `Some` (serde makes absent and `null` both `None` otherwise).
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
+}
+
+pub async fn update(State(app): State<Arc<AppState>>, Json(req): Json<Update>) -> Response {
+    let prefs = &app.runtimes.prefs;
+    if let Some(level) = &req.level {
+        if !prefs.set_level(&req.provider, &req.model, level.as_deref()) {
+            return fail(StatusCode::BAD_REQUEST, "unknown level");
+        }
     }
-    Json(app.runtimes.prefs.view()).into_response()
+    if let Some(shown) = req.shown {
+        prefs.set_shown(&req.provider, &req.model, shown);
+    }
+    Json(prefs.view()).into_response()
 }
 
 #[cfg(test)]
@@ -122,12 +159,28 @@ mod tests {
 
     #[test]
     fn a_new_session_gets_the_last_model_and_its_level() {
+        let none = BTreeMap::new();
         let m = ModelPrefs { inner: Mutex::new(Prefs::default()) };
-        assert!(m.for_new_session().is_none());
-        m.inner.lock().unwrap().last = Some(("anthropic".into(), "claude-opus-5-5".into()));
-        assert_eq!(m.for_new_session(), Some(("anthropic".into(), "claude-opus-5-5".into(), None)));
-        m.inner.lock().unwrap().thinking.insert("anthropic/claude-opus-5-5".into(), "high".into());
-        assert_eq!(m.for_new_session().unwrap().2.as_deref(), Some("high"));
+        assert!(m.for_new_session(&none).is_none());
+        m.inner.lock().unwrap().last = Some(("openai-codex".into(), "gpt-5".into()));
+        assert_eq!(m.for_new_session(&none), Some(("openai-codex".into(), "gpt-5".into(), None)));
+        // unset: the provider's recommended level
+        let rec = BTreeMap::from([("openai-codex".to_owned(), BTreeMap::from([("gpt-5".to_owned(), "medium".to_owned())]))]);
+        assert_eq!(m.for_new_session(&rec).unwrap().2.as_deref(), Some("medium"));
+        // "pi": not even that
+        m.inner.lock().unwrap().thinking.insert("openai-codex/gpt-5".into(), "pi".into());
+        assert_eq!(m.for_new_session(&rec).unwrap().2, None);
+        m.inner.lock().unwrap().thinking.insert("openai-codex/gpt-5".into(), "high".into());
+        assert_eq!(m.for_new_session(&rec).unwrap().2.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn an_update_tells_a_cleared_level_from_an_untouched_one() {
+        let u: Update = serde_json::from_str(r#"{"provider":"a","model":"b","level":null}"#).unwrap();
+        assert_eq!(u.level, Some(None));
+        let u: Update = serde_json::from_str(r#"{"provider":"a","model":"b","shown":false}"#).unwrap();
+        assert_eq!(u.level, None);
+        assert_eq!(u.shown, Some(false));
     }
 
     #[test]

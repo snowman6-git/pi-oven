@@ -1,23 +1,28 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte';
-  import { api, type ModelPrefs } from '../lib/api';
+  import { api } from '../lib/api';
+  import { app } from '../lib/app.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import type { ThinkingLevel } from '../lib/protocol';
 
-  // Settings → Models: the reasoning level each model starts with (a new session on it, or switching to it). The models
-  // are the open session's list; models that do not reason have no level to set.
+  // Settings → Models: each model of the open session's list, whether the model menu shows it, and the reasoning level
+  // it starts with (a new session on it, or switching to it). Unset, a model starts on its provider's recommended
+  // level where the provider gives one (ChatGPT does), else on pi's; "pi" keeps pi's even then.
   let { chat }: { chat?: Chat } = $props();
   const LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-  let prefs = $state<ModelPrefs | null>(null);
+  let rec = $state<Record<string, Record<string, string>>>({});
   let failed = $state(false);
-  $effect(() => { api.modelPrefs().then((p) => (prefs = p)).catch(() => (failed = true)); });
+  $effect(() => {
+    api.modelPrefs().then((p) => (app.modelPrefs = p)).catch(() => (failed = true));
+    api.recommendedLevels().then((r) => (rec = r)).catch(() => {});
+  });
+  const prefs = $derived(app.modelPrefs);
+  const models = $derived(chat?.models ?? []);
 
-  const models = $derived((chat?.models ?? []).filter((m) => m.reasoning !== false));
-
-  async function pick(provider: string, model: string, value: string) {
+  async function change(provider: string, model: string, c: { level?: ThinkingLevel | 'pi' | null; shown?: boolean }) {
     try {
-      prefs = await api.setModelLevel(provider, model, value ? (value as ThinkingLevel) : null);
+      app.modelPrefs = await api.updateModelPrefs(provider, model, c);
     } catch {
       failed = true;
     }
@@ -32,12 +37,27 @@
   <ul>
     {#each models as m (`${m.provider}/${m.id}`)}
       {@const key = `${m.provider}/${m.id}`}
-      <li>
-        <span class="name"><b>{m.name || m.id}</b><small class="mono">{m.provider}</small></span>
-        <select class="field" aria-label={t('settings.models.levelFor', { model: m.name || m.id })} value={prefs.thinking[key] ?? ''} onchange={(e) => pick(m.provider, m.id, e.currentTarget.value)}>
-          <option value="">{t('settings.models.levelDefault')}</option>
-          {#each LEVELS as l (l)}<option value={l}>{l}</option>{/each}
-        </select>
+      {@const name = m.name || m.id}
+      {@const recommended = rec[m.provider]?.[m.id]}
+      {@const on = !prefs.hidden.includes(key)}
+      <li class:off={!on}>
+        <input class="switch" type="checkbox" role="switch" aria-label={t('settings.models.showFor', { model: name })} title={t('settings.models.showFor', { model: name })}
+          checked={on} onchange={(e) => change(m.provider, m.id, { shown: e.currentTarget.checked })} />
+        <span class="name"><b>{name}</b><small class="mono">{m.provider}</small></span>
+        {#if m.reasoning !== false}
+          <select class="field" aria-label={t('settings.models.levelFor', { model: name })} value={prefs.thinking[key] === 'pi' && !recommended ? '' : (prefs.thinking[key] ?? '')}
+            onchange={(e) => change(m.provider, m.id, { level: (e.currentTarget.value || null) as ThinkingLevel | 'pi' | null })}>
+            {#if recommended}
+              <option value="">{t('settings.models.levelProvider', { level: recommended })}</option>
+              <option value="pi">{t('settings.models.levelDefault')}</option>
+            {:else}
+              <option value="">{t('settings.models.levelDefault')}</option>
+            {/if}
+            {#each LEVELS as l (l)}<option value={l}>{l}</option>{/each}
+          </select>
+        {:else}
+          <span class="nolevel">{t('settings.models.noReasoning')}</span>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -60,10 +80,16 @@
   li:first-child {
     border-top: 0;
   }
+  .switch {
+    flex: none;
+  }
   .name {
     flex: 1;
     min-width: 0;
     display: grid;
+  }
+  li.off .name {
+    opacity: 0.5;
   }
   .name b,
   .name small {
@@ -80,8 +106,15 @@
     color: var(--ink-3);
   }
   select {
-    width: 128px;
+    width: 140px;
     flex: none;
+  }
+  .nolevel {
+    width: 140px;
+    flex: none;
+    font-size: 12px;
+    color: var(--ink-3);
+    text-align: center;
   }
   .note {
     margin: 6px 0 0;

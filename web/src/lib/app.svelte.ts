@@ -1,4 +1,4 @@
-import { api, auth, AuthError, type Branched, type OvenStatus, type UpdateOffer, type UpdateTarget } from './api';
+import { api, auth, AuthError, type Branched, type ModelPrefs, type OvenStatus, type UpdateOffer, type UpdateTarget } from './api';
 import { Chat } from './chat.svelte';
 import { copyText } from './clipboard';
 import { alertPerson, notifyEnabled, setNotifyEnabled } from './notify';
@@ -22,6 +22,8 @@ class App {
   bootError = $state('');
   home = $state('');
   sessions = $state<SessionSummary[]>([]);
+  /** Models left out of the model menu and each model's starting level (Settings → Models). */
+  modelPrefs = $state<ModelPrefs | null>(null);
   chats = $state<Chat[]>([]);
   currentId = $state<string | null>(null);
   error = $state<string | null>(null);
@@ -87,6 +89,7 @@ class App {
       if (e instanceof AuthError) this.#lastAuth = e.why;
       return;
     }
+    void api.modelPrefs().then((p) => (this.modelPrefs = p)).catch(() => {});
     const [runtimes] = await Promise.all([api.runtimes(), this.refreshSessions()]);
     for (const r of runtimes) this.#attach(r);
     void this.refreshUpdates();

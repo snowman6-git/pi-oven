@@ -233,6 +233,15 @@ pub async fn refresh(State(app): State<Arc<AppState>>) -> Json<serde_json::Value
 
 /// GET: the reasoning level each model's provider recommends, where the provider says (ChatGPT does; others do not,
 /// and nothing is made up for them). Asked at most once an hour.
+impl Usage {
+    /// The recommended levels last fetched, `provider` → model → level (what a new session starts with when its model
+    /// has no level of its own: `model_prefs.rs`).
+    pub fn recommended_now(&self) -> std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> {
+        let c = self.recommended.lock().unwrap();
+        std::collections::BTreeMap::from([(chatgpt::PROVIDER.to_owned(), c.1.clone())])
+    }
+}
+
 pub async fn recommended(State(app): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let u = &app.runtimes.usage;
     let now = now_ms();

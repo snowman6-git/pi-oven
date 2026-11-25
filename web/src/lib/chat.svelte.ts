@@ -688,7 +688,9 @@ export class Chat {
       ]);
       this.levels = lv.levels;
       // the level set for this model in Settings wins over the provider's recommendation
-      const want = (prefs?.thinking[`${m.provider}/${m.id}`] ?? rec[m.provider]?.[m.id]) as ThinkingLevel | undefined;
+      const set = prefs?.thinking[`${m.provider}/${m.id}`];
+      if (set === 'pi') return; // pi's own level, even where the provider recommends one
+      const want = (set ?? rec[m.provider]?.[m.id]) as ThinkingLevel | undefined;
       if (want && lv.levels.includes(want) && this.state?.thinkingLevel !== want) await this.setThinking(want);
     } catch { /* no recommendation: keep the level */ }
   }

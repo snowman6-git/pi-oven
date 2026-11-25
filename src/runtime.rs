@@ -1032,7 +1032,7 @@ impl Manager {
         self.pet.attach(rt.clone());
         // a new session starts on the model last picked here; one that exists stays on its own (model_prefs.rs)
         if req.session_path.is_none() && req.provider.is_none() {
-            if let Some((provider, model, level)) = self.prefs.for_new_session() {
+            if let Some((provider, model, level)) = self.prefs.for_new_session(&self.usage.recommended_now()) {
                 let cmd = serde_json::json!({ "type": "set_model", "provider": provider, "modelId": model });
                 *rt.want_model.lock().unwrap() = Some(WantModel { provider, model, remember: false, level });
                 let _ = rt.stdin_tx.try_send(cmd.to_string());
