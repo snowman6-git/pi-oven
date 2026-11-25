@@ -230,7 +230,7 @@ fn check_url(u: &str) -> Result<(), Bad> {
     Ok(())
 }
 
-pub async fn upsert(State(_): State<Arc<AppState>>, Json(req): Json<Upsert>) -> Response {
+pub async fn upsert(State(app): State<Arc<AppState>>, Json(req): Json<Upsert>) -> Response {
     let res = (|| -> Result<(), Bad> {
         plain(&req.provider, tr!("제공자 이름", "The provider name"), 64)?;
         if !req
@@ -362,7 +362,10 @@ pub async fn upsert(State(_): State<Arc<AppState>>, Json(req): Json<Upsert>) -> 
         write(&doc)
     })();
     match res {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            app.runtimes.models_changed().await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err((c, m)) => fail(c, m),
     }
 }
@@ -374,7 +377,7 @@ pub struct Remove {
 }
 
 /// A model, or (with no model named) a whole provider.
-pub async fn remove(State(_): State<Arc<AppState>>, Query(q): Query<Remove>) -> Response {
+pub async fn remove(State(app): State<Arc<AppState>>, Query(q): Query<Remove>) -> Response {
     let res = (|| -> Result<(), Bad> {
         let mut doc = read()?;
         let providers = doc["providers"].as_object_mut().ok_or((
@@ -409,7 +412,10 @@ pub async fn remove(State(_): State<Arc<AppState>>, Query(q): Query<Remove>) -> 
         write(&doc)
     })();
     match res {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            app.runtimes.models_changed().await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err((c, m)) => fail(c, m),
     }
 }

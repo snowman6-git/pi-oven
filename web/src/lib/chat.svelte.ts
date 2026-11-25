@@ -768,8 +768,15 @@ export class Chat {
   }
 
   /** Ask pi for its models again (after one was added to models.json). */
+  /** The model list again, after models.json changed. pi reads that file only when it starts: the bundled extension's
+      `/oven-models` reads it again (and puts the model in use back on as it now reads), and answers once it has. */
   async reloadModels(): Promise<ModelInfo[]> {
     try {
+      if (this.commands.some((c) => c.name === 'oven-models')) {
+        await this.conn.request({ type: 'prompt', message: '/oven-models' });
+        this.#takeState(await this.conn.request<SessionState>({ type: 'get_state' }));
+        void this.refreshStats();
+      }
       const r = await this.conn.request<{ models: ModelInfo[] }>({ type: 'get_available_models' });
       this.models = r.models;
     } catch { /* the list stays as it was */ }

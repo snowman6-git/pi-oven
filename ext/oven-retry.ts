@@ -9,6 +9,10 @@
  *
  * `/oven-note <json>` keeps a note of what the server did for the person (Baton Touch handed the session to another
  * account or model) in the session, so the page still shows it after a reload. Notes never go to the model.
+ *
+ * `/oven-models` reads models.json again (pi reads it only when it starts, and RPC has no command for it), after the
+ * page changed a model there. The model in use is put back on as it now reads (a new context window, say), keeping
+ * its reasoning level.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -17,6 +21,7 @@ const TEXT = "The previous request failed with a temporary API error. Continue f
 /** The command the server runs (`/oven-note <json>`), and the kind of message it keeps. */
 const NOTE_COMMAND = "oven-note";
 const NOTE = "oven-baton";
+const MODELS_COMMAND = "oven-models";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand(TYPE, {
@@ -38,6 +43,22 @@ export default function (pi: ExtensionAPI) {
 			const message = { customType: NOTE, content: "", display: true, details };
 			if (ctx.isIdle()) pi.sendMessage(message);
 			else pi.sendMessage(message, { deliverAs: "nextTurn" });
+		},
+	});
+
+	pi.registerCommand(MODELS_COMMAND, {
+		description: "Read models.json again (used by pi-oven)",
+		handler: async (_args, ctx) => {
+			await ctx.modelRegistry.refresh();
+			const cur = ctx.model;
+			const next = cur && ctx.modelRegistry.find(cur.provider, cur.id);
+			if (!cur || !next || JSON.stringify(next) === JSON.stringify(cur)) return;
+			const level = pi.getThinkingLevel();
+			try {
+				if (await pi.setModel(next)) pi.setThinkingLevel(level);
+			} catch {
+				// no key for it any more: the session stays on the model as it was
+			}
 		},
 	});
 

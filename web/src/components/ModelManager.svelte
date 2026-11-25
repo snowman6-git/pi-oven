@@ -145,7 +145,10 @@
         reasoning = image = xhigh = max = false;
         found = null;
         editing = null;
-      } else app.flash(t('models.saved'));
+      } else {
+        await chat?.reloadModels();
+        app.flash(t('models.saved'));
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : t('models.saveFailed');
     } finally {

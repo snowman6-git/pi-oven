@@ -27,6 +27,8 @@ pub const MAX_TRIES: u32 = 100;
 /// What pi calls a retry the user stopped: that is not a failure to carry on from.
 const CANCELLED: &str = "Retry cancelled";
 pub const TRY_COMMAND: &str = r#"{"type":"prompt","message":"/oven-retry"}"#;
+/// Read models.json again (the same bundled extension).
+pub const MODELS_COMMAND: &str = r#"{"type":"prompt","message":"/oven-models"}"#;
 
 /// The on/off switch, shared by every session and device. On unless turned off.
 pub struct Long {

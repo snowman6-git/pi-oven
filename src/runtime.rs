@@ -844,6 +844,18 @@ impl Manager {
         self.map.read().await.get(id).cloned()
     }
 
+    /// models.json was changed here: every pi reads it again (it reads it only when it starts), with the bundled
+    /// extension's `/oven-models`. Without the extension the command would go to the model as text, so nothing is sent.
+    pub async fn models_changed(&self) {
+        if !self.long.available() {
+            return;
+        }
+        let all: Vec<Arc<Runtime>> = self.map.read().await.values().cloned().collect();
+        for rt in all {
+            rt.send(crate::retry::MODELS_COMMAND.to_owned()).await;
+        }
+    }
+
     pub async fn list(&self) -> Vec<RuntimeInfo> {
         let mut v: Vec<_> = self.map.read().await.values().map(|r| r.info.clone()).collect();
         v.sort_by_key(|i| i.started_at);
