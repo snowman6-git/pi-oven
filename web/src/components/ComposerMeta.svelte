@@ -28,8 +28,8 @@
 
   const model = $derived(chat.state?.model);
   const sameModel = (m: ModelInfo) => m.id === model?.id && m.provider === model?.provider;
-  // models switched off in Settings → Models stay out of the menu; the one in use always shows
-  const shown = $derived(chat.models.filter((m) => sameModel(m) || !app.modelPrefs?.hidden.includes(`${m.provider}/${m.id}`)));
+  // models (or whole providers) switched off in Settings → Models stay out of the menu; the one in use always shows
+  const shown = $derived(chat.models.filter((m) => sameModel(m) || !(app.modelPrefs?.hiddenProviders.includes(m.provider) || app.modelPrefs?.hidden.includes(`${m.provider}/${m.id}`))));
   const models = $derived(
     shown.filter((m) => `${m.provider} ${m.id} ${m.name ?? ''}`.toLowerCase().includes(filter.toLowerCase())),
   );

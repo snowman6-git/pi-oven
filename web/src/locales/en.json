@@ -166,14 +166,25 @@
       "title": "Models",
       "note": "Add models from another server or API to pi: an endpoint address, a key and the model IDs.",
       "levelsTitle": "Model list and starting reasoning level",
-      "levelsNote": "Models switched off stay out of the model menu under the message box (the one in use always shows). New sessions open on the model you picked last. The level set here is used when a new session opens on that model and when you switch to it. Existing sessions open on the model they were using.",
+      "levelsNote": "Models and providers switched off stay out of the model menu under the message box (the one in use always shows). Switching a provider back on keeps each model's own switch. New sessions open on the model you picked last; the level set here is used when a new session opens on that model and when you switch to it. Existing sessions open on the model they were using.",
       "levelsNoChat": "Open a session to see its models.",
       "levelsFailed": "Could not load these settings. Check the server connection.",
       "levelDefault": "pi default",
       "levelFor": "Starting level for {model}",
       "levelProvider": "Provider default ({level})",
       "showFor": "Show {model} in the model menu",
-      "noReasoning": "No reasoning"
+      "noReasoning": "No reasoning",
+      "provOn": "on",
+      "provOff": "off",
+      "showProvider": "Show {provider} models in the model menu",
+      "levelAll": "Starting level for all of this provider's models",
+      "levelAllFor": "Starting level for all {provider} models",
+      "levelMixed": "Mixed",
+      "showOff": {
+        "one": "Show {n} model switched off",
+        "other": "Show {n} models switched off"
+      },
+      "hideOff": "Hide models switched off"
     },
     "showcase": {
       "title": "Showcase mode",

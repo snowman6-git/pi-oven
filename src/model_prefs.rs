@@ -12,7 +12,8 @@
 //! on its provider's recommended level where the provider gives one (ChatGPT does), else on pi's; `pi` means pi's
 //! even where the provider recommends one.
 //!
-//! Models can also be left out of the page's model menu (`hidden`); the one in use always shows.
+//! Models can also be left out of the page's model menu (`hidden`), or whole providers (`hiddenProviders`); the model
+//! in use always shows.
 //!
 //! These live in pi-oven's own file, not in pi's settings.json (that file is the person's, and pi rewrites it).
 
@@ -39,6 +40,10 @@ pub struct Prefs {
     /// `provider/model` left out of the model menu.
     #[serde(default)]
     pub hidden: BTreeSet<String>,
+    /// Providers left out of the model menu, all their models at once (each model's own switch is kept for when the
+    /// provider is switched on again).
+    #[serde(default, rename = "hiddenProviders")]
+    pub hidden_providers: BTreeSet<String>,
 }
 
 pub struct ModelPrefs {
@@ -61,6 +66,9 @@ fn key(provider: &str, model: &str) -> String {
 
 impl ModelPrefs {
     fn save(p: &Prefs) {
+        if cfg!(test) {
+            return; // tests must not write the person's file
+        }
         let dir = crate::config::cache_dir();
         let tmp = dir.join(format!("{FILE}.tmp"));
         let ok = std::fs::create_dir_all(&dir).is_ok()
@@ -98,25 +106,35 @@ impl ModelPrefs {
         self.inner.lock().unwrap().clone()
     }
 
-    fn set_level(&self, provider: &str, model: &str, level: Option<&str>) -> bool {
-        if level.is_some_and(|l| l != PI && !LEVELS.contains(&l)) || provider.is_empty() || model.is_empty() {
+    /// Apply one change to the provider and to each of `models` (all at once, saved once).
+    fn apply(&self, provider: &str, models: &[String], level: Option<Option<&str>>, shown: Option<bool>, provider_shown: Option<bool>) -> bool {
+        if provider.is_empty() || models.iter().any(String::is_empty) {
+            return false;
+        }
+        if level.flatten().is_some_and(|l| l != PI && !LEVELS.contains(&l)) {
             return false;
         }
         let mut p = self.inner.lock().unwrap();
-        match level {
-            Some(l) => p.thinking.insert(key(provider, model), l.to_owned()),
-            None => p.thinking.remove(&key(provider, model)),
-        };
+        for model in models {
+            let k = key(provider, model);
+            match level {
+                Some(Some(l)) => { p.thinking.insert(k.clone(), l.to_owned()); }
+                Some(None) => { p.thinking.remove(&k); }
+                None => {}
+            }
+            match shown {
+                Some(true) => { p.hidden.remove(&k); }
+                Some(false) => { p.hidden.insert(k); }
+                None => {}
+            }
+        }
+        match provider_shown {
+            Some(true) => { p.hidden_providers.remove(provider); }
+            Some(false) => { p.hidden_providers.insert(provider.to_owned()); }
+            None => {}
+        }
         Self::save(&p);
         true
-    }
-
-    fn set_shown(&self, provider: &str, model: &str, shown: bool) {
-        let mut p = self.inner.lock().unwrap();
-        let changed = if shown { p.hidden.remove(&key(provider, model)) } else { p.hidden.insert(key(provider, model)) };
-        if changed {
-            Self::save(&p);
-        }
     }
 }
 
@@ -124,15 +142,21 @@ pub async fn get(State(app): State<Arc<AppState>>) -> Json<Prefs> {
     Json(app.runtimes.prefs.view())
 }
 
-/// A change to one model: its level (`null` clears it), whether the menu shows it, or both.
+/// A change to models of one provider (`model`, and/or several in `models`): their level (`null` clears it), whether
+/// the menu shows them, and/or whether the menu shows the provider at all.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Update {
     provider: String,
-    model: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    models: Vec<String>,
     /// Absent: unchanged. `null`: its provider's recommended level, else pi's. `pi`: pi's.
     #[serde(default, deserialize_with = "present")]
     level: Option<Option<String>>,
     shown: Option<bool>,
+    provider_shown: Option<bool>,
 }
 
 /// A field that is there, even as `null`, is `Some` (serde makes absent and `null` both `None` otherwise).
@@ -142,13 +166,9 @@ fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<Strin
 
 pub async fn update(State(app): State<Arc<AppState>>, Json(req): Json<Update>) -> Response {
     let prefs = &app.runtimes.prefs;
-    if let Some(level) = &req.level {
-        if !prefs.set_level(&req.provider, &req.model, level.as_deref()) {
-            return fail(StatusCode::BAD_REQUEST, "unknown level");
-        }
-    }
-    if let Some(shown) = req.shown {
-        prefs.set_shown(&req.provider, &req.model, shown);
+    let models: Vec<String> = req.model.into_iter().chain(req.models).collect();
+    if models.len() > 2000 || !prefs.apply(&req.provider, &models, req.level.as_ref().map(|l| l.as_deref()), req.shown, req.provider_shown) {
+        return fail(StatusCode::BAD_REQUEST, "unknown level or model");
     }
     Json(prefs.view()).into_response()
 }
@@ -181,6 +201,21 @@ mod tests {
         let u: Update = serde_json::from_str(r#"{"provider":"a","model":"b","shown":false}"#).unwrap();
         assert_eq!(u.level, None);
         assert_eq!(u.shown, Some(false));
+        let u: Update = serde_json::from_str(r#"{"provider":"a","providerShown":false}"#).unwrap();
+        assert_eq!(u.provider_shown, Some(false));
+    }
+
+    #[test]
+    fn a_provider_switch_keeps_its_models_own() {
+        let m = ModelPrefs { inner: Mutex::new(Prefs::default()) };
+        let ms = ["x".to_owned(), "y".to_owned()];
+        assert!(m.apply("p", &ms[..1], None, Some(false), None));
+        assert!(m.apply("p", &[], None, None, Some(false)));
+        assert!(m.apply("p", &ms, Some(Some("high")), None, None));
+        let v = m.view();
+        assert!(v.hidden_providers.contains("p") && v.hidden.contains("p/x") && !v.hidden.contains("p/y"));
+        assert_eq!(v.thinking.get("p/y").map(String::as_str), Some("high"));
+        assert!(!m.apply("p", &ms, Some(Some("huge")), None, None));
     }
 
     #[test]

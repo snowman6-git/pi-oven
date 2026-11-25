@@ -219,9 +219,10 @@ export const api = {
   /** provider → model id → the reasoning level its provider recommends (only providers that say). */
   recommendedLevels: () => call<Record<string, Record<string, string>>>('/api/models/recommended'),
   modelPrefs: () => call<ModelPrefs>('/api/models/prefs', {}, BG),
-  /** Change one model: `level` null clears it (its provider's recommended level, else pi's), `'pi'` is pi's own. */
-  updateModelPrefs: (provider: string, model: string, change: { level?: ThinkingLevel | 'pi' | null; shown?: boolean }) =>
-    call<ModelPrefs>('/api/models/prefs', { method: 'PUT', body: JSON.stringify({ provider, model, ...change }) }),
+  /** Change models of one provider (`model` and/or `models`) and/or the provider itself: `level` null clears it (its
+      provider's recommended level, else pi's), `'pi'` is pi's own; `providerShown` switches the whole provider. */
+  updateModelPrefs: (provider: string, change: { model?: string; models?: string[]; level?: ThinkingLevel | 'pi' | null; shown?: boolean; providerShown?: boolean }) =>
+    call<ModelPrefs>('/api/models/prefs', { method: 'PUT', body: JSON.stringify({ provider, ...change }) }),
   setLimitsPoll: (enabled: boolean) => call<{ enabled: boolean }>('/api/limits/poll', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   lensSettings: () => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens'),
   setLens: (inject: boolean) => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens', { method: 'PUT', body: JSON.stringify({ inject }) }),
@@ -282,5 +283,5 @@ export interface AgentDef {
 }
 
 /** The model a new session starts on (the one last picked) and each model's starting level, `provider/model` → level. */
-/** `thinking`: `provider/model` → level, or `pi` (pi's own, not the provider's recommended one). `hidden`: left out of the model menu. */
-export interface ModelPrefs { last?: [string, string]; thinking: Record<string, ThinkingLevel | 'pi'>; hidden: string[] }
+/** `thinking`: `provider/model` → level, or `pi` (pi's own, not the provider's recommended one). `hidden`: models left out of the model menu, `hiddenProviders`: whole providers left out. */
+export interface ModelPrefs { last?: [string, string]; thinking: Record<string, ThinkingLevel | 'pi'>; hidden: string[]; hiddenProviders: string[] }
