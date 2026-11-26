@@ -226,7 +226,31 @@ pub struct Runtime {
     /// A `set_model` waiting for pi's answer: whether to remember it as picked (a page asked), and the level to give the
     /// model once pi has taken it (a new session's start).
     want_model: Mutex<Option<WantModel>>,
+    auto: Arc<crate::auto_compact::AutoCompact>,
+    /// The idle clock for the compaction while resting, whether a run has settled here, and the plan windows already acted
+    /// on (`auto_compact.rs`).
+    rest: Mutex<Rest>,
+    /// pi is compacting (its own or ours): a message sent now would be refused ("Cannot submit a prompt while
+    /// compaction is in progress"), so the page's prompts wait for it (`wait_compacted`).
+    compacting: watch::Sender<bool>,
+    /// Numbers our own requests to pi (`ask`) are told apart by.
+    asks: std::sync::atomic::AtomicU64,
+    /// When a page last handed pi a message (ms): the run it starts is not yet an `agent_start` we have seen.
+    page_sent_at: std::sync::atomic::AtomicU64,
 }
+
+#[derive(Default)]
+struct Rest {
+    clock: crate::auto_compact::Clock,
+    ran: bool,
+    /// When the last run settled (ms).
+    settled_at: u64,
+}
+
+/// A message a page sent this recently counts as work under way, though pi's `agent_start` is not in yet.
+const SENT_QUIET_MS: u64 = 30_000;
+/// The action for a nearly used plan waits for this much quiet after a run, so it does not cut into a conversation.
+const LIMIT_QUIET_MS: u64 = 120_000;
 
 struct WantModel {
     provider: String,
@@ -296,6 +320,164 @@ impl Runtime {
         let v = serde_json::json!({ "provider": provider, "inMs": reset.map(|t| t.saturating_sub(now)), "window": window });
         crate::logs::event("hold", serde_json::json!({ "rt": self.info.id, "provider": provider, "resetAt": reset, "window": window }));
         Some(v)
+    }
+
+    /// Nothing is going on in the session itself: no run, nothing queued, no open dialog, no compaction, and nothing
+    /// waiting for a limit to send (Zero-Waste, 100h mode, a plan check under way).
+    fn session_idle(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.idle.load(Ordering::Relaxed)
+            && now_ms().saturating_sub(self.page_sent_at.load(Ordering::Relaxed)) >= SENT_QUIET_MS
+            && !self.queued.load(Ordering::Relaxed)
+            && !*self.compacting.borrow()
+            && self.replay.lock().unwrap().dialogs.is_empty()
+            && self.resume.lock().unwrap().is_none()
+            && self.long.lock().unwrap().is_none()
+            && self.limit_checks.load(Ordering::SeqCst) == 0
+    }
+
+    /// A page is handing pi a message (prompt, steer, follow-up).
+    pub fn page_sent(&self) {
+        self.page_sent_at.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Our own compaction is under way: pi refuses a prompt meanwhile.
+    pub fn is_compacting(&self) -> bool {
+        *self.compacting.borrow()
+    }
+
+    /// Send a page's prompt, once our compaction (if one is going) is over. Not for the page's socket loop to wait in.
+    pub fn send_after_compaction(self: &Arc<Self>, line: String) {
+        let rt = self.clone();
+        tokio::spawn(async move {
+            let mut rx = rt.compacting.subscribe();
+            let _ = tokio::time::timeout(Duration::from_secs(900), rx.wait_for(|c| !*c)).await;
+            let _ = rt.send(line).await;
+        });
+    }
+
+    /// A command of ours and pi's answer to it (its `id` is ours, so no page sees it). `None`: no answer in time.
+    async fn ask(&self, mut cmd: serde_json::Value, limit: Duration) -> Option<serde_json::Value> {
+        let id = format!("oven-auto-{}", self.asks.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        cmd["id"] = id.clone().into();
+        let mut rx = self.events.subscribe();
+        self.stdin_tx.send(cmd.to_string()).await.ok()?;
+        let tag = format!(r#""id":"{id}""#);
+        tokio::time::timeout(limit, async {
+            loop {
+                match rx.recv().await {
+                    Ok(line) if is_response(&line) && line.contains(&tag) => return serde_json::from_str(&line).ok(),
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => return None,
+                }
+            }
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    /// Keep what the server did on its own in the session, as a line in the conversation (`/oven-note`, never sent to the model).
+    async fn note_rest(&self, mut v: serde_json::Value) {
+        v["note"] = "rest".into();
+        if self.notes {
+            let cmd = serde_json::json!({ "type": "prompt", "message": format!("/oven-note {v}") });
+            let _ = self.stdin_tx.send(cmd.to_string()).await;
+        }
+    }
+
+    /// Compact the session if its context is at least the smallest size. `why`: "idle" or "limit". Returns whether it
+    /// was compacted (a failed one counts as tried; the caller decides what to do with a skip).
+    async fn compact_now(&self, why: &str, cfg: &crate::auto_compact::Settings, left: Option<f64>) -> bool {
+        let log = |action: &str, extra: serde_json::Value| {
+            let mut v = serde_json::json!({ "rt": self.info.id, "why": why, "action": action });
+            if let (Some(o), Some(e)) = (v.as_object_mut(), extra.as_object()) {
+                o.extend(e.clone());
+            }
+            crate::logs::event("rest", v);
+        };
+        let stats = self.ask(serde_json::json!({ "type": "get_session_stats" }), Duration::from_secs(30)).await;
+        let Some(tokens) = stats.as_ref().and_then(|s| s["data"]["contextUsage"]["tokens"].as_u64()) else {
+            log("no_size", serde_json::json!({}));
+            return false;
+        };
+        if tokens < cfg.min_tokens {
+            log("too_small", serde_json::json!({ "tokens": tokens, "min": cfg.min_tokens }));
+            return false;
+        }
+        // the answer took a moment: somebody may have sent something
+        if !self.session_idle() {
+            log("busy", serde_json::json!({}));
+            return false;
+        }
+        // set at once: pi says so with `compaction_start` only a moment later
+        self.compacting.send_replace(true);
+        log("compact", serde_json::json!({ "tokens": tokens }));
+        let done = self.ask(serde_json::json!({ "type": "compact", "customInstructions": crate::auto_compact::COMPACT_INSTRUCTIONS }), Duration::from_secs(900)).await;
+        // no answer (timed out): pi may still be at it; `compaction_end` or its exit lowers the flag
+        if done.is_some() {
+            self.compacting.send_replace(false);
+        }
+        match done.filter(|d| d["success"] == true) {
+            Some(d) => {
+                let (before, after) = (d["data"]["tokensBefore"].as_u64().unwrap_or(tokens), d["data"]["estimatedTokensAfter"].as_u64());
+                log("compacted", serde_json::json!({ "before": before, "after": after, "usage": d["data"]["usage"] }));
+                self.note_rest(serde_json::json!({ "reason": why, "action": "compact", "before": before, "after": after, "left": left.map(|l| l.round()) })).await;
+            }
+            None => log("failed", serde_json::json!({})),
+        }
+        true
+    }
+
+    /// Every few seconds, while pi runs: the compaction while resting, and the action for a plan nearly used.
+    async fn rest_watch(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if *self.shutdown.borrow() {
+                return;
+            }
+            let cfg = self.auto.get();
+            let now = now_ms();
+            let quiet = {
+                let rest = self.rest.lock().unwrap();
+                rest.ran && now.saturating_sub(rest.settled_at) >= LIMIT_QUIET_MS
+            };
+            if cfg.limit_enabled && quiet && self.session_idle() {
+                self.limit_near(&cfg, now).await;
+            }
+            if !cfg.idle_enabled || !self.rest.lock().unwrap().clock.counting() {
+                continue;
+            }
+            let fire = self.rest.lock().unwrap().clock.tick(self.session_idle(), now, cfg.idle_minutes as u64 * 60_000);
+            if !fire {
+                continue;
+            }
+            // files are read only now that the wait is up
+            let (cwd, pid) = (self.info.cwd.clone(), self.info.pid.unwrap_or(0));
+            let busy = tokio::task::spawn_blocking(move || crate::auto_compact::others_busy(&cwd, pid, now_ms())).await.unwrap_or(true);
+            if busy || !self.compact_now("idle", &cfg, None).await {
+                self.rest.lock().unwrap().clock.skipped(now_ms());
+            }
+        }
+    }
+
+    /// The plan this session runs on has little left: do the chosen thing, once for the window.
+    async fn limit_near(&self, cfg: &crate::auto_compact::Settings, now: u64) {
+        let Some(provider) = self.last_model.lock().unwrap().as_ref().map(|(p, _)| p.clone()).or_else(|| self.reply_provider.lock().unwrap().clone()) else { return };
+        let Some(entry) = self.limits.entry(&provider) else { return };
+        // by session file, so closing and opening the session again does not repeat it in the same window
+        let key = self.session_file.lock().unwrap().clone().or_else(|| self.info.session_path.clone()).unwrap_or_else(|| self.info.id.clone());
+        let near = crate::auto_compact::near_limit(&entry, now, cfg.limit_percent, &self.auto.limit_done(&key));
+        let Some(near) = near.filter(|_| self.limits.blocked(&provider, now).is_none()) else { return };
+        self.auto.mark_limit_done(&key, (near.provider.clone(), near.minutes, near.reset_at));
+        crate::logs::event("rest", serde_json::json!({ "rt": self.info.id, "why": "limit", "action": cfg.limit_action, "provider": near.provider, "window": near.minutes, "left": near.left }));
+        if cfg.limit_action == "compact" {
+            self.compact_now("limit", cfg, Some(near.left)).await;
+            return;
+        }
+        self.note_rest(serde_json::json!({ "reason": "limit", "action": cfg.limit_action, "left": near.left.round() })).await;
+        // straight to pi: the hold for a used-up plan is the page's path, and this plan is not used up
+        let _ = self.stdin_tx.send(serde_json::json!({ "type": "prompt", "message": cfg.limit_prompt }).to_string()).await;
     }
 
     pub fn dialog_answered(&self, id: &str) {
@@ -803,6 +985,7 @@ pub struct Manager {
     /// The model a new session starts on, and each model's starting level (`model_prefs.rs`).
     pub prefs: Arc<crate::model_prefs::ModelPrefs>,
     pub accounts: Arc<crate::accounts::Accounts>,
+    pub auto: Arc<crate::auto_compact::AutoCompact>,
 }
 
 /// The frame that says pi has ended. Written out by hand: the restart and the WebSocket loop find it by its
@@ -833,7 +1016,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), prefs: Default::default(), accounts: Default::default() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), prefs: Default::default(), accounts: Default::default(), auto: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -959,7 +1142,7 @@ impl Manager {
         if let Some(t) = &req.thinking {
             cmd.arg("--thinking").arg(t);
         }
-        for ext in [&self.cfg.retry_extension_path, &self.cfg.limits_extension_path].into_iter().flatten() {
+        for ext in [&self.cfg.retry_extension_path, &self.cfg.limits_extension_path, &self.cfg.compact_extension_path].into_iter().flatten() {
             cmd.arg("--extension").arg(ext);
         }
         if let Some(ext) = &self.cfg.extension_path {
@@ -970,6 +1153,8 @@ impl Manager {
                 cmd.env("PI_OVEN_PERMISSION_FILE", dir.join("permission"));
             }
         }
+        // the compaction model is read from here at each compaction (ext/oven-compact.ts)
+        cmd.env("PI_OVEN_AUTO_COMPACT_FILE", self.auto.file());
         // Claude's cache for an hour (see cache_ttl.rs); pi reads it when it starts
         if let Some(v) = self.lens.for_pi() {
             cmd.env(crate::lens::VAR, v); // pi-lens leaves the request alone (see lens.rs)
@@ -1035,6 +1220,11 @@ impl Manager {
             reply_provider: Mutex::new(None),
             prefs: self.prefs.clone(),
             want_model: Mutex::new(None),
+            auto: self.auto.clone(),
+            rest: Default::default(),
+            compacting: watch::channel(false).0,
+            asks: Default::default(),
+            page_sent_at: Default::default(),
         });
         // a new session starts on the model last picked here; one that exists stays on its own (model_prefs.rs)
         if req.session_path.is_none() && req.provider.is_none() {
@@ -1142,6 +1332,10 @@ impl Manager {
                                 rt.replies.lock().unwrap().request = Some(t);
                                 continue;
                             }
+                            // (only our own compaction raises the flag: pi takes messages during its automatic ones)
+                            if line.starts_with(r#"{"type":"compaction_end""#) {
+                                rt.compacting.send_replace(false);
+                            }
                             if line.starts_with(r#"{"type":"queue_update""#) {
                                 let waiting = !line.contains(r#""steering":[]"#) || !line.contains(r#""followUp":[]"#);
                                 rt.queued.store(waiting, std::sync::atomic::Ordering::Relaxed);
@@ -1170,10 +1364,17 @@ impl Manager {
                             match &event {
                                 Some(Event::Started) => {
                                     rt.idle.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    rt.rest.lock().unwrap().clock.started();
                                     rt.resume_on_start()
                                 }
                                 Some(Event::Settled) => {
                                     rt.idle.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    {
+                                        let mut rest = rt.rest.lock().unwrap();
+                                        rest.clock.settled(now_ms());
+                                        rest.ran = true;
+                                        rest.settled_at = now_ms();
+                                    }
                                     rt.resume_on_settled()
                                 }
                                 // a usage limit resets in hours: "Zero-Waste" waits for it, not 100h mode
@@ -1398,11 +1599,14 @@ impl Manager {
                 };
                 let _ = rt.events.send(Arc::from(exit_frame(code)));
                 mgr.map.write().await.remove(&id);
+                rt.compacting.send_replace(false);
+                rt.close(); // ends the rest watcher
                 crate::events::changed("sessions"); // other pages' open list
                 tracing::info!(runtime = %id, ?code, "pi exited");
             });
         }
 
+        tokio::spawn(rt.clone().rest_watch());
         tracing::info!(runtime = %id, pid = ?rt.info.pid, cwd = %rt.info.cwd, "pi started");
         self.map.write().await.insert(id, rt.clone());
         Ok(rt)

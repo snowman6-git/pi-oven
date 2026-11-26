@@ -3,6 +3,7 @@ import { limits } from './limits.svelte';
 import { settings } from './settings.svelte';
 import { providerName, resetDate, windowName } from './limits';
 import { BATON_NOTE, type BatonNote } from './baton';
+import { REST_NOTE, type RestNote } from './rest';
 import { orderBatch } from './bgorder';
 import { COMMAND as TODO_COMMAND, STATE_ENTRY as TODO_STATE, TOOL as TODO_TOOL, fromDetails as todoFromDetails, latestFromItems as todoFromItems, type Task as TodoTask } from '../addons/todo';
 import { Connection } from './connection.svelte';
@@ -1259,6 +1260,7 @@ export class Chat {
           if (!this.#replaying && t.kind === 'task') this.#taskArrived(t.id, t.status);
           if (!this.#replaying && t.kind === 'subagent') this.sa.arrived(t.notice, t.key);
         } else if (m.customType === BATON_NOTE) this.#batonArrived((m.details ?? {}) as BatonNote, true, m.timestamp);
+        else if (m.customType === REST_NOTE) this.items.push({ kind: 'rest', key: nextKey(), note: (m.details ?? {}) as RestNote, ts: m.timestamp });
         else if (m.display) this.items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
       }

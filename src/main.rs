@@ -2,6 +2,8 @@
 mod lang;
 mod about;
 mod accounts;
+mod auto_compact;
+mod pi_settings;
 mod reap;
 mod api;
 mod auth;
@@ -110,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
     }
     cfg.retry_extension_path = config::install_retry_extension();
     cfg.limits_extension_path = config::install_limits_extension();
+    cfg.compact_extension_path = config::install_compact_extension();
     let host = cfg.listen_host();
     let cfg = Arc::new(cfg);
     // Off loopback something has to be asked for: with neither given, a token is made up.
@@ -160,6 +163,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/accounts/login/input", axum::routing::post(accounts::login_input))
         .route("/api/models/recommended", get(usage::recommended))
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
+        .route("/api/auto-compact", get(auto_compact::get).put(auto_compact::put))
+        .route("/api/pi-compaction", get(pi_settings::get).put(pi_settings::set))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))
         .route("/api/sessions", get(api::sessions).delete(api::delete_session))
         .route("/api/sessions/pins", get(pins::get).put(pins::set))

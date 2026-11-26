@@ -23,6 +23,13 @@ export class HttpError extends Error {
 /** The 100h mode's switch. `available` is false when the server has no retry extension. */
 export interface LongMode { enabled: boolean; available: boolean }
 export interface ResumeSettings { enabled: boolean; text: string }
+export interface AutoCompactSettings {
+  idleEnabled: boolean; idleMinutes: number; minTokens: number;
+  limitEnabled: boolean; limitPercent: number; limitAction: 'compact' | 'summary' | 'commit' | 'custom'; limitPrompt: string;
+  /** "provider/modelId" that writes the summary; null: the conversation's own model */
+  model: string | null;
+}
+export interface PiCompaction { keepRecentTokens: number | null; default: number }
 
 /** One saved login per server: switching to another address must not send it this one's token. The page's own
     server keeps the plain key, so a login saved before this still works. */
@@ -260,6 +267,10 @@ export const api = {
   setLens: (inject: boolean) => call<{ inject: boolean; fromEnv: boolean }>('/api/addons/lens', { method: 'PUT', body: JSON.stringify({ inject }) }),
   claudeCache: () => call<{ enabled: boolean; fromEnv: boolean }>('/api/claude-cache'),
   setClaudeCache: (enabled: boolean) => call<{ enabled: boolean; fromEnv: boolean }>('/api/claude-cache', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  autoCompact: () => call<AutoCompactSettings>('/api/auto-compact'),
+  setAutoCompact: (s: AutoCompactSettings) => call<AutoCompactSettings>('/api/auto-compact', { method: 'PUT', body: JSON.stringify(s) }),
+  piCompaction: () => call<PiCompaction>('/api/pi-compaction'),
+  setPiCompaction: (keepRecentTokens: number) => call<PiCompaction>('/api/pi-compaction', { method: 'PUT', body: JSON.stringify({ keepRecentTokens }) }),
   resumeSettings: () => call<ResumeSettings>('/api/resume'),
   setResumeSettings: (s: ResumeSettings) => call<ResumeSettings>('/api/resume', { method: 'PUT', body: JSON.stringify(s) }),
   resumeAct: (id: string, action: 'now' | 'stop') =>

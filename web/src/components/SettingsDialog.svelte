@@ -7,7 +7,9 @@
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
-  import { api, auth, type AuthSession, type LongMode, type ResumeSettings } from '../lib/api';
+  import { api, auth, type AuthSession, type AutoCompactSettings, type LongMode, type PiCompaction, type ResumeSettings } from '../lib/api';
+  import PresetInput from './PresetInput.svelte';
+  import { tokens } from '../lib/rest';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
   import ModelLevels from './ModelLevels.svelte';
@@ -64,6 +66,46 @@
     app.settingsOpen = false;
     await app.restartChat(c);
   }
+  // Compaction: the wait, the smallest size, the plan-nearly-used action (pi-oven's, kept by the server) and pi's own
+  // keepRecentTokens (in pi's settings.json)
+  let ac = $state<AutoCompactSettings | null>(null);
+  let keep = $state<PiCompaction | null>(null);
+  let acError = $state('');
+  let customText = $state('');
+  let idleStr = $state(''), minStr = $state(''), pctStr = $state(''), keepStr = $state('');
+  const acSync = (a: AutoCompactSettings) => { idleStr = String(a.idleMinutes); minStr = String(a.minTokens); pctStr = String(a.limitPercent); };
+  $effect(() => { void app.rev.settings; api.autoCompact().then((a) => { ac = a; acSync(a); if (a.limitAction === 'custom') customText = a.limitPrompt; }).catch((e) => (acError = (e as Error).message)); });
+  $effect(() => { void app.rev.settings; api.piCompaction().then((k) => { keep = k; keepStr = String(k.keepRecentTokens ?? k.default); acError = ''; }).catch((e) => (acError = (e as Error).message)); });
+  const whole = (s: string) => Number(s.replace(/[,\s]/g, '') || NaN);
+  async function saveAc(patch: Partial<AutoCompactSettings> = {}) {
+    if (!ac) return;
+    const next = { ...ac, idleMinutes: whole(idleStr), minTokens: whole(minStr), limitPercent: whole(pctStr), ...patch };
+    if (![next.idleMinutes, next.minTokens, next.limitPercent].every(Number.isInteger)) { acError = t('compact.badNumber'); acSync(ac); return; }
+    // the prompts of the two ready-made actions are written here, in this language: the server sends what it was given
+    if (next.limitAction === 'summary' || next.limitAction === 'commit') next.limitPrompt = t(next.limitAction === 'summary' ? 'compact.prompt.summary' : 'compact.prompt.commit');
+    // what was typed for "your own prompt" stays while another action is picked
+    else if (next.limitAction === 'custom') next.limitPrompt = (patch.limitPrompt ?? customText) || t('compact.prompt.custom');
+    try { ac = await api.setAutoCompact(next); acError = ''; } catch (e) { acError = (e as Error).message; }
+    if (ac) acSync(ac);
+  }
+  async function saveKeep() {
+    const n = whole(keepStr);
+    if (!Number.isInteger(n) || n < 1) { acError = t('compact.badNumber'); if (keep) keepStr = String(keep.keepRecentTokens ?? keep.default); return; }
+    try { keep = await api.setPiCompaction(n); acError = ''; } catch (e) { acError = (e as Error).message; }
+  }
+  // $derived: the labels follow the language
+  const idlePresets = $derived([{ value: 30, label: t('compact.idle.min', { n: 30 }), desc: t('compact.idle.d30') }, { value: 50, label: t('compact.idle.min', { n: 50 }), desc: t('compact.idle.d50') }, { value: 55, label: t('compact.idle.min', { n: 55 }), desc: t('compact.idle.d55') }]);
+  const minPresets = $derived([{ value: 50_000, label: tokens(50_000), desc: t('compact.min.d50000') }, { value: 120_000, label: tokens(120_000), desc: t('compact.min.d120000') }, { value: 200_000, label: tokens(200_000), desc: t('compact.min.d200000') }]);
+  const keepPresets = $derived([{ value: 4_000, label: tokens(4_000), desc: t('compact.keep.d4000') }, { value: 20_000, label: tokens(20_000), desc: t('compact.keep.d20000') }, { value: 40_000, label: tokens(40_000), desc: t('compact.keep.d40000') }]);
+  const pctPresets = $derived([{ value: 25, label: '25%', desc: t('compact.pct.d25') }, { value: 15, label: '15%', desc: t('compact.pct.d15') }, { value: 10, label: '10%', desc: t('compact.pct.d10') }]);
+  // the models this pi knows, by provider
+  const modelGroups = $derived.by(() => {
+    const by = new Map<string, { id: string; name: string }[]>();
+    for (const m of app.current?.models ?? []) by.set(m.provider, [...(by.get(m.provider) ?? []), { id: m.id, name: m.name ?? m.id }]);
+    return [...by.entries()];
+  });
+  const modelKnown = $derived(!ac?.model || modelGroups.some(([p, ms]) => ms.some((m) => `${p}/${m.id}` === ac?.model)));
+
   let resumeSet = $state<ResumeSettings | null>(null);
   let resumeText = $state('');
   let resumeError = $state('');
@@ -355,6 +397,68 @@
             onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) (e.currentTarget as HTMLInputElement).blur(); }} />
         </label>
         {#if resumeError}<p class="note err">{resumeError}</p>{/if}
+      </section>
+      <section>
+        <h3>{t('compact.title')}</h3>
+        {#if ac}
+          <label class="row">
+            <span>{t('compact.idle.name')}<small>{t('compact.idle.hint')}</small></span>
+            <input class="switch" type="checkbox" role="switch" checked={ac.idleEnabled} onchange={(e) => saveAc({ idleEnabled: e.currentTarget.checked })} />
+          </label>
+          <div class="textrow">
+            <span>{t('compact.idle.wait')}<small class="sub">{t('compact.idle.waitHint')}</small></span>
+            <PresetInput bind:value={idleStr} presets={idlePresets} label={t('compact.idle.wait')} onchange={() => saveAc()} />
+          </div>
+          <div class="textrow">
+            <span>{t('compact.min.name')}<small class="sub">{t('compact.min.hint')}</small></span>
+            <PresetInput bind:value={minStr} presets={minPresets} label={t('compact.min.name')} onchange={() => saveAc()} />
+          </div>
+          <div class="textrow">
+            <span>{t('compact.keep.name')}<small class="sub">{t('compact.keep.hint')}</small></span>
+            <PresetInput bind:value={keepStr} presets={keepPresets} label={t('compact.keep.name')} onchange={saveKeep} />
+          </div>
+          <label class="textrow">
+            <span>{t('compact.model.name')}<small class="sub">{t('compact.model.hint')}</small></span>
+            <select class="field" value={ac.model ?? ''} onchange={(e) => saveAc({ model: e.currentTarget.value || null })}>
+              <option value="">{t('compact.model.current')}</option>
+              {#if !modelKnown}<option value={ac.model}>{ac.model}</option>{/if}
+              {#each modelGroups as [provider, ms] (provider)}
+                <optgroup label={provider}>
+                  {#each ms as m (m.id)}<option value={`${provider}/${m.id}`}>{m.name}</option>{/each}
+                </optgroup>
+              {/each}
+            </select>
+          </label>
+        {/if}
+        {#if acError}<p class="note err">{acError}</p>{/if}
+      </section>
+      <section>
+        <h3>{t('compact.limit.title')}</h3>
+        {#if ac}
+          <label class="row">
+            <span>{t('compact.limit.name')}<small>{t('compact.limit.hint')}</small></span>
+            <input class="switch" type="checkbox" role="switch" checked={ac.limitEnabled} onchange={(e) => saveAc({ limitEnabled: e.currentTarget.checked })} />
+          </label>
+          <div class="textrow">
+            <span>{t('compact.limit.pct')}<small class="sub">{t('compact.limit.pctHint')}</small></span>
+            <PresetInput bind:value={pctStr} presets={pctPresets} label={t('compact.limit.pct')} onchange={() => saveAc()} />
+          </div>
+          <label class="textrow">
+            <span>{t('compact.limit.action')}</span>
+            <select class="field" value={ac.limitAction} onchange={(e) => saveAc({ limitAction: e.currentTarget.value as AutoCompactSettings['limitAction'], })}>
+              <option value="compact">{t('compact.limit.a.compact')}</option>
+              <option value="summary">{t('compact.limit.a.summary')}</option>
+              <option value="commit">{t('compact.limit.a.commit')}</option>
+              <option value="custom">{t('compact.limit.a.custom')}</option>
+            </select>
+          </label>
+          {#if ac.limitAction === 'summary' || ac.limitAction === 'commit'}
+            <pre class="preview">{t(ac.limitAction === 'summary' ? 'compact.prompt.summary' : 'compact.prompt.commit')}</pre>
+          {:else if ac.limitAction === 'custom'}
+            <textarea class="field" rows="4" maxlength="8000" aria-label={t('compact.limit.a.custom')} bind:value={customText} onchange={() => saveAc({ limitPrompt: customText })}></textarea>
+          {/if}
+          <p class="note">{t('compact.limit.note')}</p>
+        {/if}
       </section>
       <section>
         <h3>{t('settings.cache.title')}</h3>
@@ -747,5 +851,23 @@
   .textrow .field {
     width: 100%;
     box-sizing: border-box;
+  }
+  .textrow .sub {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  select.field { padding: 6px 10px; font: inherit; font-size: 14px; text-overflow: ellipsis; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; }
+  textarea.field { margin-top: 8px; width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 13.5px; }
+  .preview {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
   }
 </style>

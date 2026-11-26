@@ -6,19 +6,20 @@
   // A number field with a list of common values under a button: each value with a one-line example of what it suits.
   // Typing any number still works; picking one fills the field.
   type Preset = { value: number; label: string; desc: string };
-  let { value = $bindable(''), presets, placeholder = '', label }: { value?: string; presets: Preset[]; placeholder?: string; label: string } = $props();
+  let { value = $bindable(''), presets, placeholder = '', label, onchange }: { value?: string; presets: Preset[]; placeholder?: string; label: string; onchange?: () => void } = $props();
 
   let open = $state(false);
   const fmt = (n: number) => n.toLocaleString();
   function pick(p: Preset) {
     value = String(p.value);
     open = false;
+    onchange?.();
   }
 </script>
 
 <div class="pi" use:dismiss={() => (open = false)}>
   <div class="row">
-    <input class="field" inputmode="numeric" bind:value {placeholder} aria-label={label} />
+    <input class="field" inputmode="numeric" bind:value {placeholder} aria-label={label} onchange={() => onchange?.()} />
     <button class="icon-btn" type="button" aria-label={t('models.presets', { what: label })} aria-haspopup="listbox" aria-expanded={open} onclick={() => (open = !open)}>
       <Icon name="down" size={16} />
     </button>

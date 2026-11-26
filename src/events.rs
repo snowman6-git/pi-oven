@@ -40,7 +40,7 @@ fn kind_of(method: &Method, path: &str) -> Option<&'static str> {
         "runtimes" => "sessions",
         _ if p.starts_with("runtimes/") && (method == Method::DELETE && p.matches('/').count() == 1 || p.ends_with("/restart")) => "sessions",
         "models/prefs" | "models/config" => "models",
-        "resume" | "claude-cache" | "addons/lens" | "limits/poll" | "retry" | "oven/auto" => "settings",
+        "resume" | "auto-compact" | "pi-compaction" | "claude-cache" | "addons/lens" | "limits/poll" | "retry" | "oven/auto" => "settings",
         "limits/refresh" => "limits",
         "update" => "updates",
         "login" | "logout" => "auth",

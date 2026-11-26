@@ -6,6 +6,7 @@ import { textOf } from './util.ts';
 import { t } from './i18n';
 import { noticeFrom, type Notice } from '../addons/subagents';
 import { BATON_NOTE, type BatonNote } from './baton.ts';
+import { REST_NOTE, type RestNote } from './rest.ts';
 
 export interface ToolBlock {
   type: 'tool';
@@ -35,6 +36,8 @@ export type Item =
   | { kind: 'notice'; key: number; level: 'info' | 'warn' | 'error'; text: string; ts?: number }
   /** Baton Touch handed the session to another account or model (the server's note, kept in the session). */
   | { kind: 'baton'; key: number; note: BatonNote; ts?: number }
+  /** The server compacted or acted on a nearly used plan while nobody was working. */
+  | { kind: 'rest'; key: number; note: RestNote; ts?: number }
   /** A background subagent run ended (pi-subagents' notice; shown whether or not pi marks it for display). */
   | { kind: 'subagent'; key: number; notice: Notice; ts?: number };
 
@@ -117,6 +120,7 @@ export function itemsFromMessages(msgs: WireMessage[]): Item[] {
         const t = taskItem(m) ?? subagentItem(m);
         if (t) items.push(t);
         else if (m.customType === BATON_NOTE) items.push({ kind: 'baton', key: nextKey(), note: (m.details ?? {}) as BatonNote, ts: m.timestamp });
+        else if (m.customType === REST_NOTE) items.push({ kind: 'rest', key: nextKey(), note: (m.details ?? {}) as RestNote, ts: m.timestamp });
         else if (m.display) items.push({ kind: 'summary', key: nextKey(), label: customLabel(m.customType), text: textOf(m.content), ts: m.timestamp });
         break;
       }

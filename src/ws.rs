@@ -280,7 +280,12 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
                             }
                         }
                     }
-                    if ok && !rt.send(forward).await { break }
+                    let kind = parsed.as_ref().and_then(|v| v["type"].as_str()).unwrap_or("");
+                    if matches!(kind, "prompt" | "steer" | "follow_up") { rt.page_sent() }
+                    // pi refuses a prompt while our compaction runs: it goes when that is over (not waited for here: this loop carries events and pings)
+                    if ok && kind == "prompt" && rt.is_compacting() {
+                        rt.send_after_compaction(forward);
+                    } else if ok && !rt.send(forward).await { break }
                 }
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 _ => {}

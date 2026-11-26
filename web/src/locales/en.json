@@ -1068,6 +1068,70 @@
     "useLabel": "Use {who}",
     "switchFailed": "Could not switch accounts: {why}"
   },
+  "compact": {
+    "title": "Compaction",
+    "badNumber": "Enter a whole number.",
+    "idle": {
+      "name": "Compact while resting",
+      "hint": "When the session has been entirely idle since its last reply, the server compacts it. Compacting costs one fresh read of the whole context, but after more than an hour the cache has expired and the whole context would be written again, so it pays off for a session you come back to. For one you do not, it is wasted. It carries on with every browser closed.",
+      "wait": "Wait",
+      "waitHint": "Compacts after this many minutes of quiet. A running task, background task, subagent or waiting message starts the wait again.",
+      "min": "{n} min",
+      "d30": "Well inside the cache",
+      "d50": "Default. Before Claude's 1-hour cache ends",
+      "d55": "Just before it expires; a late tick can miss it"
+    },
+    "min": {
+      "name": "Smallest size to compact",
+      "hint": "A context smaller than this is left alone (tokens). The same for the compaction before a limit.",
+      "d50000": "Tidy small conversations too",
+      "d120000": "Default",
+      "d200000": "Only big ones"
+    },
+    "keep": {
+      "name": "Recent text kept as is",
+      "hint": "How much of the newest conversation (tokens) a compaction keeps instead of summarizing. Written to pi's settings file; it applies to sessions opened from now on. A session that is already open needs to be opened again. A project's .pi/settings.json or a per-model setting, if there is one, comes first.",
+      "d4000": "Small: the smallest result",
+      "d20000": "pi's default",
+      "d40000": "Keep more verbatim"
+    },
+    "model": {
+      "name": "Compaction model",
+      "current": "The conversation's model",
+      "hint": "The model that writes the summary. Whichever model it is, compaction reads the conversation fresh. A cheaper model is that much cheaper, and another provider spends its own limit. If its window is too small, the default compaction runs."
+    },
+    "pct": {"d25": "Early, with plenty left", "d15": "Default", "d10": "Nearly used up"},
+    "limit": {
+      "title": "When a limit is nearly used",
+      "name": "Act near the limit",
+      "hint": "When the smaller share left of the plan's 5-hour and weekly limits falls under the threshold, the session does the action below once it is idle (once per limit window). After a limit is used up, Zero-Waste and Baton Touch take over.",
+      "pct": "Threshold",
+      "pctHint": "When this much or less is left (%)",
+      "action": "Action",
+      "a": {
+        "compact": "Compact the session",
+        "summary": "Write a hand-over",
+        "commit": "Commit",
+        "custom": "Your own prompt"
+      },
+      "note": "The prompt is saved on the server in the language you have when you save."
+    },
+    "prompt": {
+      "summary": "Summarize briefly what has been done, what remains, and what the next person needs to pick this up (how to run it, decisions, pitfalls). Give file paths in full.",
+      "commit": "Commit the changes so far in sensible groups. Follow the repository's existing commit message style, and do not push.",
+      "custom": "Summarize briefly what has been done so far."
+    },
+    "line": {
+      "idle": "Tidied while resting",
+      "limit": "{left}% of the limit left · {action}",
+      "action": {
+        "compact": "session compacted",
+        "summary": "hand-over written",
+        "commit": "commit",
+        "custom": "custom prompt"
+      }
+    }
+  },
   "resume": {
     "name": "Zero-Waste",
     "title": "Plan limits",

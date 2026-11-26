@@ -16,6 +16,7 @@
   import { noticeName } from '../addons/subagents';
   import { batonText } from '../lib/baton';
   import BatonLine from './BatonLine.svelte';
+  import RestLine from './RestLine.svelte';
 
   let { item, chat, userIndex, turn }: { item: Item; chat: Chat; userIndex: number; turn: { user: number; end: boolean } } = $props();
 
@@ -235,6 +236,8 @@
         <summary>{item.label}</summary>
         <p>{showcase.text(item.text)}</p>
       </details>
+    {:else if item.kind === 'rest'}
+      <RestLine note={item.note} />
     {:else if item.kind === 'baton'}
       <BatonLine note={item.note} fresh={fresh(item.ts)} models={chat.models} />
     {:else}

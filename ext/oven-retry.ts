@@ -8,7 +8,7 @@
  * Only the newest of those messages goes to the model: a hundred tries must not leave a hundred lines in the context.
  *
  * `/oven-note <json>` keeps a note of what the server did for the person (Baton Touch handed the session to another
- * account or model) in the session, so the page still shows it after a reload. Notes never go to the model.
+ * account or model, or that it compacted or acted on a nearly used plan) in the session, so the page still shows it after a reload. Notes never go to the model.
  *
  * `/oven-models` reads models.json again (pi reads it only when it starts, and RPC has no command for it), after the
  * page changed a model there. The model in use is put back on as it now reads (a new context window, say), keeping
@@ -21,6 +21,8 @@ const TEXT = "The previous request failed with a temporary API error. Continue f
 /** The command the server runs (`/oven-note <json>`), and the kind of message it keeps. */
 const NOTE_COMMAND = "oven-note";
 const NOTE = "oven-baton";
+/** What the server did while nobody was working (compaction while resting, the action for a plan nearly used): `{"note":"rest",…}`. */
+const REST = "oven-rest";
 const MODELS_COMMAND = "oven-models";
 
 export default function (pi: ExtensionAPI) {
@@ -40,7 +42,8 @@ export default function (pi: ExtensionAPI) {
 			} catch {
 				return;
 			}
-			const message = { customType: NOTE, content: "", display: true, details };
+			const rest = typeof details === "object" && details !== null && (details as { note?: unknown }).note === "rest";
+			const message = { customType: rest ? REST : NOTE, content: "", display: true, details };
 			if (ctx.isIdle()) pi.sendMessage(message);
 			else pi.sendMessage(message, { deliverAs: "nextTurn" });
 		},
@@ -64,7 +67,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("context", async (event) => {
 		const isOurs = (m: { role: string; customType?: string }) => m.role === "custom" && m.customType === TYPE;
-		const isNote = (m: { role: string; customType?: string }) => m.role === "custom" && m.customType === NOTE;
+		const isNote = (m: { role: string; customType?: string }) => m.role === "custom" && (m.customType === NOTE || m.customType === REST);
 		const last = event.messages.findLastIndex(isOurs);
 		if (last < 0 && !event.messages.some(isNote)) return undefined;
 		return { messages: event.messages.filter((m, i) => !isNote(m) && (i === last || !isOurs(m))) };
