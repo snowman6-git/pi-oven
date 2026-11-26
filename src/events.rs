@@ -43,6 +43,8 @@ fn kind_of(method: &Method, path: &str) -> Option<&'static str> {
         "resume" | "claude-cache" | "addons/lens" | "limits/poll" | "retry" | "oven/auto" => "settings",
         "limits/refresh" => "limits",
         "update" => "updates",
+        "login" | "logout" => "auth",
+        _ if p.starts_with("auth/sessions/") => "auth",
         _ => return None,
     })
 }
@@ -56,12 +58,32 @@ pub async fn layer(req: Request, next: Next) -> Response {
     res
 }
 
-pub async fn stream() -> Response {
+pub async fn stream(axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::AppState>>, current: Option<axum::Extension<crate::auth::Current>>) -> Response {
     // a page that fell behind has missed something: it reads everything again
     let live = BroadcastStream::new(tx().subscribe()).map(|r| match r {
         Ok(k) => k,
         Err(BroadcastStreamRecvError::Lagged(_)) => "all",
     });
+    // the stream ends with the session that opened it (the page then finds itself signed out)
+    let mut revoked = app.auth.revoked();
+    let session = current.map(|c| c.0 .0).filter(|s| !s.is_empty());
+    // ended between the guard and the subscription above: over at once
+    let gone = session.as_ref().is_some_and(|s| !app.auth.alive(s));
+    let ended = async move {
+        if gone {
+            return;
+        }
+        let Some(me) = session else { return std::future::pending().await };
+        loop {
+            match revoked.recv().await {
+                Ok(id) if id == me => return,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return std::future::pending().await,
+                _ => {}
+            }
+        }
+    };
+    let live = live.take_until(ended);
     let events = live.map(|k| Ok::<_, std::convert::Infallible>(Event::default().data(format!(r#"{{"type":"{k}"}}"#))));
     // the keep-alive is an event, not a comment: a page sees it, and a link that went quiet (a phone that slept) is
     // noticed by its silence
@@ -92,5 +114,8 @@ mod tests {
         assert_eq!(kind_of(&put, "/api/models/prefs"), Some("models"));
         assert_eq!(kind_of(&put, "/api/resume"), Some("settings"));
         assert_eq!(kind_of(&post, "/api/fs/mkdir"), None);
+        assert_eq!(kind_of(&post, "/api/login"), Some("auth"));
+        assert_eq!(kind_of(&del, "/api/auth/sessions/ab12"), Some("auth"));
+        assert_eq!(kind_of(&post, "/api/ticket"), None);
     }
 }

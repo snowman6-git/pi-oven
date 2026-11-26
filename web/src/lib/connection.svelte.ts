@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, AuthError } from './api';
 import type { Response } from './protocol';
 
 export type LinkState = 'connecting' | 'open' | 'reconnecting' | 'exited';
@@ -39,21 +39,58 @@ export class Connection {
   #lastRx = performance.now();
   #probing = false;
 
+  /** The last try was refused for want of a login. */
+  #stalled = false;
+
+  /** Signed in again: a connection that stopped for want of a login tries again. */
+  afterLogin() {
+    if (!this.#stalled || this.#disposed) return;
+    this.#stalled = false;
+    this.#retry = 0;
+    void this.#connect();
+  }
+
+  /** Counts connection attempts: a ticket that arrives after a newer attempt began is dropped. */
+  #attempt = 0;
+
   constructor(
     readonly runtimeId: string,
     private onRecord: (rec: any) => void,
     private onOpen: (isReconnect: boolean) => void,
+    private onAuth: (why: 'wrong' | 'locked') => void = () => {},
   ) {
-    this.#connect();
+    void this.#connect();
     // A phone that has been asleep, or a network that dropped without telling, leaves a socket that looks open and isn't.
     this.#idleTimer = setInterval(() => {
       if (!document.hidden && this.link === 'open' && performance.now() - this.#lastRx > IDLE_PROBE && !this.#awaitingHistory()) void this.#probe();
     }, 5000);
   }
 
-  #connect() {
+  async #connect() {
     if (this.#disposed) return;
-    const ws = new WebSocket(api.wsUrl(this.runtimeId));
+    const attempt = ++this.#attempt;
+    this.#stalled = false; // a newer try is under way: `afterLogin` must not start another beside it
+    let ticket: string;
+    try {
+      ticket = await api.ticket();
+    } catch (e) {
+      if (attempt !== this.#attempt || this.#disposed) return;
+      // refused: no retrying on its own (each try would count as a wrong guess), `afterLogin` starts it again. Locked
+      // out is different: a try costs nothing then and the login is still good, so it waits like a server that is away
+      if (e instanceof AuthError && e.why === 'wrong') {
+        this.#stalled = true;
+        this.onAuth(e.why);
+        return;
+      }
+      if (e instanceof AuthError) this.onAuth(e.why);
+      // the server is away: same waiting as for a socket that closed
+      this.link = 'reconnecting';
+      this.#timer = setTimeout(() => void this.#connect(), BACKOFF[Math.min(this.#retry++, BACKOFF.length - 1)]);
+      if (this.#retry >= 3 && !this.#checking) void this.#stillThere();
+      return;
+    }
+    if (attempt !== this.#attempt || this.#disposed) return;
+    const ws = new WebSocket(api.wsUrl(this.runtimeId, ticket));
     this.#ws = ws;
     clearTimeout(this.#openTimer);
     this.#openTimer = setTimeout(() => { if (ws.readyState !== WebSocket.OPEN) ws.close(); }, CONNECT_TIMEOUT);
@@ -86,7 +123,7 @@ export class Connection {
       if (this.#disposed || this.link === 'exited') return;
       this.link = 'reconnecting';
       const delay = BACKOFF[Math.min(this.#retry++, BACKOFF.length - 1)];
-      this.#timer = setTimeout(() => this.#connect(), delay);
+      this.#timer = setTimeout(() => void this.#connect(), delay);
       // After a few failures, ask the server whether this pi still exists. A server that restarted is back but has
       // forgotten it: knocking would go on for ever, so the session is reported gone (and can be opened again).
       if (this.#retry >= 3 && !this.#checking) void this.#stillThere();
@@ -116,7 +153,7 @@ export class Connection {
     if (this.#disposed || this.link === 'exited') return;
     this.link = 'reconnecting';
     this.#retry = 0;
-    this.#connect();
+    void this.#connect();
   }
 
   async #probe() {
@@ -178,6 +215,7 @@ export class Connection {
 
   dispose() {
     this.#disposed = true;
+    this.#attempt++;
     clearTimeout(this.#timer);
     clearTimeout(this.#openTimer);
     clearInterval(this.#idleTimer);

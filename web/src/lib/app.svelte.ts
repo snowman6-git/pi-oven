@@ -1,4 +1,4 @@
-import { api, auth, AuthError, type Branched, type ModelPrefs, type OvenStatus, type UpdateOffer, type UpdateTarget } from './api';
+import { api, auth, AuthError, forget, type Branched, type ModelPrefs, type OvenStatus, type UpdateOffer, type UpdateTarget } from './api';
 import { Chat } from './chat.svelte';
 import { limits } from './limits.svelte';
 import { copyText } from './clipboard';
@@ -6,6 +6,7 @@ import { alertPerson, notifyEnabled, setNotifyEnabled } from './notify';
 import type { RuntimeInfo, SessionSummary } from './protocol';
 import { t } from './i18n';
 import { S } from './strings';
+import { sseParser } from './sse';
 
 type Theme = 'auto' | 'light' | 'dark';
 export type InspectorTab = 'info' | 'files' | 'git' | 'point';
@@ -25,7 +26,7 @@ class App {
   sessions = $state<SessionSummary[]>([]);
   /** Bumped when the server says these changed (another page, another device, or the server itself): what shows them
       reads them again. */
-  rev = $state({ accounts: 0, settings: 0 });
+  rev = $state({ accounts: 0, settings: 0, auth: 0 });
 
   /** Session files pinned to the Open tab (kept by the server, so every device has the same), oldest pin first. */
   pinned = $state<string[]>([]);
@@ -92,7 +93,15 @@ class App {
     auth.captureFromHash();
     this.applyTheme();
     try {
-      const info = await api.info();
+      // the printed address's secret is traded for a session only when none is saved (or the saved one is refused)
+      const secret = auth.pending;
+      auth.pending = null;
+      if (secret && !auth.token) await api.login(secret);
+      const info = await api.info().catch(async (e) => {
+        if (!(secret && e instanceof AuthError && e.why === 'wrong')) throw e;
+        await api.login(secret);
+        return api.info();
+      });
       this.home = info.home;
       this.bootError = '';
       this.status = 'ready';
@@ -105,6 +114,7 @@ class App {
     void api.modelPrefs().then((p) => (this.modelPrefs = p)).catch(() => {});
     const [runtimes] = await Promise.all([api.runtimes(), this.refreshSessions()]);
     for (const r of runtimes) this.#attach(r);
+    for (const c of this.chats) c.conn.afterLogin();
     this.#listen();
     void this.refreshUpdates();
     if (!this.#watchingUpdates) {
@@ -119,8 +129,19 @@ class App {
   }
 
   async submitToken(token: string) {
-    auth.token = token.trim();
     this.status = 'booting';
+    try {
+      await api.login(token.trim());
+    } catch (e) {
+      if (e instanceof AuthError) {
+        this.status = 'auth';
+        this.error = e.why === 'locked' ? 'locked' : 'wrong';
+      } else {
+        this.status = 'down';
+        this.bootError = e instanceof Error ? e.message : String(e);
+      }
+      return;
+    }
     await this.boot();
     if ((this.status as string) === 'auth') this.error = this.#lastAuth === 'locked' ? 'locked' : 'wrong';
   }
@@ -169,35 +190,67 @@ class App {
   #closed = new Set<string>();
 
   // ── the server's change events (`/api/events`) ──────────────────────────
-  #events: EventSource | null = null;
+  #events: AbortController | null = null;
   #heard = 0;
   #listen() {
-    if (this.#events || typeof EventSource === 'undefined') return;
-    let first = true;
-    const es = new EventSource(api.eventsUrl());
-    this.#events = es;
+    if (this.#events) return;
+    const ctl = new AbortController();
+    this.#events = ctl;
     this.#heard = Date.now();
-    es.onopen = () => {
+    void this.#stream(ctl);
+  }
+  /** Reads `/api/events` with fetch (a header carries the token) and starts again, after a wait that grows from 1 s to
+      30 s, whenever it ends, until `ctl` is aborted or the server refuses the login. */
+  async #stream(ctl: AbortController) {
+    let first = true;
+    let retry = 0;
+    while (!ctl.signal.aborted) {
+      // one try: given up when the whole stream is, or when it has gone quiet (a link that died without telling)
+      const one = new AbortController();
+      const stop = () => one.abort();
+      ctl.signal.addEventListener('abort', stop);
       this.#heard = Date.now();
-      // back after a gap: whatever changed meanwhile was not heard
-      if (!first) this.#changed('all');
-      first = false;
-    };
-    es.onmessage = (e) => {
-      this.#heard = Date.now();
-      try { this.#changed(JSON.parse(e.data).type); } catch { /* not ours */ }
-    };
-    es.onerror = () => {
-      // EventSource tries again by itself, except after an HTTP error (a changed token): then this page has no
-      // stream until it starts one again (on waking)
-      if (es.readyState === EventSource.CLOSED) this.#events = null;
-    };
+      const watch = setInterval(() => { if (Date.now() - this.#heard > 40_000) one.abort(); }, 5000);
+      try {
+        const sent = auth.token;
+        const res = await api.eventsStream(one.signal);
+        if (res.status === 401) {
+          forget(sent);
+          if (this.#events === ctl) this.#events = null;
+          this.#lastAuth = 'wrong';
+          this.status = 'auth';
+          return;
+        }
+        if (!res.ok || !res.body) throw new Error(String(res.status));
+        this.#heard = Date.now();
+        retry = 0;
+        // back after a gap: whatever changed meanwhile was not heard
+        if (!first) this.#changed('all');
+        first = false;
+        const feed = sseParser();
+        const dec = new TextDecoder();
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          this.#heard = Date.now();
+          for (const data of feed(dec.decode(value, { stream: true }))) {
+            try { this.#changed(JSON.parse(data).type); } catch { /* not ours */ }
+          }
+        }
+      } catch { /* dropped or aborted: look below */ } finally {
+        clearInterval(watch);
+        ctl.signal.removeEventListener('abort', stop);
+      }
+      if (ctl.signal.aborted) return;
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** retry++)));
+    }
   }
   /** The server pings every 15 s; a stream silent for longer is dead (a phone slept with it open): start a new one. */
   wakeEvents() {
     if (this.status !== 'ready') return;
     if (this.#events && Date.now() - this.#heard < 40_000) return;
-    this.#events?.close();
+    this.#events?.abort();
     this.#events = null;
     this.#listen();
     this.#changed('all');
@@ -215,6 +268,7 @@ class App {
       for (const c of this.chats) void c.refreshModels();
     }
     if (all || kind === 'settings') this.rev.settings++;
+    if (all || kind === 'auth') this.rev.auth++;
     if (all || kind === 'updates') void this.refreshUpdates();
   }
 
@@ -236,6 +290,7 @@ class App {
       notify: (c: Chat, kind: 'done' | 'ask') => this.#attention(c, kind),
       flash: (t: string) => this.flash(t),
       ask: (o: Parameters<App['ask']>[0]) => this.ask(o),
+      auth: (why: 'wrong' | 'locked') => { this.#lastAuth = why; this.status = 'auth'; },
     };
   }
 
@@ -372,7 +427,8 @@ class App {
     if (c) c.unseen = false;
     this.sidebarOpen = false;
     const url = new URL(location.href);
-    id ? url.searchParams.set('r', id) : url.searchParams.delete('r');
+    if (id) url.searchParams.set('r', id);
+    else url.searchParams.delete('r');
     history.replaceState(null, '', url);
   }
 

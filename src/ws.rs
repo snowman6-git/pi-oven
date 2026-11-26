@@ -11,9 +11,11 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::{runtime::Runtime, AppState};
 
-pub async fn handler(State(app): State<Arc<AppState>>, Path(id): Path<String>, ws: WebSocketUpgrade) -> Response {
+pub async fn handler(State(app): State<Arc<AppState>>, Path(id): Path<String>, current: Option<axum::Extension<crate::auth::Current>>, ws: WebSocketUpgrade) -> Response {
+    // the session that opened it (none on a server without secrets): when that session is ended, the socket closes
+    let session = current.map(|c| c.0 .0).filter(|s| !s.is_empty());
     match app.runtimes.get(&id).await {
-        Some(rt) => ws.max_message_size(32 << 20).on_upgrade(move |sock| attach(sock, rt, app)).into_response(),
+        Some(rt) => ws.max_message_size(32 << 20).on_upgrade(move |sock| attach(sock, rt, app, session)).into_response(),
         None => (StatusCode::NOT_FOUND, "no such runtime").into_response(),
     }
 }
@@ -176,7 +178,12 @@ async fn changed(rx: &mut Option<tokio::sync::broadcast::Receiver<Arc<str>>>) ->
     }
 }
 
-async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>) {
+async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>, session: Option<String>) {
+    let mut revoked = app.auth.revoked();
+    // ended between the guard and here: the notice above came too late for this socket
+    if session.as_ref().is_some_and(|s| !app.auth.alive(s)) {
+        return;
+    }
     let (mut events, replay) = rt.attach();
 
     let hello = serde_json::json!({
@@ -283,6 +290,15 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
                 // some were missed: the page looks at the folder itself
                 Err(RecvError::Lagged(_)) => { if !send(&mut sock, Message::text(r#"{"type":"oven_files","files":[],"more":true}"#)).await { break } }
                 Err(RecvError::Closed) => files = None,
+            },
+            gone = revoked.recv() => match gone {
+                Ok(id) if Some(&id) == session.as_ref() => {
+                    let _ = send(&mut sock, Message::Close(None)).await;
+                    break;
+                }
+                // missed some: this session may be among them, and a page that is still signed in just reconnects
+                Err(RecvError::Lagged(_)) if session.is_some() => break,
+                _ => {}
             },
             _ = ping.tick() => {
                 if !send(&mut sock, Message::Ping(Vec::new().into())).await { break }

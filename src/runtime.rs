@@ -180,7 +180,6 @@ pub struct Runtime {
     stdin_tx: mpsc::Sender<String>,
     shutdown: watch::Sender<bool>,
     stderr_tail: Mutex<VecDeque<String>>,
-    pet: Arc<crate::pet::PetHub>,
     /// Where this session is in the 100h mode's schedule.
     long: Mutex<Option<Wait>>,
     /// Waiting for a usage limit to reset ("Zero-Waste").
@@ -300,7 +299,6 @@ impl Runtime {
     }
 
     pub fn dialog_answered(&self, id: &str) {
-        self.pet.answered(&self.info.id);
         self.replay.lock().unwrap().dialogs.retain(|(d, _)| d != id);
     }
 
@@ -794,8 +792,6 @@ pub struct Manager {
     map: RwLock<HashMap<String, Arc<Runtime>>>,
     /// Held for a whole spawn: two requests for the same session at once must not both start pi.
     spawning: tokio::sync::Mutex<()>,
-    /// What the desktop pet follows: pi's events, translated.
-    pub pet: Arc<crate::pet::PetHub>,
     /// What pi-updater last offered (its prompt is answered here, not shown in every new session).
     pub updates: Arc<crate::update::Updates>,
     pub long: Arc<Long>,
@@ -837,7 +833,7 @@ impl Manager {
         let long = Arc::new(Long::load(cfg.retry_extension_path.as_ref()));
         let limits = Arc::new(crate::limits::Limits::load(cfg.limits_extension_path.as_ref()));
         let resume = Arc::new(crate::resume::Resume::load(cfg.limits_extension_path.as_deref().and_then(std::path::Path::parent)));
-        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), pet: crate::pet::PetHub::new(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), prefs: Default::default(), accounts: Default::default() })
+        Arc::new(Self { cfg, map: RwLock::new(HashMap::new()), spawning: Default::default(), updates: Default::default(), long, limits, resume, usage: Default::default(), cache_ttl: Default::default(), lens: Default::default(), prefs: Default::default(), accounts: Default::default() })
     }
 
     pub async fn get(&self, id: &str) -> Option<Arc<Runtime>> {
@@ -1015,7 +1011,6 @@ impl Manager {
             stdin_tx,
             shutdown,
             stderr_tail: Mutex::new(VecDeque::new()),
-            pet: self.pet.clone(),
             long: Mutex::new(None),
             session_file: Mutex::new(None),
             resume: Mutex::new(None),
@@ -1041,7 +1036,6 @@ impl Manager {
             prefs: self.prefs.clone(),
             want_model: Mutex::new(None),
         });
-        self.pet.attach(rt.clone());
         // a new session starts on the model last picked here; one that exists stays on its own (model_prefs.rs)
         if req.session_path.is_none() && req.provider.is_none() {
             if let Some((provider, model, level)) = self.prefs.for_new_session(&self.usage.recommended_now()) {
@@ -1418,7 +1412,7 @@ impl Manager {
 /// pi's `message_update` comes with every piece of an answer, a few hundred a reply, each with the reply's whole
 /// `usage` (tokens and cost, about 170 bytes; more than the piece). The page reads only the output token count from it.
 /// Kept: the event as it is, minus a `partial` copy of the answer when one comes; `usage.output`. The event's `type`
-/// stays first (the pet reads it there).
+/// stays first (the server's own checks look for it there).
 fn slim_update(line: &str) -> Option<String> {
     if !line.starts_with(r#"{"type":"message_update""#) {
         return None;

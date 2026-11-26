@@ -240,19 +240,3 @@ pub async fn mkdir(State(app): State<Arc<AppState>>, Json(b): Json<MkdirBody>) -
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
-
-/// Server-sent events: what the desktop pet should look like, for every open session. A pet that
-/// connects is told the current state first, then each change as it happens.
-pub async fn pet_stream(
-    State(app): State<Arc<AppState>>,
-) -> axum::response::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
-    use axum::response::sse::{Event, KeepAlive};
-    use futures_util::StreamExt;
-    use tokio_stream::wrappers::BroadcastStream;
-
-    // Subscribe before reading the snapshot, so nothing that happens in between is lost.
-    let live = BroadcastStream::new(app.runtimes.pet.subscribe()).filter_map(|r| async move { r.ok() });
-    let first = futures_util::stream::iter(app.runtimes.pet.snapshot());
-    let events = first.chain(live).map(|data| Ok(Event::default().data(data)));
-    axum::response::Sse::new(events).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(15)))
-}

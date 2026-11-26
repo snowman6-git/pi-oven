@@ -5,6 +5,7 @@ mod accounts;
 mod reap;
 mod api;
 mod auth;
+mod login;
 mod branch;
 mod cache_ttl;
 mod config;
@@ -15,7 +16,6 @@ mod events;
 mod model_prefs;
 mod pins;
 mod models;
-mod pet;
 mod runtime;
 mod scope;
 mod selfupdate;
@@ -45,6 +45,7 @@ pub struct AppState {
     /// What may open the API: the token and/or the password. Empty only on a loopback address.
     pub secrets: Vec<String>,
     pub throttle: auth::Throttle,
+    pub auth: auth::Auth,
     pub trust_proxy: bool,
     pub allow_origins: Vec<String>,
     pub sessions_dir: PathBuf,
@@ -115,9 +116,11 @@ async fn main() -> anyhow::Result<()> {
     let secrets: Vec<String> = token.iter().chain(password.iter()).cloned().collect();
 
     let runtimes = runtime::Manager::new(cfg.clone());
+    let logins = auth::Auth::open(&secrets);
     let app = Arc::new(AppState {
         secrets,
         throttle: Default::default(),
+        auth: logins,
         trust_proxy: cfg.trust_proxy,
         allow_origins: cfg.allow_origins.clone(),
         sessions_dir: cfg.resolved_sessions_dir(),
@@ -183,7 +186,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sessions/branch", axum::routing::post(branch::branch))
         .route("/api/sessions/move", axum::routing::post(branch::move_session))
         .route("/api/sessions/rename", axum::routing::post(branch::rename))
-        .route("/api/pet/stream", get(api::pet_stream))
+        .route("/api/login", axum::routing::post(login::login))
+        .route("/api/logout", axum::routing::post(login::logout))
+        .route("/api/ticket", axum::routing::post(login::ticket))
+        .route("/api/auth/sessions", get(login::sessions))
+        .route("/api/auth/sessions/{id}", delete(login::remove))
         .route("/api/events", get(events::stream))
         .route("/api/about", get(about::about))
         .route("/api/update", get(update::status).post(update::run))
@@ -239,7 +246,7 @@ fn banner(cfg: &Config, addr: SocketAddr, token: Option<&str>, generated: bool, 
             "made for you (the server is open beyond loopback). Open the address above including its #token=… part.",
         ));
     } else if token.is_some() {
-        println!("  {}{}", l("토큰      ", "Token     "), l("주소 끝의 #token=… 으로 접속하거나, 접속 화면에 입력하세요.", "open the address with #token=… or type it on the sign-in page."));
+        println!("  {}{}", l("토큰      ", "Token     "), l("주소 끝의 #token=… 으로 접속하거나 접속 화면에 입력하세요. 접속하면 이 기기용 세션을 따로 발급합니다.", "open the address with #token=… or type it on the sign-in page; each device then gets its own session."));
     }
     if has_password {
         println!("  {}{}", l("비밀번호  ", "Password  "), l("접속 화면에 입력하세요(--password).", "type it on the sign-in page (--password)."));

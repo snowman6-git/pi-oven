@@ -37,16 +37,30 @@ export const auth = {
     // ask the browser not to evict the saved login when it is short of space
     if (v) void navigator.storage?.persist?.().catch(() => {});
   },
-  /** Accept `#token=…` (the printed URL, or what the app's first screen sends: a token or a password, URL-encoded),
-      store it, and clean the address bar. */
+  /** The secret from `#token=…` (the printed URL, or what the app's first screen sends: a token or a password,
+      URL-encoded). Kept in memory only: it is traded for a session token (`api.login`) when there is none saved or
+      the saved one is refused. */
+  pending: null as string | null,
+  /** Take `#token=…` out of the address bar into `pending`. */
   captureFromHash() {
     const v = tokenFromHash(location.hash);
     if (v) {
-      this.token = v;
+      this.pending = v;
       history.replaceState(null, '', location.pathname + location.search);
     }
   },
 };
+
+/** A short name for this browser, for the list of logged-in devices. */
+function deviceName(): string {
+  if ((window as unknown as { __piOvenBack?: unknown }).__piOvenBack) return 'pi-oven app';
+  const ua = navigator.userAgent;
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} · ${os}` : browser;
+}
+
+export interface AuthSession { id: string; device: string; createdAt: number; lastUsedAt: number }
 
 /** Background reads (polling, refreshing what is on screen) give up after a while: on a phone that slept or a link that
     dropped without telling, a fetch can hang for minutes, and everything waiting behind it (a refresh marked busy, a
@@ -66,9 +80,16 @@ async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 0): Pro
   }
 }
 
+/** A token the server refused is dropped, unless another login replaced it meanwhile (an old request's answer must
+    not sign the new login out). */
+export function forget(sent: string | null) {
+  if (sent && auth.token === sent) auth.token = null;
+}
+
 async function send<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
-  if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+  const sent = auth.token;
+  if (sent) headers.set('Authorization', `Bearer ${sent}`);
   headers.set('X-Pi-Oven-Lang', currentLang()); // the server words its errors in the page's language
   if (init.body) headers.set('Content-Type', 'application/json');
   let res: Response;
@@ -77,7 +98,10 @@ async function send<T>(path: string, init: RequestInit): Promise<T> {
   } catch {
     throw new Error('network');
   }
-  if (res.status === 401) throw new AuthError();
+  if (res.status === 401) {
+    forget(sent);
+    throw new AuthError();
+  }
   if (res.status === 429) throw new AuthError('locked');
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -113,11 +137,15 @@ export interface GitOverview { repo: boolean; branch: string | null; root: strin
 
 async function callText(path: string): Promise<string> {
   const headers = new Headers();
-  if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+  const sent = auth.token;
+  if (sent) headers.set('Authorization', `Bearer ${sent}`);
   headers.set('X-Pi-Oven-Lang', currentLang()); // the server words its errors in the page's language
   let res: Response;
   try { res = await fetch(serverUrl.value + path, { headers }); } catch { throw new Error('network'); }
-  if (res.status === 401) throw new AuthError();
+  if (res.status === 401) {
+    forget(sent);
+    throw new AuthError();
+  }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.text();
 }
@@ -254,22 +282,50 @@ export const api = {
     call<DirListing>('/api/fs/mkdir', { method: 'POST', body: JSON.stringify({ parent, name }) }),
   browse: (path?: string, hidden = false) =>
     call<DirListing>(`/api/fs?${new URLSearchParams({ ...(path ? { path } : {}), hidden: String(hidden) })}`),
-  /** An image file's bytes, for an `<img>` (which cannot send the token in a header). `v` busts the cache. */
-  rawUrl(id: string, path: string, v = 0) {
-    const base = (serverUrl.value || location.origin).replace(/\/+$/, '');
-    const q = new URLSearchParams({ path, v: String(v), ...(auth.token ? { token: auth.token } : {}) });
-    return `${base}/api/runtimes/${id}/files/raw?${q}`;
+  /** An image file's bytes as a blob URL for an `<img>` (which cannot send the token in a header). The caller revokes it. */
+  async rawBlobUrl(id: string, path: string, v = 0, signal?: AbortSignal): Promise<string> {
+    const headers = new Headers();
+    const sent = auth.token;
+    if (sent) headers.set('Authorization', `Bearer ${sent}`);
+    const q = new URLSearchParams({ path, v: String(v) });
+    let res: Response;
+    try { res = await fetch(`${serverUrl.value}/api/runtimes/${id}/files/raw?${q}`, { headers, signal }); } catch (e) {
+      if (signal?.aborted) throw e;
+      throw new Error('network');
+    }
+    if (res.status === 401) {
+      forget(sent);
+      throw new AuthError();
+    }
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return URL.createObjectURL(await res.blob());
   },
-  /** What changed on the server, for every page (SSE; EventSource cannot send the token in a header either). */
-  eventsUrl() {
-    const base = (serverUrl.value || location.origin).replace(/\/+$/, '');
-    return `${base}/api/events${auth.token ? `?token=${encodeURIComponent(auth.token)}` : ''}`;
+  /** What changed on the server, for every page: the SSE stream, read with fetch so the token goes in a header. */
+  eventsStream(signal: AbortSignal): Promise<Response> {
+    const headers = new Headers({ Accept: 'text/event-stream' });
+    if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+    return fetch(`${serverUrl.value}/api/events`, { headers, signal });
   },
-  wsUrl(id: string) {
+  /** Trade a secret (token or password) for this browser's own session token, and keep that. `null` from the server
+      means it asks for nothing. */
+  async login(secret: string): Promise<void> {
+    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Pi-Oven-Lang': currentLang() });
+    let res: Response;
+    try { res = await fetch(`${serverUrl.value}/api/login`, { method: 'POST', headers, body: JSON.stringify({ secret, device: deviceName() }) }); } catch { throw new Error('network'); }
+    if (res.status === 401) throw new AuthError();
+    if (res.status === 429) throw new AuthError('locked');
+    if (!res.ok) throw new HttpError(`${res.status} ${res.statusText}`, res.status);
+    auth.token = ((await res.json()) as { token: string | null }).token;
+  },
+  logout: () => call<void>('/api/logout', { method: 'POST' }),
+  /** One-use ticket for opening a WebSocket (the browser cannot send a header there). */
+  ticket: () => call<{ ticket: string }>('/api/ticket', { method: 'POST' }, BG).then((r) => r.ticket),
+  authSessions: () => call<{ current: string | null; sessions: AuthSession[] }>('/api/auth/sessions', {}, BG),
+  revokeSession: (id: string) => call<void>(`/api/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  wsUrl(id: string, ticket: string) {
     const base = new URL(serverUrl.value || location.origin);
     const proto = base.protocol === 'https:' ? 'wss' : 'ws';
-    const q = auth.token ? `?token=${encodeURIComponent(auth.token)}` : '';
-    return `${proto}://${base.host}/api/runtimes/${id}/ws${q}`;
+    return `${proto}://${base.host}/api/runtimes/${id}/ws?ticket=${ticket}`;
   },
 };
 

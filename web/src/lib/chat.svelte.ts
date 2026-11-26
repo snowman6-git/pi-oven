@@ -40,6 +40,8 @@ export interface ChatHost extends EditorHost {
   updates(): void;
   /** A run finished or a question is waiting; the host decides whether anyone needs to be told. */
   notify(chat: Chat, kind: 'done' | 'ask'): void;
+  /** The server refused this page's login (a ticket could not be had). */
+  auth(why: 'wrong' | 'locked'): void;
 }
 
 export type Permission = 'auto' | 'manual';
@@ -226,6 +228,7 @@ export class Chat {
       runtime.id,
       (rec) => this.#intake(rec),
       (again) => void this.#open(again),
+      (why) => this.host.auth(why),
     );
   }
 

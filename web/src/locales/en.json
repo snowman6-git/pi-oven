@@ -258,6 +258,16 @@
       "title": "Subagents in the info tab",
       "tree": "Family tree",
       "summary": "Folded summary"
+    },
+    "devices": {
+      "title": "Logged-in devices",
+      "note": "Devices logged in to this server. A device you disconnect has to log in again.",
+      "thisOne": "this device",
+      "revoke": "Disconnect",
+      "revokeAsk": "Disconnect \"{name}\"?",
+      "revokeBody": "That device will need the token or password again.",
+      "revokeSelf": "This is the device you are using. Disconnecting it returns you to the login screen.",
+      "failed": "Could not handle the device list. Check the connection and try again."
     }
   },
   "showcase": {

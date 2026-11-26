@@ -1,7 +1,7 @@
 <script lang="ts">
   import { S } from '../lib/strings';
   import { t } from '../lib/i18n.svelte';
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { app } from '../lib/app.svelte';
   import { showcase } from '../lib/showcase.svelte';
   import type { Chat } from '../lib/chat.svelte';
@@ -41,12 +41,31 @@
   const picture = $derived(!!doc && !doc.loading && !doc.error && !!doc.image);
   let dims = $state<{ w: number; h: number } | null>(null);
   let broken = $state(false);
+  /** The picture on screen, and which file it is of: a new version replaces it only once it has arrived (no blink). */
+  let img = $state<{ url: string; path: string } | null>(null);
+  function showImg(next: { url: string; path: string } | null) {
+    const old = untrack(() => img);
+    img = next;
+    if (old) URL.revokeObjectURL(old.url);
+  }
   $effect(() => {
     doc?.path;
     doc?.version;
     dims = null;
     broken = false;
   });
+  // the picture is fetched with the login header and shown from a blob URL, which is released when it changes or goes
+  $effect(() => {
+    if (!doc || !picture) return untrack(() => showImg(null));
+    const ctl = new AbortController();
+    const path = doc.path;
+    api.rawBlobUrl(chat.runtime.id, path, doc.version, ctl.signal).then(
+      (u) => { if (ctl.signal.aborted) URL.revokeObjectURL(u); else showImg({ url: u, path }); },
+      () => { if (!ctl.signal.aborted) broken = true; },
+    );
+    return () => ctl.abort();
+  });
+  onDestroy(() => showImg(null));
 
   onMount(() => {
     let alive = true;
@@ -242,8 +261,8 @@
       <div class="pic" data-priv="files">
         {#if broken}
           <p class="msg-inline">{t('editor.imageBroken')}</p>
-        {:else}
-          <img src={api.rawUrl(chat.runtime.id, doc.path, doc.version)} alt={doc.name}
+        {:else if img && img.path === doc.path}
+          <img src={img.url} alt={doc.name}
             onload={(e) => { const i = e.currentTarget as HTMLImageElement; dims = { w: i.naturalWidth, h: i.naturalHeight }; }}
             onerror={() => (broken = true)} />
         {/if}

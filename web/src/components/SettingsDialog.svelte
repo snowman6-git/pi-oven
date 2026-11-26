@@ -2,11 +2,12 @@
   import AccountsSection from './AccountsSection.svelte';
   import SaExample from './SaExample.svelte';
   import { app } from '../lib/app.svelte';
+  import { relativeTime } from '../lib/util';
   import { hasMaple } from '../lib/maple';
   import { pinRules } from '../lib/pinrules.svelte';
   import { PARTS, showcase } from '../lib/showcase.svelte';
   import { S } from '../lib/strings';
-  import { api, auth, type LongMode, type ResumeSettings } from '../lib/api';
+  import { api, auth, type AuthSession, type LongMode, type ResumeSettings } from '../lib/api';
   import { i18n, LANGS, setLang, t } from '../lib/i18n.svelte';
   import About from './About.svelte';
   import ModelLevels from './ModelLevels.svelte';
@@ -159,11 +160,28 @@
     if (app.notifyOn && canNotify && Notification.permission === 'default') notifyPerm = await Notification.requestPermission();
   }
 
+  // Devices logged in (this page's included), read again when the server says the list changed.
+  let devices = $state<{ current: string | null; sessions: AuthSession[] } | null>(null);
+  let devicesError = $state(false);
+  $effect(() => {
+    void app.rev.auth;
+    if (tab !== 'server' || !auth.token) return;
+    api.authSessions().then((d) => { devices = d; devicesError = false; }, () => (devicesError = true));
+  });
+  async function revoke(d: AuthSession) {
+    const self = d.id === devices?.current;
+    const ok = await app.ask({ title: t('settings.devices.revokeAsk', { name: showcase.text(d.device) }), body: self ? t('settings.devices.revokeSelf') : t('settings.devices.revokeBody'), confirm: t('settings.devices.revoke'), danger: true });
+    if (!ok) return;
+    try { await api.revokeSession(d.id); } catch { app.flash(t('settings.devices.failed')); return; }
+    if (self) { auth.token = null; location.reload(); }
+  }
+
   // Only the app has another way to pick a server: its first screen. There the field below would be a second one.
   const back = (window as unknown as { __piOvenBack?: () => void }).__piOvenBack;
   async function signOut() {
     const ok = await app.ask({ title: t('settings.server.signOutAsk'), body: t('settings.server.signOutBody'), confirm: t('settings.server.signOut'), danger: true });
     if (!ok) return;
+    await api.logout().catch(() => {}); // the server forgets this session; the saved token goes either way
     auth.token = null;
     location.reload();
   }
@@ -425,6 +443,26 @@
           <small>{serverUrl.value ? '' : t('settings.server.thisPage')}{auth.token ? `${serverUrl.value ? '' : ' · '}${t('settings.server.signedIn')}` : ''}</small></p>
         {#if auth.token}<button class="btn" type="button" onclick={signOut}>{t('settings.server.signOut')}</button>{/if}
       </section>
+      {#if auth.token}
+      <section>
+        <h3>{t('settings.devices.title')}</h3>
+        <p class="note">{t('settings.devices.note')}</p>
+        {#if devicesError}<p class="note err">{t('settings.devices.failed')}</p>{/if}
+        {#if devices}
+          <ul class="devs">
+            {#each devices.sessions as d (d.id)}
+              <li>
+                <span class="who">
+                  <b data-priv="hosts">{showcase.text(d.device)}</b>
+                  <small>{relativeTime(d.lastUsedAt)}{d.id === devices.current ? ` · ${t('settings.devices.thisOne')}` : ''}</small>
+                </span>
+                <button class="btn quiet" type="button" onclick={() => revoke(d)}>{t('settings.devices.revoke')}</button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+      {/if}
       <section>
         <h3>{t('settings.server.switchTo')}</h3>
         {#if back}
@@ -621,6 +659,12 @@
     color: var(--ink-3);
     font-size: 12px;
   }
+  .devs { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+  .devs li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 10px; }
+  .who { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .who b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who small { color: var(--ink-3); font-size: 12px; }
+  .devs .btn { flex: none; white-space: nowrap; }
   .srv {
     display: flex;
     gap: 8px;

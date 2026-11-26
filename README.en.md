@@ -57,7 +57,7 @@ With `--lan` and no token or password, the server makes an access token and prin
 
 ### 2. Connect
 
-Open the server address in a browser, or enter the server address and token once in the app.
+Open the server address in a browser, or enter the server address and token once in the app. The server trades the token or password for a per-device session token, and only that session token is stored in the browser.
 
 | App ([Releases](https://github.com/snowman6-git/pi-oven/releases)) | Needs |
 |---|---|
