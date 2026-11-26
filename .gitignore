@@ -36,3 +36,9 @@
 .DS_Store
 .idea/
 .vscode/
+
+# local to this machine: notes, test data, tool caches
+/.serena/
+/A_Runtime_Data/
+/docs/mock/
+/테스트서버.md
