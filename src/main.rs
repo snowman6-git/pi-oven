@@ -11,6 +11,7 @@ mod config;
 mod files;
 mod fs;
 mod git;
+mod events;
 mod model_prefs;
 mod pins;
 mod models;
@@ -183,11 +184,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sessions/move", axum::routing::post(branch::move_session))
         .route("/api/sessions/rename", axum::routing::post(branch::rename))
         .route("/api/pet/stream", get(api::pet_stream))
+        .route("/api/events", get(events::stream))
         .route("/api/about", get(about::about))
         .route("/api/update", get(update::status).post(update::run))
         .route("/api/retry", get(retry::get_mode).put(retry::set_mode))
         .route("/api/runtimes/{id}/retry", axum::routing::post(retry::act))
         .fallback(web::serve)
+        // inside the guard: only a write that got through tells the other pages
+        .layer(middleware::from_fn(events::layer))
         .layer(middleware::from_fn_with_state(app.clone(), auth::guard))
         .layer(middleware::from_fn(lang::layer))
         .layer(cors(&cfg.allow_origins))

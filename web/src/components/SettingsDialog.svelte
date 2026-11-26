@@ -36,15 +36,15 @@
   // kept by the server, not this browser: the schedule runs there, for every device
   let longMode = $state<LongMode | null>(null);
   let longError = $state('');
-  $effect(() => { api.longMode().then((m) => (longMode = m)).catch((e) => (longError = (e as Error).message)); });
+  $effect(() => { void app.rev.settings; api.longMode().then((m) => (longMode = m)).catch((e) => (longError = (e as Error).message)); });
   let pollOn = $state<boolean | null>(null);
-  $effect(() => { api.limitsPoll().then((p) => (pollOn = p.enabled)).catch(() => {}); });
+  $effect(() => { void app.rev.settings; api.limitsPoll().then((p) => (pollOn = p.enabled)).catch(() => {}); });
   async function setPoll(on: boolean) {
     try { pollOn = (await api.setLimitsPoll(on)).enabled; } catch (e) { resumeError = (e as Error).message; }
   }
   let cache = $state<{ enabled: boolean; fromEnv: boolean } | null>(null);
   let cacheError = $state('');
-  $effect(() => { api.claudeCache().then((c) => (cache = c)).catch(() => {}); });
+  $effect(() => { void app.rev.settings; api.claudeCache().then((c) => (cache = c)).catch(() => {}); });
   async function setCache(on: boolean) {
     try { cache = await api.setClaudeCache(on); cacheError = ''; } catch (e) { cacheError = (e as Error).message; }
   }
@@ -53,7 +53,7 @@
   let lens = $state<{ inject: boolean; fromEnv: boolean } | null>(null);
   let lensError = $state('');
   let lensChanged = $state(false);
-  $effect(() => { if (hasLens) api.lensSettings().then((l) => (lens = l)).catch(() => {}); });
+  $effect(() => { void app.rev.settings; if (hasLens) api.lensSettings().then((l) => (lens = l)).catch(() => {}); });
   async function setLens(on: boolean) {
     try { lens = await api.setLens(on); lensError = ''; lensChanged = true; } catch (e) { lensError = (e as Error).message; }
   }
@@ -66,7 +66,11 @@
   let resumeSet = $state<ResumeSettings | null>(null);
   let resumeText = $state('');
   let resumeError = $state('');
-  $effect(() => { api.resumeSettings().then((s) => ((resumeSet = s), (resumeText = s.text))).catch((e) => (resumeError = (e as Error).message)); });
+  $effect(() => { void app.rev.settings; api.resumeSettings().then((s) => {
+    // a text being typed is not replaced by the one saved elsewhere
+    if (!resumeSet || resumeText === resumeSet.text) resumeText = s.text;
+    resumeSet = s;
+  }).catch((e) => (resumeError = (e as Error).message)); });
   async function saveResume(enabled: boolean, text: string) {
     resumeError = '';
     const clean = text.trim() || t('resume.default');

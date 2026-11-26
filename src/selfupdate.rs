@@ -208,6 +208,7 @@ impl SelfUpdate {
             let _ = std::fs::write(dir.join("update-known.json"), serde_json::to_vec(&k).unwrap_or_default());
         }
         *self.known.lock().unwrap() = Some(k);
+        crate::events::changed("updates");
     }
 
     /// Whether the newest known release differs from the running binary.

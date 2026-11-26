@@ -105,7 +105,11 @@ impl Updates {
                     return;
                 }
             };
+            let news = found.is_some();
             me.pi.lock().unwrap().0 = found;
+            if news {
+                crate::events::changed("updates");
+            }
         });
     }
 }
@@ -165,6 +169,7 @@ pub fn from_prompt(line: &str) -> Option<(String, Offer)> {
 impl Updates {
     pub fn offered(&self, offer: Offer, now: u64) {
         *self.offer.lock().unwrap() = Some((offer, now));
+        crate::events::changed("updates");
     }
 
     fn current(&self, now: u64) -> Option<Offer> {

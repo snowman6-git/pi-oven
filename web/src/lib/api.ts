@@ -260,6 +260,11 @@ export const api = {
     const q = new URLSearchParams({ path, v: String(v), ...(auth.token ? { token: auth.token } : {}) });
     return `${base}/api/runtimes/${id}/files/raw?${q}`;
   },
+  /** What changed on the server, for every page (SSE; EventSource cannot send the token in a header either). */
+  eventsUrl() {
+    const base = (serverUrl.value || location.origin).replace(/\/+$/, '');
+    return `${base}/api/events${auth.token ? `?token=${encodeURIComponent(auth.token)}` : ''}`;
+  },
   wsUrl(id: string) {
     const base = new URL(serverUrl.value || location.origin);
     const proto = base.protocol === 'https:' ? 'wss' : 'ws';

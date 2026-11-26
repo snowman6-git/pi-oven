@@ -1,5 +1,13 @@
 # 예정 사항
 
+## 보류: 주소에 실리는 접속 비밀값 (2026-11-26)
+
+웹소켓·이미지·`/api/events`는 헤더를 못 붙여 `?token=`으로 인증한다. 이 값은 세션 토큰이 아니라 서버 접속 비밀값 그 자체다(`--password`면 비밀번호 원문). 프록시·접근 로그에 남을 수 있다. 고치려면 로그인 때 서버가 짧게 쓰는 세션 토큰(또는 HttpOnly 쿠키)을 내주고, 주소에는 그것만 싣는다. 모바일 앱(다른 주소에서 접속)에서 쿠키가 되는지 먼저 확인한다.
+
+## 보류: 터미널 pi가 만든 변화 (2026-11-26)
+
+`/api/events`는 pi-oven을 거친 변화만 안다. 터미널의 `pi`로 만든 세션, `pi auth login`으로 바뀐 계정은 페이지가 다른 계기로 다시 읽을 때까지 안 보인다. 세션 폴더·`auth.json`을 감시하면 잡을 수 있다(`watch.rs` 방식).
+
 ## Claude 구독 한도 직접 조회 — 만듦 (2026-11-16)
 
 `src/usage/claude.rs`(`GET https://api.anthropic.com/api/oauth/usage`, `anthropic-beta: oauth-2025-04-20`, `five_hour`·`seven_day`의 `utilization`·`resets_at`). 남은 것:

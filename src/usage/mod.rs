@@ -161,6 +161,7 @@ impl Usage {
             gate.last.store(now, Ordering::Relaxed);
             let asked = if id == chatgpt::PROVIDER { chatgpt::ask(pi_bin, now).await } else { claude::ask(pi_bin).await };
             gate.note(&asked, now_ms());
+            crate::events::changed("limits"); // new numbers, or why there are none
             let next = gate.quiet_until.load(Ordering::Relaxed);
             match asked {
                 Asked::Got(e) => {

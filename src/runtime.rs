@@ -1404,6 +1404,7 @@ impl Manager {
                 };
                 let _ = rt.events.send(Arc::from(exit_frame(code)));
                 mgr.map.write().await.remove(&id);
+                crate::events::changed("sessions"); // other pages' open list
                 tracing::info!(runtime = %id, ?code, "pi exited");
             });
         }

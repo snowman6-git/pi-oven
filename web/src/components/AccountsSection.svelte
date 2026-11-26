@@ -29,7 +29,9 @@
       loading = false;
     }
   }
+  // and again whenever the server says accounts changed (a sign-in finished, here or on another device)
   $effect(() => {
+    void app.rev.accounts;
     void load();
   });
   // an account changed elsewhere (Baton Touch, another device): the list follows

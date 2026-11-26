@@ -450,6 +450,7 @@ impl Accounts {
     pub fn announce(&self, origin: Option<&str>, a: &Account) {
         let frame = json!({ "type": "oven_account", "origin": origin, "provider": a.provider, "email": a.email, "plan": a.plan });
         let _ = self.changes.get_or_init(|| tokio::sync::broadcast::channel(16).0).send(Arc::from(frame.to_string()));
+        crate::events::changed("accounts");
     }
 
     /// Baton Touch switched some provider a moment ago (a limit report without a provider belongs to that failure).
@@ -851,6 +852,7 @@ impl Accounts {
                     }
                 }
             }
+            crate::events::changed("accounts"); // the new account's card, on every page
         });
         Ok(())
     }

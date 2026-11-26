@@ -1,5 +1,6 @@
 import { api, auth, AuthError, type Branched, type ModelPrefs, type OvenStatus, type UpdateOffer, type UpdateTarget } from './api';
 import { Chat } from './chat.svelte';
+import { limits } from './limits.svelte';
 import { copyText } from './clipboard';
 import { alertPerson, notifyEnabled, setNotifyEnabled } from './notify';
 import type { RuntimeInfo, SessionSummary } from './protocol';
@@ -22,6 +23,10 @@ class App {
   bootError = $state('');
   home = $state('');
   sessions = $state<SessionSummary[]>([]);
+  /** Bumped when the server says these changed (another page, another device, or the server itself): what shows them
+      reads them again. */
+  rev = $state({ accounts: 0, settings: 0 });
+
   /** Session files pinned to the Open tab (kept by the server, so every device has the same), oldest pin first. */
   pinned = $state<string[]>([]);
   /** Models left out of the model menu and each model's starting level (Settings → Models). */
@@ -100,6 +105,7 @@ class App {
     void api.modelPrefs().then((p) => (this.modelPrefs = p)).catch(() => {});
     const [runtimes] = await Promise.all([api.runtimes(), this.refreshSessions()]);
     for (const r of runtimes) this.#attach(r);
+    this.#listen();
     void this.refreshUpdates();
     if (!this.#watchingUpdates) {
       // another device's new session may have brought news; look again when this page comes back
@@ -126,6 +132,90 @@ class App {
 
   async togglePin(path: string) {
     try { this.pinned = await api.setPin(path, !this.pinned.includes(path)); } catch { this.flash(t('sidebar.pinFailed')); }
+  }
+
+  /** `chat`'s place in the list goes to the runtime `rt` (pi started again). The list may have it already: the server's
+      change event can come before the answer that started it. */
+  #replace(chat: Chat, rt: RuntimeInfo): Chat {
+    const at = this.chats.indexOf(chat);
+    chat.dispose();
+    const next = this.chats.find((c) => c.runtime.id === rt.id) ?? new Chat(rt, this.#host());
+    const list = this.chats.filter((c) => c !== next);
+    list.splice(at >= 0 ? at : list.length, at >= 0 ? 1 : 0, next);
+    this.chats = list;
+    return next;
+  }
+
+  /** The open list as the server has it: runtimes opened on another device come in (not selected), ones closed there
+      (or whose pi is gone) go, except the one on screen, which keeps its "pi has exited" and reopen button. */
+  #syncTimer: ReturnType<typeof setTimeout> | undefined;
+  #syncRuntimesSoon() {
+    clearTimeout(this.#syncTimer);
+    // a little later: this page's own open/restart answers land first and place their chat themselves
+    this.#syncTimer = setTimeout(async () => {
+      const list = await api.runtimes().catch(() => null);
+      if (!list || this.status !== 'ready') return;
+      for (const r of list) if (!this.#closed.has(r.id)) this.#attach(r);
+      // (a file being edited in it is not thrown away: that one stays too)
+      const gone = this.chats.filter((c) => c.runtime.id !== this.currentId && c.editors.dirtyCount === 0 && !list.some((r) => r.id === c.runtime.id));
+      if (gone.length) {
+        for (const c of gone) c.dispose();
+        this.chats = this.chats.filter((c) => !gone.includes(c));
+        void this.refreshSessions();
+      }
+    }, 600);
+  }
+  /** Runtimes this page closed: a list read before the server dropped them must not bring them back. */
+  #closed = new Set<string>();
+
+  // ── the server's change events (`/api/events`) ──────────────────────────
+  #events: EventSource | null = null;
+  #heard = 0;
+  #listen() {
+    if (this.#events || typeof EventSource === 'undefined') return;
+    let first = true;
+    const es = new EventSource(api.eventsUrl());
+    this.#events = es;
+    this.#heard = Date.now();
+    es.onopen = () => {
+      this.#heard = Date.now();
+      // back after a gap: whatever changed meanwhile was not heard
+      if (!first) this.#changed('all');
+      first = false;
+    };
+    es.onmessage = (e) => {
+      this.#heard = Date.now();
+      try { this.#changed(JSON.parse(e.data).type); } catch { /* not ours */ }
+    };
+    es.onerror = () => {
+      // EventSource tries again by itself, except after an HTTP error (a changed token): then this page has no
+      // stream until it starts one again (on waking)
+      if (es.readyState === EventSource.CLOSED) this.#events = null;
+    };
+  }
+  /** The server pings every 15 s; a stream silent for longer is dead (a phone slept with it open): start a new one. */
+  wakeEvents() {
+    if (this.status !== 'ready') return;
+    if (this.#events && Date.now() - this.#heard < 40_000) return;
+    this.#events?.close();
+    this.#events = null;
+    this.#listen();
+    this.#changed('all');
+  }
+  #changed(kind: string) {
+    const all = kind === 'all';
+    if (all || kind === 'accounts') this.rev.accounts++;
+    if (all || kind === 'accounts' || kind === 'limits') void limits.refresh(false);
+    if (all || kind === 'sessions') {
+      this.refreshSessionsSoon();
+      this.#syncRuntimesSoon();
+    }
+    if (all || kind === 'models') {
+      void api.modelPrefs().then((p) => (this.modelPrefs = p)).catch(() => {});
+      for (const c of this.chats) void c.refreshModels();
+    }
+    if (all || kind === 'settings') this.rev.settings++;
+    if (all || kind === 'updates') void this.refreshUpdates();
   }
 
   #attach(r: RuntimeInfo): Chat {
@@ -234,7 +324,10 @@ class App {
   #dropClosed(ids: string[]) {
     const left = this.chats.filter((c) => ids.includes(c.runtime.id));
     if (!left.length) return;
-    for (const chat of left) chat.dispose();
+    for (const chat of left) {
+      chat.dispose();
+      this.#closed.add(chat.runtime.id);
+    }
     this.chats = this.chats.filter((c) => !left.includes(c));
     if (left.some((c) => c.runtime.id === this.currentId)) this.select(this.chats[0]?.runtime.id ?? null);
   }
@@ -287,10 +380,7 @@ class App {
   async restartChat(chat: Chat) {
     try {
       const rt = await api.restartRuntime(chat.runtime.id, chat.sessionFile);
-      const at = this.chats.indexOf(chat);
-      chat.dispose();
-      const fresh = new Chat(rt, this.#host());
-      at >= 0 ? this.chats.splice(at, 1, fresh) : this.chats.push(fresh);
+      this.#replace(chat, rt);
       this.select(rt.id);
     } catch (e) { this.#fail(e); }
   }
@@ -382,10 +472,7 @@ class App {
       try {
         const wasCurrent = this.currentId === chat.runtime.id;
         const rt = await api.restartRuntime(chat.runtime.id, chat.sessionFile);
-        const at = this.chats.indexOf(chat);
-        chat.dispose();
-        const fresh = new Chat(rt, this.#host());
-        at >= 0 ? this.chats.splice(at, 1, fresh) : this.chats.push(fresh);
+        this.#replace(chat, rt);
         if (wasCurrent) this.select(rt.id);
       } catch { failed++; }
     }
@@ -416,12 +503,8 @@ class App {
     try {
       const rt = await api.openRuntime({ cwd: chat.runtime.cwd, sessionPath: chat.sessionFile });
       if (!this.chats.includes(chat)) return; // closed meanwhile
-      const at = this.chats.indexOf(chat);
       const wasCurrent = this.currentId === chat.runtime.id;
-      chat.dispose();
-      const existing = this.chats.find((c) => c.runtime.id === rt.id);
-      if (existing) this.chats.splice(at, 1);
-      else this.chats.splice(at, 1, new Chat(rt, this.#host()));
+      this.#replace(chat, rt);
       if (wasCurrent) this.select(rt.id);
       if (!quiet) this.flash(t('appmsg.reopened'));
     } catch (e) {
@@ -501,6 +584,7 @@ class App {
     }
     chat.dispose();
     this.chats = this.chats.filter((c) => c !== chat);
+    this.#closed.add(chat.runtime.id);
     await api.closeRuntime(chat.runtime.id).catch(() => {});
     if (this.currentId === chat.runtime.id) this.select(this.chats[0]?.runtime.id ?? null);
     void this.refreshSessions();
@@ -604,6 +688,7 @@ window.addEventListener('focus', () => {
 const wake = () => {
   if (document.hidden) return;
   for (const c of app.chats) c.conn.nudge();
+  app.wakeEvents();
 };
 document.addEventListener('visibilitychange', wake);
 window.addEventListener('pageshow', wake);
