@@ -204,11 +204,13 @@
     gap: 12px;
     align-items: baseline;
   }
+  .sheet button:disabled {
+    color: var(--ink-3);
+    cursor: not-allowed;
+  }
   @media (hover: hover) {
-    .sheet button:hover:not(:disabled),
-    .sheet button:disabled {
-      color: var(--ink-3);
-      cursor: not-allowed;
+    .sheet button:hover:not(:disabled) {
+      background: var(--paper-sunk);
     }
   }
 

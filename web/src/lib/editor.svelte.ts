@@ -352,7 +352,7 @@ export class Editors {
   /** The disk has a newer version: take in the lines that changed. Returns false if it should be tried again. */
   async #bringIn(d: Doc, rev: string): Promise<boolean> {
     let f: FileText;
-    try { f = await api.readFile(this.runtimeId, d.path); } catch { return true; }
+    try { f = await api.readFile(this.runtimeId, d.path, true); } catch { return true; }
     if (f.rev !== rev) return false; // it moved on while being read
     const r = this.applyRemote?.(d.path, f) ?? { result: 'none' as const };
     if (r.result !== 'applied') {
@@ -389,7 +389,7 @@ export class Editors {
     let saved: { paths?: string[]; active?: string | null } = {};
     try { saved = JSON.parse(localStorage.getItem(this.#key) ?? '{}'); } catch { /* ignore */ }
     for (const p of saved.paths ?? []) {
-      this.docs.push({ path: p, name: nameOf(p), loading: true, error: null, base: '', rev: null, eol: 'lf', bom: false, dirty: false, conflict: null, saving: false, version: 0 });
+      this.docs.push({ path: p, name: nameOf(p), loading: true, error: null, base: '', rev: null, eol: 'lf', bom: false, dirty: false, conflict: null, saving: false, version: 0, image: isImage(p) });
       void this.#load(p).then(() => {
         // a file that has gone since is not worth a tab
         const d = this.get(p);

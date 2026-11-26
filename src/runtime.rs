@@ -1087,6 +1087,10 @@ impl Manager {
                 let mut rd = BufReader::new(stdout);
                 let mut buf = Vec::new();
                 loop {
+                    // one big line (a long history) would keep its size for the session's life
+                    if buf.capacity() > 1 << 20 {
+                        buf = Vec::new();
+                    }
                     buf.clear();
                     match rd.read_until(b'\n', &mut buf).await {
                         Ok(0) | Err(_) => break,
@@ -1418,8 +1422,9 @@ fn slim_update(line: &str) -> Option<String> {
     if !line.starts_with(r#"{"type":"message_update""#) {
         return None;
     }
-    let v: serde_json::Value = serde_json::from_str(line).ok()?;
-    let mut ev = v.get("assistantMessageEvent")?.as_object()?.clone();
+    let mut v: serde_json::Value = serde_json::from_str(line).ok()?;
+    // taken, not cloned: `partial` is the whole answer so far, a few hundred times a reply
+    let mut ev = std::mem::take(v.get_mut("assistantMessageEvent")?.as_object_mut()?);
     let kind = ev.remove("type")?;
     let output = v.pointer("/usage/output").or_else(|| ev.get("partial").and_then(|p| p.pointer("/usage/output"))).cloned();
     ev.remove("partial");

@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
@@ -24,7 +24,8 @@ pub struct SessionSummary {
 
 #[derive(Default)]
 pub struct SessionIndex {
-    cache: Mutex<HashMap<PathBuf, (u64, u64, SessionSummary)>>,
+    /// (mtime, size, bytes read up to the last whole line, summary so far): a file pi appends to is read on from there
+    cache: Mutex<HashMap<PathBuf, (u64, u64, u64, SessionSummary)>>,
 }
 
 fn millis(t: SystemTime) -> u64 {
@@ -43,25 +44,39 @@ fn first_text(content: &Value) -> Option<String> {
     Some(flat.chars().take(160).collect())
 }
 
-fn parse(path: &Path, modified: u64) -> Option<SessionSummary> {
+/// The summary of a session file; `prev` (bytes read, summary then) goes on from there instead of from the start.
+fn parse(path: &Path, modified: u64, prev: Option<(u64, SessionSummary)>) -> Option<(u64, SessionSummary)> {
     let file = std::fs::File::open(path).ok()?;
     let mut rd = BufReader::new(file);
     let mut buf = Vec::new();
 
-    rd.read_until(b'\n', &mut buf).ok()?;
-    let header: Value = serde_json::from_slice(&buf).ok()?;
-    if header.get("type")?.as_str()? != "session" {
-        return None;
-    }
-    let id = header.get("id")?.as_str()?.to_owned();
-    let cwd = header.get("cwd").and_then(Value::as_str).unwrap_or("").to_owned();
-
-    let (mut name, mut preview, mut turns) = (None, None, 0u32);
+    let (mut at, id, cwd, mut name, mut preview, mut turns) = match prev {
+        Some((at, s)) => {
+            rd.seek(SeekFrom::Start(at)).ok()?;
+            (at, s.id, s.cwd, s.name, s.preview, s.turns)
+        }
+        None => {
+            let n = rd.read_until(b'\n', &mut buf).ok()?;
+            let header: Value = serde_json::from_slice(&buf).ok()?;
+            if header.get("type")?.as_str()? != "session" {
+                return None;
+            }
+            let id = header.get("id")?.as_str()?.to_owned();
+            let cwd = header.get("cwd").and_then(Value::as_str).unwrap_or("").to_owned();
+            (n as u64, id, cwd, None, None, 0u32)
+        }
+    };
     loop {
         buf.clear();
-        if rd.read_until(b'\n', &mut buf).ok()? == 0 {
+        let n = rd.read_until(b'\n', &mut buf).ok()?;
+        if n == 0 {
             break;
         }
+        // a line pi is still writing is read next time, whole (pi ends every line with a newline)
+        if buf.last() != Some(&b'\n') {
+            break;
+        }
+        at += n as u64;
         // Cheap substring checks first: message lines can be megabytes.
         let line = String::from_utf8_lossy(&buf);
         if line.starts_with(r#"{"type":"session_info""#) || line.contains(r#""type":"session_info""#) {
@@ -82,7 +97,7 @@ fn parse(path: &Path, modified: u64) -> Option<SessionSummary> {
             }
         }
     }
-    Some(SessionSummary { path: path.to_string_lossy().into_owned(), id, cwd, name, preview, modified, turns })
+    Some((at, SessionSummary { path: path.to_string_lossy().into_owned(), id, cwd, name, preview, modified, turns }))
 }
 
 impl SessionIndex {
@@ -101,11 +116,15 @@ impl SessionIndex {
                 let (mtime, size) = (millis(meta.modified().unwrap_or(UNIX_EPOCH)), meta.len());
                 seen.insert(p.clone());
 
-                let hit = self.cache.lock().unwrap().get(&p).filter(|(m, s, _)| *m == mtime && *s == size).cloned();
-                if let Some((_, _, summary)) = hit {
-                    out.push(summary);
-                } else if let Some(summary) = parse(&p, mtime) {
-                    self.cache.lock().unwrap().insert(p, (mtime, size, summary.clone()));
+                let hit = self.cache.lock().unwrap().get(&p).cloned();
+                if let Some((_, _, _, summary)) = hit.as_ref().filter(|(m, s, _, _)| *m == mtime && *s == size) {
+                    out.push(summary.clone());
+                    continue;
+                }
+                // grown: read on from the last whole line (pi only appends); shrunk: from the start
+                let prev = hit.filter(|(_, s, at, _)| size >= *s && size >= *at).map(|(_, _, at, s)| (at, s));
+                if let Some((at, summary)) = parse(&p, mtime, prev) {
+                    self.cache.lock().unwrap().insert(p, (mtime, size, at, summary.clone()));
                     out.push(summary);
                 }
             }
@@ -113,5 +132,29 @@ impl SessionIndex {
         self.cache.lock().unwrap().retain(|k, _| seen.contains(k));
         out.sort_by_key(|s| std::cmp::Reverse(s.modified));
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn reads_on_from_where_it_stopped() {
+        let dir = std::env::temp_dir().join(format!("oven-sess-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("s.jsonl");
+        let user = r#"{"type":"message","message":{"role":"user","content":"hi"}}"#;
+        std::fs::write(&p, format!("{{\"type\":\"session\",\"id\":\"x\",\"cwd\":\"/\"}}\n{user}\n{{\"type\":\"mess")).unwrap();
+        let (at, s) = parse(&p, 1, None).unwrap();
+        assert_eq!((s.turns, s.preview.as_deref()), (1, Some("hi")));
+        // the half-written line is finished and another comes
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+        write!(f, "age\",\"message\":{{\"role\":\"user\",\"content\":\"again\"}}}}\n{user}\n").unwrap();
+        let (_, s) = parse(&p, 2, Some((at, s))).unwrap();
+        assert_eq!((s.turns, s.preview.as_deref(), s.modified), (3, Some("hi"), 2));
+        std::fs::remove_file(&p).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
     }
 }

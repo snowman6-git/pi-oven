@@ -22,6 +22,8 @@ class App {
   bootError = $state('');
   home = $state('');
   sessions = $state<SessionSummary[]>([]);
+  /** Session files pinned to the Open tab (kept by the server, so every device has the same), oldest pin first. */
+  pinned = $state<string[]>([]);
   /** Models left out of the model menu and each model's starting level (Settings → Models). */
   modelPrefs = $state<ModelPrefs | null>(null);
   chats = $state<Chat[]>([]);
@@ -118,7 +120,12 @@ class App {
   }
 
   async refreshSessions() {
+    void api.pins().then((p) => (this.pinned = p), () => {}); // pins changed on another device come with the list
     try { this.sessions = await api.sessions(); } catch (e) { this.#fail(e); }
+  }
+
+  async togglePin(path: string) {
+    try { this.pinned = await api.setPin(path, !this.pinned.includes(path)); } catch { this.flash(t('sidebar.pinFailed')); }
   }
 
   #attach(r: RuntimeInfo): Chat {

@@ -373,7 +373,12 @@
     "selectDay": "Select all from {day}",
     "unselectDay": "Unselect {day}",
     "deleteDay": "Delete sessions from {day}…",
-    "stIdle": "idle"
+    "stIdle": "idle",
+    "pin": "Pin to Open",
+    "unpin": "Unpin",
+    "pinned": "Pinned",
+    "pinFailed": "Could not change the pin. Try again.",
+    "stClosed": "closed"
   },
   "header": {
     "tree": "Session tree",

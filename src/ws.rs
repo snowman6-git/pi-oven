@@ -71,7 +71,12 @@ impl Want {
 fn response_id(line: &str) -> Option<Option<&str>> {
     if let Some(rest) = line.strip_prefix(r#"{"type":"response""#) {
         // the id may come after the type (not from pi itself, but nothing should hang on the order)
-        let head = &rest[..rest.len().min(160)];
+        // (160 bytes may end inside a character: a model's name in a set_model answer can be Korean)
+        let mut n = rest.len().min(160);
+        while !rest.is_char_boundary(n) {
+            n -= 1;
+        }
+        let head = &rest[..n];
         return Some(head.find(r#","id":""#).and_then(|i| {
             let id = &rest[i + 7..];
             id.find('"').map(|e| &id[..e])
@@ -206,7 +211,9 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
                     if let Some(id) = response_id(&line) {
                         let Some(want) = id.and_then(|id| mine.remove(id)) else { continue };
                         if let Some(want) = want {
-                            out = shape(&line, want);
+                            // megabytes of JSON parsed and written again: not on the async worker
+                            let l = line.clone();
+                            out = tokio::task::spawn_blocking(move || shape(&l, want)).await.ok().flatten();
                         }
                     }
                     let text = out.unwrap_or_else(|| line.to_string());
@@ -236,7 +243,8 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
                             if want.is_some() {
                                 forward = v.to_string();
                             }
-                            if mine.len() < 1000 {
+                            // pi does not answer a dialog's answer: waiting for one would only fill the table
+                            if v["type"] != "extension_ui_response" && mine.len() < 1000 {
                                 mine.insert(id, want);
                             }
                         }
@@ -256,6 +264,7 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
                                 if let Some(held) = rt.limit_hold().filter(|h| rt.hold(v.clone(), h)) {
                                     let mut r = serde_json::json!({ "type": "response", "command": "prompt", "success": true, "data": { "held": held } });
                                     if let Some(id) = v["id"].as_str() {
+                                        mine.remove(id); // pi gets it later without its id: no answer to wait for
                                         r["id"] = id.into();
                                     }
                                     if !send(&mut sock, Message::text(r.to_string())).await { break }
@@ -293,6 +302,11 @@ mod tests {
         assert_eq!(response_id(r#"{"type":"response","id":"z-9","command":"get_state"}"#), Some(Some("z-9")));
         assert_eq!(response_id(r#"{"type":"message_end","id":"x"}"#), None);
         assert_eq!(response_id(r#"{"id":"x","type":"extension_ui_request"}"#), None);
+        // byte 160 inside a Korean character (3 bytes each) must not panic
+        for pad in 0..3 {
+            let line = format!(r#"{{"type":"response","command":"set_model","data":{{"name":"{}{}"}}}}"#, "a".repeat(pad), "모델".repeat(60));
+            assert_eq!(response_id(&line), Some(None));
+        }
     }
 
     fn shaped(line: &str, w: Want) -> serde_json::Value {

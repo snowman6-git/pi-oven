@@ -367,7 +367,12 @@
     "selectDay": "{day} 모두 선택",
     "unselectDay": "{day} 선택 해제",
     "deleteDay": "{day}의 세션 여러 개 삭제…",
-    "stIdle": "대기 중"
+    "stIdle": "대기 중",
+    "pin": "열림에 고정",
+    "unpin": "고정 풀기",
+    "pinned": "고정됨",
+    "pinFailed": "고정을 바꾸지 못했어요. 다시 해 보세요.",
+    "stClosed": "닫힘"
   },
   "header": {
     "tree": "세션 트리",

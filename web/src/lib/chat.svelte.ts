@@ -179,6 +179,8 @@ export class Chat {
   #bgFetching = false;
   #bgEventSeq = 0;
   #noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  #noticeBusy = false; // a tail read is on its way: the next round waits for it
+  #disposed = false;
   #handoffSeq = 0;
   /** Tool calls that can start background tasks and have not returned yet (toolCallId -> tool name). `bg_run` itself reports its task when it ends; a script that calls it (`codemode`) reports nothing, so its tasks are found on the list. */
   #launching = new Map<string, string>();
@@ -274,10 +276,10 @@ export class Chat {
   }
 
   /** Chips showing now: what is running, and what ended while someone was looking. In the order they started. */
-  get bgChips(): BgTask[] {
+  bgChips: BgTask[] = $derived.by(() => {
     const at = (id: string) => { const i = this.bgOrder.indexOf(id); return i < 0 ? Infinity : i; };
     return this.bgTasks.filter((t) => (t.status === 'running' || this.bgFresh.includes(t.id))).sort((x, y) => at(x.id) - at(y.id));
-  }
+  });
 
   /** The chip goes away without a trace: the person has looked at it. */
   dismissBg(id: string) {
@@ -333,7 +335,7 @@ export class Chat {
   #awaitNotice(id: string, keep: boolean) {
     this.#awaitingNotice.add(id);
     if (keep) this.#keepUntilSeen.add(id);
-    if (!this.#noticeTimer) this.#pollNotice();
+    if (!this.#noticeTimer && !this.#noticeBusy) this.#pollNotice();
     if (keep) return;
     setTimeout(() => { if (!this.running && this.#awaitingNotice.delete(id)) this.#expire(id); }, 10_000);
     setTimeout(() => { if (this.#awaitingNotice.delete(id)) this.#expire(id); }, 15 * 60_000);
@@ -344,13 +346,16 @@ export class Chat {
       the `custom_message` record instead, while a task awaits its notice. */
   #pollNotice() {
     // nothing left to wait for: clear the mark, or the next task would think a poll is still running and never start one
-    if (this.#awaitingNotice.size === 0) {
-      this.#noticeTimer = undefined;
-      return;
-    }
+    this.#noticeTimer = undefined;
+    if (this.#disposed || this.#awaitingNotice.size === 0) return;
+    const next = () => {
+      this.#noticeBusy = false;
+      if (!this.#disposed && this.#awaitingNotice.size) this.#noticeTimer = setTimeout(() => this.#pollNotice(), 1500);
+    };
     const file = this.sessionFile;
-    if (file)
-      api
+    if (!file) return next();
+    this.#noticeBusy = true;
+    api
         .tailSession(file, 'background-task-notification')
         .then(({ lines }) => {
           for (const line of lines) {
@@ -376,8 +381,8 @@ export class Chat {
             }
           }
         })
-        .catch(() => {});
-    this.#noticeTimer = this.#awaitingNotice.size ? setTimeout(() => this.#pollNotice(), 1500) : undefined;
+        .catch(() => {})
+        .finally(next);
   }
 
   /** The notice did not come: a finished chip does not stay for ever. */
@@ -554,7 +559,8 @@ export class Chat {
       this.#raw = [...r.messages, ...this.#raw];
       this.#rawFrom = r.from ?? 0;
       this.#took(r);
-      this.#rebuild();
+      // put in front, not drawn again: what is on screen now (an answer being written, notices, running tools) is not in the history
+      this.items = [...itemsFromMessages(r.messages), ...this.items];
       this.sa.restore(this.items);
     } catch { /* stays as it is; scrolling up again asks again */ } finally {
       this.loadingOlder = false;
@@ -865,6 +871,10 @@ export class Chat {
   }
 
   dispose() {
+    this.#disposed = true;
+    clearTimeout(this.#noticeTimer);
+    clearTimeout(this.#rereadTimer);
+    this.#awaitingNotice.clear();
     clearTimeout(this.#statsTimer);
     clearTimeout(this.#bgTimer);
     clearTimeout(this.#todoTimer);
@@ -894,11 +904,6 @@ export class Chat {
     }
   }
 
-  #knownTools(): Map<string, ToolBlock> {
-    const m = new Map<string, ToolBlock>();
-    for (const it of this.items) if (it.kind === 'assistant') for (const b of it.blocks) if (b.type === 'tool') m.set(b.id, b);
-    return m;
-  }
 
   #setLong(s: { attempt: number; max: number; inMs: number | null; error: string } | null | undefined) {
     this.long = s ? { attempt: s.attempt, max: s.max, at: s.inMs == null ? null : Date.now() + s.inMs, error: s.error } : null;
@@ -1197,7 +1202,8 @@ export class Chat {
         const live = this.#liveAssistant();
         if (!live) return;
         this.#dropArgs();
-        live.blocks = blocksFromContent(m.content, this.#knownTools());
+        // this message's tools are in its own blocks: no need to look through the whole conversation
+        live.blocks = blocksFromContent(m.content, new Map(live.blocks.flatMap((b) => (b.type === 'tool' ? [[b.id, b] as const] : []))));
         live.live = false;
         live.model = m.model;
         live.usage = m.usage;

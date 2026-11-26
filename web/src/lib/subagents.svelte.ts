@@ -53,14 +53,16 @@ export class Subagents {
   /** Tool ids of ended background runs whose notice has not come. */
   #awaiting = new Set<string>();
   #disposed = false;
+  #polling = false; // a round is waiting for its answers: another must not start beside it
+  #tailing = false;
 
   constructor(private host: SubagentHost) {}
 
   /** Chips showing now: going, or just ended. Oldest first. */
-  get chips(): Run[] {
+  chips: Run[] = $derived.by(() => {
     if (!this.host.enabled()) return [];
     return this.runs.filter((r) => r.state === 'running' || this.fresh.includes(r.toolId)).sort((a, b) => a.startedAt - b.startedAt);
-  }
+  });
 
   #set(run: Run) {
     const i = this.runs.findIndex((r) => r.toolId === run.toolId);
@@ -147,7 +149,7 @@ export class Subagents {
   // ── following background runs ─────────────────────────────────────────────
 
   #poll() {
-    if (this.#pollTimer || this.#disposed) return;
+    if (this.#pollTimer || this.#polling || this.#disposed) return;
     this.#pollTimer = setTimeout(() => void this.#pollOnce(), 300);
   }
 
@@ -155,6 +157,7 @@ export class Subagents {
     this.#pollTimer = undefined;
     const going = this.runs.filter((r) => r.state === 'running' && r.asyncDir);
     if (!going.length || this.#disposed) return;
+    this.#polling = true;
     await Promise.all(
       going.map(async (r) => {
         try {
@@ -169,6 +172,8 @@ export class Subagents {
         }
       }),
     );
+    this.#polling = false;
+    if (this.#disposed) return;
     if (this.runs.some((r) => r.state === 'running' && r.asyncDir)) this.#pollTimer = setTimeout(() => void this.#pollOnce(), document.hidden ? POLL_MS * 3 : POLL_MS);
   }
 
@@ -190,12 +195,13 @@ export class Subagents {
 
   /** A background run's notice may only land in the session file: read its tail while one is awaited. */
   #tail() {
-    if (this.#tailTimer || this.#disposed) return;
+    if (this.#tailTimer || this.#tailing || this.#disposed) return;
     const round = async () => {
       this.#tailTimer = undefined;
       if (!this.#awaiting.size || this.#disposed) return;
       const file = this.host.sessionFile();
       if (file) {
+        this.#tailing = true;
         try {
           const { lines } = await api.tailSession(file, NOTICE);
           for (const line of lines) {
@@ -207,9 +213,11 @@ export class Subagents {
             const key = this.host.addNotice(rec);
             if (key != null) this.arrived(notice, key);
           }
-        } catch { /* next round */ }
+        } catch { /* next round */ } finally {
+          this.#tailing = false;
+        }
       }
-      if (this.#awaiting.size) this.#tailTimer = setTimeout(round, 1500);
+      if (this.#awaiting.size && !this.#disposed) this.#tailTimer = setTimeout(round, 1500);
     };
     this.#tailTimer = setTimeout(round, 800);
   }

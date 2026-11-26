@@ -180,7 +180,8 @@ export const api = {
   tailSession: (path: string, custom?: string) =>
     call<{ lines: string[] }>(`/api/sessions/tail?path=${encodeURIComponent(path)}&n=25${custom ? `&custom=${encodeURIComponent(custom)}` : ''}`, {}, BG),
   files: (id: string, path = '') => call<FileListing>(`/api/runtimes/${id}/files?path=${encodeURIComponent(path)}`),
-  readFile: (id: string, path: string) => call<FileText>(`/api/runtimes/${id}/files/read?path=${encodeURIComponent(path)}`),
+  /** `bg`: a read the person did not ask for (polling), which gives up after a while */
+  readFile: (id: string, path: string, bg = false) => call<FileText>(`/api/runtimes/${id}/files/read?path=${encodeURIComponent(path)}`, {}, bg ? BG : 0),
   writeFile: (id: string, body: { path: string; content: string; rev?: string | null; overwrite?: boolean; eol?: string; bom?: boolean }) =>
     call<{ rev: string; mtime: number; size: number }>(`/api/runtimes/${id}/files/write`, { method: 'PUT', body: JSON.stringify(body) }),
   createFile: (id: string, path: string, kind: 'file' | 'dir') =>
@@ -189,7 +190,7 @@ export const api = {
     call<void>(`/api/runtimes/${id}/files/rename`, { method: 'POST', body: JSON.stringify({ from, to }) }),
   deleteFile: (id: string, path: string) => call<void>(`/api/runtimes/${id}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   statFiles: (id: string, paths: string[]) =>
-    call<Record<string, FileStat | null>>(`/api/runtimes/${id}/files/stat`, { method: 'POST', body: JSON.stringify({ paths }) }),
+    call<Record<string, FileStat | null>>(`/api/runtimes/${id}/files/stat`, { method: 'POST', body: JSON.stringify({ paths }) }, BG),
   gitDiff: (id: string, path: string) => callText(`/api/runtimes/${id}/git/diff?path=${encodeURIComponent(path)}`),
   info: () => call<{ version: string; build?: string | null; home: string; sessionsDir: string }>('/api/info'),
   ovenCheck: () => call<OvenRelease>('/api/oven/update'),
@@ -197,12 +198,14 @@ export const api = {
   setOvenAuto: (enabled: boolean) => call<OvenStatus>('/api/oven/auto', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   ovenApply: () => call<{ restarting: boolean; latest: string }>('/api/oven/update', { method: 'POST' }),
   sessions: () => call<SessionSummary[]>('/api/sessions'),
+  pins: () => call<string[]>('/api/sessions/pins', {}, BG),
+  setPin: (path: string, pinned: boolean) => call<string[]>('/api/sessions/pins', { method: 'PUT', body: JSON.stringify({ path, pinned }) }),
   /** Name a session that is not open (an empty name clears it). An open one is renamed through its own pi. */
   renameSession: (path: string, name: string) => call<void>('/api/sessions/rename', { method: 'POST', body: JSON.stringify({ path, name }) }),
   /** `close`: an open session is closed first (wherever it is open) instead of refused. */
   deleteSession: (path: string, close = false) =>
     call<{ closed?: string[] } | undefined>(`/api/sessions?path=${encodeURIComponent(path)}${close ? '&close=true' : ''}`, { method: 'DELETE' }),
-  runtimes: () => call<RuntimeInfo[]>('/api/runtimes'),
+  runtimes: () => call<RuntimeInfo[]>('/api/runtimes', {}, BG),
   openRuntime: (body: { cwd: string; sessionPath?: string }) =>
     call<RuntimeInfo>('/api/runtimes', { method: 'POST', body: JSON.stringify(body) }),
   restartRuntime: (id: string, sessionPath?: string) =>

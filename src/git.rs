@@ -38,6 +38,7 @@ async fn git(dir: &Path, args: &[&str]) -> Result<(Vec<u8>, bool), String> {
         .current_dir(dir)
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_LITERAL_PATHSPECS", "1") // `app/[id]/page.tsx` is a name, not a pattern
         .env("GIT_EXTERNAL_DIFF", "")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -318,6 +319,7 @@ async fn git_write(dir: &Path, args: &[&str], stdin: Option<&str>) -> Result<(bo
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_LITERAL_PATHSPECS", "1") // `app/[id]/page.tsx` is a name, not a pattern
         .env("GIT_EDITOR", "true")
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())

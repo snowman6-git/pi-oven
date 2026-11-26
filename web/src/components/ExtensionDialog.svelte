@@ -34,8 +34,8 @@
         {#if d.method === 'confirm'}
           <p class="msg">{d.message}</p>
           <div class="foot">
-            <button class="btn" type="button" onclick={() => chat.respond(d.id, { confirmed: false })}>{S.cancel}</button>
-            <button class="btn primary" type="button" use:autofocus onclick={() => chat.respond(d.id, { confirmed: true })}>{S.confirm}</button>
+            <button class="btn" type="button" use:autofocus onclick={() => chat.respond(d.id, { confirmed: false })}>{S.cancel}</button>
+            <button class="btn primary" type="button" onclick={() => chat.respond(d.id, { confirmed: true })}>{S.confirm}</button>
           </div>
         {:else if d.method === 'select'}
           <ul class="opts">

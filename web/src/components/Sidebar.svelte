@@ -53,9 +53,20 @@
     }
     return q ? out.filter((e) => `${e.title} ${e.cwd}`.toLowerCase().includes(q)) : out;
   });
-  // Open ones keep the order they were opened in, so a row does not jump each time its session writes.
-  const openList = $derived(entries.filter((e) => e.chat).sort((a, b) => app.chats.indexOf(a.chat!) - app.chats.indexOf(b.chat!)));
-  const closedList = $derived(entries.filter((e) => !e.chat).sort((a, b) => b.when - a.when));
+  /** Where a session sits among the pins (-1: not pinned). Pinned ones stay in the Open tab, closed or not. */
+  const pinAt = (e: Entry) => (e.session ? app.pinned.indexOf(e.session.path) : -1);
+  // Pins first, in the order they were pinned; then open ones in the order they were opened, so a row does not jump
+  // each time its session writes.
+  const openList = $derived(
+    entries
+      .filter((e) => e.chat || pinAt(e) >= 0)
+      .sort((a, b) => {
+        const pa = pinAt(a), pb = pinAt(b);
+        if (pa >= 0 || pb >= 0) return pa < 0 ? 1 : pb < 0 ? -1 : pa - pb;
+        return app.chats.indexOf(a.chat!) - app.chats.indexOf(b.chat!);
+      }),
+  );
+  const closedList = $derived(entries.filter((e) => !e.chat && pinAt(e) < 0).sort((a, b) => b.when - a.when));
 
   // History is long: it is drawn a page at a time.
   const PAGE = 80;
@@ -110,6 +121,7 @@
     }
     return [
       { label: t('sidebar.open'), icon: 'chat', run: () => open(e) },
+      { label: pinAt(e) >= 0 ? t('sidebar.unpin') : t('sidebar.pin'), icon: 'pin', disabled: !e.session, run: () => e.session && app.togglePin(e.session.path) },
       { label: S.rename, icon: 'edit', disabled: !e.chat && !e.session, run: () => startRename(e) },
       { label: t('sidebar.newIn', { folder: shortName(e.cwd) }), icon: 'plus', run: () => app.openFolder(e.cwd) },
       'sep',
@@ -289,7 +301,8 @@
     {@const checked = !!e.session && app.picked.includes(e.session.path)}
     {@const locked = app.selecting && (!e.session || !app.canDelete(e.session))}
     {@const cur = !app.selecting && !!e.chat && e.chat.runtime.id === app.currentId}
-    <li class:active={cur} class:checked class:two={open2}>
+    {@const pinned = pinAt(e) >= 0}
+    <li class:active={cur} class:checked class:two={open2} class:closed={open2 && !e.chat}>
       {#if renaming === e.key}
         <div class="row editing">
           <span class="state" class:open={!!e.chat} aria-hidden="true"></span>
@@ -310,12 +323,12 @@
         {#if open2}
           <span class="lines">
             <span class="t" data-priv="titles">{e.title}</span>
-            <span class="sub"><span data-priv="paths">{baseName(e.cwd)}</span>{#if e.chat}{` · ${doing(e.chat)}`}{/if}</span>
+            <span class="sub"><span data-priv="paths">{baseName(e.cwd)}</span>{` · ${e.chat ? doing(e.chat) : t('sidebar.stClosed')}`}</span>
           </span>
           {#if e.chat?.running && e.chat.runSince != null}
             <span class="m clock">{runClock(Math.max(0, now - e.chat.runSince))}</span>
           {:else}
-            <span class="m">{relativeTime(e.when)}</span>
+            <span class="m">{#if pinned}<span class="pin" role="img" aria-label={t('sidebar.pinned')} title={t('sidebar.pinned')}><Icon name="pin" size={12} /></span>{/if}{relativeTime(e.when)}</span>
           {/if}
         {:else}
           <span class="t" data-priv="titles">{e.title}</span>
@@ -619,7 +632,8 @@
     margin-top: 6px;
   }
   /* closed: an empty square where an open one has its colour */
-  li:not(.two) .row .state {
+  li:not(.two) .row .state,
+  li.closed .row .state {
     box-shadow: inset 0 0 0 1px var(--ink-3);
     opacity: 0.6;
   }
@@ -687,6 +701,11 @@
     font-size: 12px;
     color: var(--ink-3);
     font-variant-numeric: tabular-nums;
+  }
+  .m .pin {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin-right: 4px;
   }
   .m.clock {
     color: var(--heat);

@@ -12,6 +12,7 @@ mod files;
 mod fs;
 mod git;
 mod model_prefs;
+mod pins;
 mod models;
 mod pet;
 mod runtime;
@@ -153,6 +154,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/resume", get(resume::get_settings).put(resume::set_settings))
         .route("/api/runtimes/{id}/resume", axum::routing::post(resume::act))
         .route("/api/sessions", get(api::sessions).delete(api::delete_session))
+        .route("/api/sessions/pins", get(pins::get).put(pins::set))
         .route("/api/runtimes", get(api::list_runtimes).post(api::create_runtime))
         .route("/api/runtimes/{id}", delete(api::delete_runtime))
         .route("/api/runtimes/{id}/ws", get(ws::handler))

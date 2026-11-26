@@ -156,7 +156,12 @@ fn with_auth_lock<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String>
 fn write_auth(provider: &str, cred: &Value) -> Result<(), String> {
     with_auth_lock(|| {
         let dir = agent_dir();
-        let mut auth = read_auth(&dir);
+        // a file that cannot be read or parsed is left alone: writing over it would lose every other provider's sign-in
+        let mut auth = match std::fs::read_to_string(dir.join("auth.json")) {
+            Ok(t) => serde_json::from_str(t.trim_start_matches('\u{feff}')).map_err(|e| format!("auth.json is not valid JSON: {e}"))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+            Err(e) => return Err(format!("could not read auth.json: {e}")),
+        };
         let obj = auth.as_object_mut().ok_or("auth.json is not an object")?;
         obj.insert(provider.to_owned(), cred.clone());
         let path = dir.join("auth.json");
