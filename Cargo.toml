@@ -1,6 +1,6 @@
 [package]
 name = "pi-oven"
-version = "0.1.61"
+version = "0.1.0"
 edition = "2021"
 description = "Web UI server for the pi coding agent"
 license = "Apache-2.0"
@@ -24,6 +24,10 @@ notify = { version = "8", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
+
+# the sign-in fingerprint is many rounds of SHA-256 at start; unoptimised it would slow every test server's start
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 # smaller and a little faster, at the price of a longer release build
