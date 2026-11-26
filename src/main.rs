@@ -28,6 +28,7 @@ mod resume;
 mod retry;
 mod update;
 mod usage;
+mod usage_stats;
 mod watch;
 mod web;
 mod ws;
@@ -52,6 +53,7 @@ pub struct AppState {
     pub pi_bin: String,
     pub runtimes: Arc<runtime::Manager>,
     pub sessions: sessions::SessionIndex,
+    pub usage_stats: usage_stats::UsageIndex,
     /// `--root`, resolved: the only folder (and below) this server works in.
     pub root: Option<PathBuf>,
     pub self_update: Arc<selfupdate::SelfUpdate>,
@@ -127,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
         pi_bin: cfg.pi_bin.clone(),
         runtimes: runtimes.clone(),
         sessions: Default::default(),
+        usage_stats: Default::default(),
         root: cfg.root.clone(),
         self_update: Default::default(),
         watches: Default::default(),
@@ -141,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/oven/status", get(selfupdate::status))
         .route("/api/oven/auto", axum::routing::put(selfupdate::set_auto))
         .route("/api/limits", get(limits::get))
+        .route("/api/usage/stats", get(usage_stats::get))
         .route("/api/limits/refresh", axum::routing::post(usage::refresh))
         .route("/api/limits/poll", get(usage::get_poll).put(usage::set_poll))
         .route("/api/claude-cache", get(cache_ttl::get).put(cache_ttl::set))

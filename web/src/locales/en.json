@@ -1267,5 +1267,26 @@
     "fullOn": "Full screen",
     "fullOff": "Leave full screen",
     "reset": "Fit to window"
+  },
+  "usage": {
+    "title": "Total usage",
+    "period": "Period",
+    "today": "Today",
+    "d7": "7 days",
+    "d30": "30 days",
+    "all": "All",
+    "empty": "No records yet",
+    "tokens": "tokens",
+    "requests": "Requests",
+    "input": "Input",
+    "cacheRead": "Cache read",
+    "cacheWrite": "Cache write",
+    "output": "Output",
+    "cacheRatio": "Read from cache",
+    "models": "By model",
+    "apiCost": "{cost} at API prices",
+    "apiCostTip": "These tokens priced at pay-as-you-go API rates. Not what your subscription costs.",
+    "share": "Share by provider",
+    "perDay": "Tokens per day"
   }
 }

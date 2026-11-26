@@ -201,6 +201,7 @@ export const api = {
   loginStart: (provider: string) => call<AccountsView>('/api/accounts/login', { method: 'POST', body: JSON.stringify({ provider }) }, BG * 4),
   loginInput: (text: string) => call<void>('/api/accounts/login/input', { method: 'POST', body: JSON.stringify({ text }) }, BG * 4),
   loginCancel: () => call<void>('/api/accounts/login', { method: 'DELETE' }, BG * 4),
+  usageStats: (tz: number) => call<UsageStats>(`/api/usage/stats?tz=${tz}`, {}, BG),
   /** The subagents set up (pi-subagents' definitions with the settings' overrides applied). */
   subagentAgents: (runtime?: string) => call<{ agents: AgentDef[] }>(`/api/subagents/agents${runtime ? `?runtime=${encodeURIComponent(runtime)}` : ''}`, {}, BG),
   /** How a background subagent run is going (its runner's status.json, trimmed). */
@@ -349,3 +350,6 @@ export interface AgentDef {
 /** The model a new session starts on (the one last picked) and each model's starting level, `provider/model` → level. */
 /** `thinking`: `provider/model` → level, or `pi` (pi's own, not the provider's recommended one). `hidden`: models left out of the model menu, `hiddenProviders`: whole providers left out. */
 export interface ModelPrefs { last?: [string, string]; thinking: Record<string, ThinkingLevel | 'pi'>; hidden: string[]; hiddenProviders: string[] }
+
+export interface UsageRow { provider: string; model: string; requests: number; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
+export interface UsageStats { since: string | null; files: number; days: { day: string; rows: UsageRow[] }[] }

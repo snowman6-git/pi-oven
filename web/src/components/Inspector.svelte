@@ -10,6 +10,7 @@
   import PointTab from './PointTab.svelte';
   import LimitsSection from './LimitsSection.svelte';
   import SubagentInfo from './SubagentInfo.svelte';
+  import UsageStats from './UsageStats.svelte';
 
   let { chat }: { chat: Chat } = $props();
 
@@ -73,6 +74,7 @@
   </section>
 
   <LimitsSection provider={chat.state?.model?.provider} />
+  <UsageStats running={chat.running} />
   <SubagentInfo {chat} />
 
   {#if chat.stats?.tokens}

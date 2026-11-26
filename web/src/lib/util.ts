@@ -42,6 +42,7 @@ export function runClock(ms: number): string {
 }
 
 export function compactNumber(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k`;
   return String(n);
