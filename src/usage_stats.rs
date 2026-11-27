@@ -76,10 +76,10 @@ fn entry_of(line: &str) -> Option<Entry> {
         _ => format!("{provider}|{model}|{ts}|{output}|{cache_read}"),
     };
     // a failed request (a limit, an overload) comes back with no tokens: not a request that used anything
-    if input + output + cache_read + cache_write == 0 {
+    if input.saturating_add(output).saturating_add(cache_read).saturating_add(cache_write) == 0 {
         return None;
     }
-    let cost = u.get("cost").and_then(|c| c.get("total")).and_then(Value::as_f64).unwrap_or(0.0);
+    let cost = u.get("cost").and_then(|c| c.get("total")).and_then(Value::as_f64).filter(|c| c.is_finite()).unwrap_or(0.0);
     Some(Entry { key, ts, provider, model, input, output, cache_read, cache_write, cost })
 }
 
@@ -182,12 +182,14 @@ impl UsageIndex {
                 }
                 let day = (e.ts - tz * 60_000).div_euclid(DAY_MS);
                 let r = days.entry(day).or_default().entry((e.provider.clone(), e.model.clone())).or_default();
-                r.requests += 1;
-                r.input += e.input;
-                r.output += e.output;
-                r.cache_read += e.cache_read;
-                r.cache_write += e.cache_write;
-                r.cost += e.cost;
+                r.requests = r.requests.saturating_add(1);
+                r.input = r.input.saturating_add(e.input);
+                r.output = r.output.saturating_add(e.output);
+                r.cache_read = r.cache_read.saturating_add(e.cache_read);
+                r.cache_write = r.cache_write.saturating_add(e.cache_write);
+                if e.cost.is_finite() {
+                    r.cost += e.cost;
+                }
             }
         }
         self.cache.lock().unwrap().retain(|k, _| alive.contains(k));

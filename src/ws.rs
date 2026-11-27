@@ -57,7 +57,12 @@ impl Want {
         let since = o.remove("oven_since");
         let before = o.remove("oven_before");
         // a page that does not say how much takes all of it (as it always did)
-        let bytes = tail.as_ref().and_then(|t| t["bytes"].as_u64()).map_or(usize::MAX, |b| (b as usize).clamp(16 << 10, 64 << 20));
+        let raw_bytes = tail
+            .as_ref()
+            .and_then(|t| t["bytes"].as_u64())
+            .or_else(|| before.as_ref().and_then(|b| b["bytes"].as_u64()))
+            .or_else(|| since.as_ref().and_then(|s| s["bytes"].as_u64()));
+        let bytes = raw_bytes.map_or(usize::MAX, |b| (b as usize).clamp(16 << 10, 64 << 20));
         let pair = |s: &serde_json::Value| Some((s["n"].as_u64()? as usize, s["ts"].as_u64()?));
         if let Some((n, ts)) = before.as_ref().and_then(pair) {
             return Some(Want::Before { n, ts, bytes });
@@ -70,7 +75,7 @@ impl Want {
 }
 
 /// A response line's request id (pi puts it first) and whether the line is a response at all.
-fn response_id(line: &str) -> Option<Option<&str>> {
+pub(crate) fn response_id(line: &str) -> Option<Option<&str>> {
     if let Some(rest) = line.strip_prefix(r#"{"type":"response""#) {
         // the id may come after the type (not from pi itself, but nothing should hang on the order)
         // (160 bytes may end inside a character: a model's name in a set_model answer can be Korean)
@@ -205,6 +210,7 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
     // The requests this page sent and is waiting for: pi's answers go to every page of the session, and one page's
     // history (megabytes) is no business of another's. `Some(want)`: a history request, and the part of it the page wants.
     let mut mine: std::collections::HashMap<String, Option<Want>> = std::collections::HashMap::new();
+    let mut mine_order: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     // (resolving the folder may touch a slow disk; the handle keeps the watcher alive as long as this page looks)
     let cwd = std::path::PathBuf::from(&rt.info.cwd);
     let hub = tokio::task::spawn_blocking(move || app.watches.of(&cwd)).await.ok().flatten();
@@ -251,8 +257,14 @@ async fn attach(mut sock: WebSocket, rt: Arc<Runtime>, app: Arc<crate::AppState>
                                 forward = v.to_string();
                             }
                             // pi does not answer a dialog's answer: waiting for one would only fill the table
-                            if v["type"] != "extension_ui_response" && mine.len() < 1000 {
-                                mine.insert(id, want);
+                            if v["type"] != "extension_ui_response" {
+                                while mine.len() >= 1000 {
+                                    let Some(oldest) = mine_order.pop_front() else { break };
+                                    mine.remove(&oldest);
+                                }
+                                if mine.insert(id.clone(), want).is_none() {
+                                    mine_order.push_back(id);
+                                }
                             }
                         }
                         if v["type"] == "extension_ui_response" {

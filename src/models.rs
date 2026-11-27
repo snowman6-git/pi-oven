@@ -3,7 +3,7 @@
 //! The key is written the way pi reads it (a literal, `$ENV_NAME`, or `!command`) and is never sent back: the page
 //! gets a hint of it, enough to recognise which key is there.
 
-use std::{io::Write, path::PathBuf, process::Stdio, sync::Arc, time::Duration};
+use std::{path::PathBuf, process::Stdio, sync::{Arc, Mutex}, time::Duration};
 
 use axum::{
     extract::{Query, State},
@@ -15,7 +15,9 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::{io::AsyncWriteExt, process::Command};
 
-use crate::{api::fail, config::home_dir, AppState};
+use crate::{api::fail, AppState};
+
+static LOCK: Mutex<()> = Mutex::new(());
 
 /// What pi can talk to. (pi has more; these are the ones worth typing an address for.)
 const APIS: &[&str] = &[
@@ -26,10 +28,7 @@ const APIS: &[&str] = &[
 ];
 
 fn models_path() -> PathBuf {
-    std::env::var_os("PI_CODING_AGENT_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".pi/agent"))
-        .join("models.json")
+    crate::config::agent_dir().join("models.json")
 }
 
 type Bad = (StatusCode, String);
@@ -83,32 +82,13 @@ fn set_levels(o: &mut Map<String, Value>, xhigh: bool, max: bool) {
 fn write(doc: &Value) -> Result<(), Bad> {
     let path = models_path();
     let io = |e: std::io::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(io)?;
+    if let Ok(prev) = std::fs::read(&path) {
+        let _ = crate::config::atomic_write(&path.with_extension("json.bak"), &prev, true);
     }
-    if path.exists() {
-        let _ = std::fs::copy(&path, path.with_extension("json.bak"));
-    }
-    let tmp = path.with_extension(format!("json.tmp-{}", std::process::id()));
-    let mut f = std::fs::File::create(&tmp).map_err(io)?;
-    f.write_all(
-        serde_json::to_string_pretty(doc)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-            .as_bytes(),
-    )
-    .map_err(io)?;
-    f.write_all(b"\n").map_err(io)?;
-    f.sync_all().map_err(io)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // it may hold a key: not for other users of this machine
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
-    std::fs::rename(&tmp, &path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        io(e)
-    })
+    let mut text = serde_json::to_string_pretty(doc)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    text.push('\n');
+    crate::config::atomic_write(&path, text.as_bytes(), true).map_err(io)
 }
 
 fn key_hint(key: &Value) -> Value {
@@ -230,8 +210,28 @@ fn check_url(u: &str) -> Result<(), Bad> {
     Ok(())
 }
 
+fn url_origin(u: &str) -> Option<(String, String)> {
+    let (scheme, rest) = u.trim().split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?.trim();
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let authority = authority.to_ascii_lowercase();
+    let normalized = match (scheme.as_str(), authority.strip_suffix(":80"), authority.strip_suffix(":443")) {
+        ("http", Some(h), _) => h.to_owned(),
+        ("https", _, Some(h)) => h.to_owned(),
+        _ => authority,
+    };
+    Some((scheme, normalized))
+}
+
 pub async fn upsert(State(app): State<Arc<AppState>>, Json(req): Json<Upsert>) -> Response {
     let res = (|| -> Result<(), Bad> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         plain(&req.provider, tr!("제공자 이름", "The provider name"), 64)?;
         if !req
             .provider
@@ -379,6 +379,7 @@ pub struct Remove {
 /// A model, or (with no model named) a whole provider.
 pub async fn remove(State(app): State<Arc<AppState>>, Query(q): Query<Remove>) -> Response {
     let res = (|| -> Result<(), Bad> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut doc = read()?;
         let providers = doc["providers"].as_object_mut().ok_or((
             StatusCode::NOT_FOUND,
@@ -440,14 +441,22 @@ pub async fn probe(State(_): State<Arc<AppState>>, Json(req): Json<Probe>) -> Re
     let mut key = req.api_key.filter(|k| !k.is_empty());
     if key.is_none() {
         if let (Some(name), Ok(doc)) = (&req.provider, read()) {
-            key = doc["providers"][name.as_str()]["apiKey"]
+            // Only send a provider's saved key to the same origin configured for that provider (prevents exfiltrating
+            // stored keys or $ENV_VAR values to an attacker-supplied baseUrl).
+            let same_origin = doc["providers"][name.as_str()]["baseUrl"]
                 .as_str()
-                .filter(|k| !k.starts_with('!'))
-                .map(|k| {
-                    k.strip_prefix('$')
-                        .map_or_else(|| k.to_owned(), |v| std::env::var(v).unwrap_or_default())
-                })
-                .filter(|k| !k.is_empty());
+                .and_then(url_origin)
+                .is_some_and(|saved| url_origin(&url).as_ref() == Some(&saved));
+            if same_origin {
+                key = doc["providers"][name.as_str()]["apiKey"]
+                    .as_str()
+                    .filter(|k| !k.starts_with('!'))
+                    .map(|k| {
+                        k.strip_prefix('$')
+                            .map_or_else(|| k.to_owned(), |v| std::env::var(v).unwrap_or_default())
+                    })
+                    .filter(|k| !k.is_empty());
+            }
         }
     }
     let q = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
@@ -567,4 +576,31 @@ pub async fn probe(State(_): State<Arc<AppState>>, Json(req): Json<Probe>) -> Re
         })
         .unwrap_or_default();
     Json(json!({ "ids": ids })).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_origin;
+
+    #[test]
+    fn url_origin_matches_same_origin_and_rejects_others() {
+        assert_eq!(
+            url_origin("https://api.example.com/v1/models"),
+            Some(("https".to_owned(), "api.example.com".to_owned()))
+        );
+        assert_eq!(
+            url_origin("HTTPS://API.Example.com:8443/v1"),
+            Some(("https".to_owned(), "api.example.com:8443".to_owned()))
+        );
+        assert_ne!(
+            url_origin("https://api.example.com/v1"),
+            url_origin("https://evil.example.com/v1")
+        );
+        assert_ne!(
+            url_origin("https://api.example.com/v1"),
+            url_origin("http://api.example.com/v1")
+        );
+        assert_eq!(url_origin("ftp://api.example.com/v1"), None);
+        assert_eq!(url_origin("https:///no-host"), None);
+    }
 }

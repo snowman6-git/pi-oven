@@ -106,25 +106,49 @@
   invoke('auto_connect').then((phone) => {
     if (phone) $('foot').textContent = T('footPhone');
   });
-  $('cancel').addEventListener('click', () => { cancelled = true; show('form'); });
+  let activeCtl = null;
+  function resetForm() {
+    $('b').disabled = false;
+    $('b').textContent = T('connect');
+    show('form');
+  }
+  window.addEventListener('pageshow', () => {
+    if ($('b').disabled) resetForm();
+  });
+  $('cancel').addEventListener('click', () => {
+    cancelled = true;
+    activeCtl?.abort();
+    activeCtl = null;
+    resetForm();
+  });
   $('f').addEventListener('submit', async (ev) => {
     ev.preventDefault();
+    cancelled = false;
     const err = $('e'); err.textContent = '';
     let url = $('u').value.trim();
     if (!url) { err.textContent = T('err.empty'); return; }
-    if (!/^[a-z]+:\/\//i.test(url)) url = 'http://' + url;
+    if (!url.includes('://')) url = 'http://' + url;
+    let parsed;
+    try { parsed = new URL(url); } catch { err.textContent = T('err.format'); resetForm(); return; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') { err.textContent = T('err.scheme'); resetForm(); return; }
     const tok = $('t').value.trim();
     if (tok) url = url.replace(/#.*$/, '') + '#token=' + encodeURIComponent(tok);
     $('b').disabled = true; $('b').textContent = T('checking');
+    const c = new AbortController();
+    activeCtl = c;
+    const timer = setTimeout(() => c.abort(), 6000);
     try {
       // Reachability only: an opaque answer is enough to know that something is listening.
-      const c = new AbortController(); const timer = setTimeout(() => c.abort(), 6000);
       await fetch(url.replace(/#.*$/, ''), { mode: 'no-cors', signal: c.signal, cache: 'no-store' });
-      clearTimeout(timer);
+      if (cancelled || activeCtl !== c) return;
       await invoke('connect', { url });
     } catch (e) {
+      if (cancelled) return;
       err.textContent = typeof e === 'string' ? T(e) : T('err.unreachable');
-      $('b').disabled = false; $('b').textContent = T('connect'); show('form');
+      resetForm();
+    } finally {
+      clearTimeout(timer);
+      if (activeCtl === c) activeCtl = null;
     }
   });
 </script>

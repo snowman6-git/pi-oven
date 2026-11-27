@@ -362,11 +362,10 @@ impl Runtime {
         cmd["id"] = id.clone().into();
         let mut rx = self.events.subscribe();
         self.stdin_tx.send(cmd.to_string()).await.ok()?;
-        let tag = format!(r#""id":"{id}""#);
         tokio::time::timeout(limit, async {
             loop {
                 match rx.recv().await {
-                    Ok(line) if is_response(&line) && line.contains(&tag) => return serde_json::from_str(&line).ok(),
+                    Ok(line) if crate::ws::response_id(&line) == Some(Some(id.as_str())) => return serde_json::from_str(&line).ok(),
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(_) => return None,
                 }
@@ -630,8 +629,12 @@ impl Runtime {
     #[allow(clippy::too_many_arguments)]
     async fn take_over_at(self: Arc<Self>, at: u64, id: String, was: Option<String>, accounts: Arc<crate::accounts::Accounts>, limits: Arc<crate::limits::Limits>, usage: Arc<crate::usage::Usage>, pi_bin: String) {
         let mut at = at;
+        let mut stop = self.shutdown.subscribe();
         loop {
-            tokio::time::sleep(Duration::from_millis(at.saturating_sub(now_ms()))).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(at.saturating_sub(now_ms()))) => {}
+                _ = stop.changed() => return,
+            }
             if *self.shutdown.borrow() || self.resume.lock().unwrap().is_none() {
                 return;
             }
@@ -662,8 +665,12 @@ impl Runtime {
         use std::sync::atomic::Ordering;
         let give_up = now_ms() + 24 * 3_600_000;
         let mut wake = reset.or_else(|| limits.used_up_until(&provider, now_ms(), 95.0)).unwrap_or(now_ms() + 3_600_000).max(now_ms() + 60_000);
+        let mut stop = self.shutdown.subscribe();
         loop {
-            tokio::time::sleep(Duration::from_millis(wake.saturating_sub(now_ms()))).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(wake.saturating_sub(now_ms()))) => {}
+                _ = stop.changed() => return,
+            }
             if *self.shutdown.borrow() || now_ms() > give_up || !accounts.return_home() {
                 return;
             }
@@ -1102,21 +1109,49 @@ impl Manager {
 
     pub async fn close_all(&self) {
         let all: Vec<_> = self.map.write().await.drain().map(|(_, r)| r).collect();
-        for rt in &all {
-            rt.close();
-        }
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        let waiters: Vec<_> = all
+            .into_iter()
+            .map(|rt| {
+                let mut rx = rt.events.subscribe();
+                rt.close();
+                async move {
+                    let _ = tokio::time::timeout(Duration::from_secs(4), async {
+                        loop {
+                            match rx.recv().await {
+                                Ok(line) if line.starts_with(r#"{"type":"oven_exit""#) => break,
+                                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                Err(broadcast::error::RecvError::Closed) => break,
+                            }
+                        }
+                    })
+                    .await;
+                }
+            })
+            .collect();
+        futures_util::future::join_all(waiters).await;
     }
 
     pub async fn spawn(self: &Arc<Self>, req: SpawnRequest) -> Result<Arc<Runtime>> {
         let _one_at_a_time = self.spawning.lock().await;
-        // Opening the same session twice would give two processes writing one file.
-        if let Some(path) = &req.session_path {
-            let map = self.map.read().await;
-            if let Some(rt) = map.values().find(|r| r.info.session_path.as_deref() == Some(path)) {
-                return Ok(rt.clone());
+        let resolved_session = if let Some(p) = &req.session_path {
+            let file = resolve_path(std::path::Path::new(p)).context("invalid session path")?;
+            let sessions_root = self.cfg.resolved_sessions_dir().canonicalize().context("sessions folder not found")?;
+            if !file.starts_with(&sessions_root) || file.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                anyhow::bail!("not a session file");
             }
-        }
+            if file.exists() && !crate::scope::allows_session(self.cfg.root.as_deref(), &file) {
+                anyhow::bail!("session outside the allowed folder");
+            }
+            // Opening the same session twice would give two processes writing one file.
+            if let Some(id) = self.using_file(&file).await.into_iter().next() {
+                if let Some(rt) = self.get(&id).await {
+                    return Ok(rt);
+                }
+            }
+            Some(file.to_string_lossy().into_owned())
+        } else {
+            None
+        };
 
         let cwd = req.cwd.canonicalize().with_context(|| format!("folder not found: {}", req.cwd.display()))?;
         if !cwd.is_dir() {
@@ -1125,15 +1160,10 @@ impl Manager {
         if !crate::scope::allows(self.cfg.root.as_deref(), &cwd) {
             anyhow::bail!("outside the allowed folder: {}", cwd.display());
         }
-        if let Some(p) = &req.session_path {
-            if !crate::scope::allows_session(self.cfg.root.as_deref(), std::path::Path::new(p)) {
-                anyhow::bail!("session outside the allowed folder");
-            }
-        }
 
         let mut cmd = Command::new(&self.cfg.pi_bin);
         cmd.arg("--mode").arg("rpc");
-        if let Some(p) = &req.session_path {
+        if let Some(p) = &resolved_session {
             cmd.arg("--session").arg(p);
         }
         if let (Some(provider), Some(model)) = (&req.provider, &req.model) {
@@ -1185,7 +1215,7 @@ impl Manager {
         let info = RuntimeInfo {
             id: id.clone(),
             cwd: cwd.to_string_lossy().into_owned(),
-            session_path: req.session_path.clone(),
+            session_path: resolved_session,
             pid: child.id(),
             started_at: now_ms(),
         };
@@ -1430,6 +1460,24 @@ impl Manager {
                                 let failed_model = model.clone();
                                 rt.limit_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 tokio::spawn(async move {
+                                    struct CheckGuard(Arc<Runtime>, bool);
+                                    impl CheckGuard {
+                                        fn finish(mut self) {
+                                            if !self.1 {
+                                                self.1 = true;
+                                                self.0.limit_checks.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                            }
+                                        }
+                                    }
+                                    impl Drop for CheckGuard {
+                                        fn drop(&mut self) {
+                                            if !self.1 {
+                                                self.1 = true;
+                                                self.0.limit_checks.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                            }
+                                        }
+                                    }
+                                    let guard = CheckGuard(rt.clone(), false);
                                     let fresh = provider.is_some() && usage.poll(&pi_bin, &limits, true, provider.as_deref()).await;
                                     let now = now_ms();
                                     // a 429 that may be the plan: only a window the numbers show as (nearly) used up makes it one;
@@ -1444,7 +1492,7 @@ impl Manager {
                                     if plan {
                                         rt.limit_found_at.store(now, std::sync::atomic::Ordering::SeqCst);
                                     }
-                                    rt.limit_checks.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                    guard.finish();
                                     let hint = crate::resume::minutes_in(&error).map(|m| now + m * 60_000);
                                     let found = limits.culprit(provider.as_deref(), now, hint);
                                     crate::logs::event("limit", serde_json::json!({

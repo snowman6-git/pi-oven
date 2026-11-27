@@ -43,7 +43,7 @@
   let pollOn = $state<boolean | null>(null);
   $effect(() => { void app.rev.settings; api.limitsPoll().then((p) => (pollOn = p.enabled)).catch(() => {}); });
   async function setPoll(on: boolean) {
-    try { pollOn = (await api.setLimitsPoll(on)).enabled; } catch (e) { resumeError = (e as Error).message; }
+    try { pollOn = (await api.setLimitsPoll(on)).enabled; } catch (e) { app.flash((e as Error).message); }
   }
   let cache = $state<{ enabled: boolean; fromEnv: boolean } | null>(null);
   let cacheError = $state('');

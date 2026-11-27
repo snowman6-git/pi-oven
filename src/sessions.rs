@@ -81,18 +81,25 @@ fn parse(path: &Path, modified: u64, prev: Option<(u64, SessionSummary)>) -> Opt
         let line = String::from_utf8_lossy(&buf);
         if line.starts_with(r#"{"type":"session_info""#) || line.contains(r#""type":"session_info""#) {
             if let Ok(v) = serde_json::from_str::<Value>(&line) {
-                name = v.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+                if v.get("type").and_then(Value::as_str) == Some("session_info") {
+                    name = v.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+                }
             }
-        } else if line.contains(r#""message":{"role":"user""#) {
-            turns += 1;
-            if preview.is_none() {
-                if let Ok(v) = serde_json::from_str::<Value>(&line) {
-                    // Skill/context injections are not what the person typed.
-                    preview = v
-                        .get("message")
-                        .and_then(|m| m.get("content"))
-                        .and_then(first_text)
-                        .filter(|t| !t.starts_with("<skill"));
+        }
+        if line.contains(r#""role":"user""#) {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                if v.get("type").and_then(Value::as_str) == Some("message")
+                    && v.get("message").and_then(|m| m.get("role")).and_then(Value::as_str) == Some("user")
+                {
+                    turns += 1;
+                    if preview.is_none() {
+                        // Skill/context injections are not what the person typed.
+                        preview = v
+                            .get("message")
+                            .and_then(|m| m.get("content"))
+                            .and_then(first_text)
+                            .filter(|t| !t.starts_with("<skill"));
+                    }
                 }
             }
         }
@@ -154,6 +161,12 @@ mod tests {
         write!(f, "age\",\"message\":{{\"role\":\"user\",\"content\":\"again\"}}}}\n{user}\n").unwrap();
         let (_, s) = parse(&p, 2, Some((at, s))).unwrap();
         assert_eq!((s.turns, s.preview.as_deref(), s.modified), (3, Some("hi"), 2));
+        // a message body mentioning `"type":"session_info"` must not wipe the session name
+        writeln!(f, r#"{{"type":"session_info","name":"keep-me"}}"#).unwrap();
+        writeln!(f, r#"{{"type":"message","message":{{"role":"assistant","content":"discussing \"type\":\"session_info\""}}}}"#).unwrap();
+        let (_, s) = parse(&p, 3, None).unwrap();
+        assert_eq!(s.name.as_deref(), Some("keep-me"));
+        assert_eq!(s.turns, 3);
         std::fs::remove_file(&p).unwrap();
         std::fs::remove_dir(&dir).unwrap();
     }

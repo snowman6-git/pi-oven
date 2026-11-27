@@ -3,6 +3,7 @@ import { Chat } from './chat.svelte';
 import { limits } from './limits.svelte';
 import { copyText } from './clipboard';
 import { alertPerson, notifyEnabled, setNotifyEnabled } from './notify';
+import { showcase } from './showcase.svelte';
 import type { RuntimeInfo, SessionSummary } from './protocol';
 import { t } from './i18n';
 import { S } from './strings';
@@ -112,7 +113,15 @@ class App {
       return;
     }
     void api.modelPrefs().then((p) => (this.modelPrefs = p)).catch(() => {});
-    const [runtimes] = await Promise.all([api.runtimes(), this.refreshSessions()]);
+    let runtimes: RuntimeInfo[];
+    try {
+      [runtimes] = await Promise.all([api.runtimes(), this.refreshSessions()]);
+    } catch (e) {
+      this.status = e instanceof AuthError ? 'auth' : 'down';
+      this.bootError = e instanceof AuthError ? '' : e instanceof Error ? e.message : String(e);
+      if (e instanceof AuthError) this.#lastAuth = e.why;
+      return;
+    }
     for (const r of runtimes) this.#attach(r);
     for (const c of this.chats) c.conn.afterLogin();
     this.#listen();
@@ -349,6 +358,7 @@ class App {
 
     // this page lets go of the open ones; the server stops their pi before it deletes the file
     for (const chat of open) {
+      this.#closed.add(chat.runtime.id);
       chat.dispose();
       this.chats = this.chats.filter((c) => c !== chat);
     }
@@ -402,7 +412,8 @@ class App {
     const watching = !document.hidden && document.hasFocus() && this.currentId === chat.runtime.id;
     if (watching) return;
     chat.unseen = true;
-    alertPerson(kind, chat.title || chat.runtime.cwd, () => this.select(chat.runtime.id));
+    const label = (chat.title ? showcase.tip('titles', chat.title) : showcase.tip('paths', chat.runtime.cwd)) ?? '';
+    alertPerson(kind, label, () => this.select(chat.runtime.id));
   }
 
   get unseenCount() {
@@ -552,10 +563,13 @@ class App {
     }
   }
 
+  #reopening = new WeakSet<Chat>();
+
   /** A session whose pi has ended (or that a restarted server no longer knows): start pi again on the same session
       file, in the same place in the list. A session never saved has no file: its folder is opened fresh. */
   async reopenChat(chat: Chat, quiet = false) {
-    if (!this.chats.includes(chat)) return;
+    if (!this.chats.includes(chat) || this.#reopening.has(chat)) return;
+    this.#reopening.add(chat);
     try {
       const rt = await api.openRuntime({ cwd: chat.runtime.cwd, sessionPath: chat.sessionFile });
       if (!this.chats.includes(chat)) return; // closed meanwhile
@@ -566,6 +580,8 @@ class App {
     } catch (e) {
       if (quiet) return; // the button stays there to try again
       this.flash(t('appmsg.reopenFailed', { err: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      this.#reopening.delete(chat);
     }
   }
 
@@ -692,7 +708,11 @@ class App {
     save('pi-oven.inspector', this.inspectorOpen);
   }
 
+  #watchingViewport = false;
+
   watchViewport() {
+    if (this.#watchingViewport) return;
+    this.#watchingViewport = true;
     const mq = window.matchMedia('(max-width: 1100px)');
     const sync = () => {
       this.narrow = mq.matches;

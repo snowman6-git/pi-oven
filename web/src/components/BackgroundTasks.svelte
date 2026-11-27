@@ -3,6 +3,7 @@
   import { t as tr } from '../lib/i18n.svelte';
   import { api } from '../lib/api';
   import { app } from '../lib/app.svelte';
+  import { showcase } from '../lib/showcase.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import type { BgTask } from '../lib/protocol';
   import { compactNumber, duration } from '../lib/util';
@@ -32,9 +33,11 @@
     } finally {
       loaded = true;
     }
-    if (openId) {
+    const targetId = openId;
+    if (targetId) {
       try {
-        const next = await api.taskOutput(chat.runtime.id, openId);
+        const next = await api.taskOutput(chat.runtime.id, targetId);
+        if (openId !== targetId) return;
         const pinned = !outBox || outBox.scrollHeight - outBox.scrollTop - outBox.clientHeight < 40;
         out = next;
         if (pinned) queueMicrotask(() => outBox && (outBox.scrollTop = outBox.scrollHeight));
@@ -102,8 +105,8 @@
           <button class="row" type="button" aria-expanded={openId === t.id} onclick={() => toggle(t)}>
             <span class="dot {t.status}" role="img" aria-label={label(t.status)}></span>
             <span class="main">
-              <span class="name">{title(t)}{#if t.isAgent}<em>{tr('bg.agent')}</em>{/if}</span>
-              <span class="cmd mono">{t.command.split('\n')[0]}</span>
+              <span class="name" data-priv="files">{showcase.text(title(t))}{#if t.isAgent}<em>{tr('bg.agent')}</em>{/if}</span>
+              <span class="cmd mono" data-priv="files">{showcase.text(t.command.split('\n')[0])}</span>
               <span class="meta">{detail(t)}</span>
             </span>
             <span class="chev" class:up={openId === t.id}><Icon name="down" size={16} /></span>
@@ -111,8 +114,8 @@
 
           {#if openId === t.id}
             <div class="out">
-              {#if t.error}<p class="err">{t.error}</p>{/if}
-              <pre class="mono" bind:this={outBox}>{out.text || (t.status === 'running' ? tr('bg.noOutputYet') : tr('bg.noOutput'))}</pre>
+              {#if t.error}<p class="err" data-priv="files">{showcase.text(t.error)}</p>{/if}
+              <pre class="mono" data-priv="files" bind:this={outBox}>{out.text ? showcase.text(out.text) : (t.status === 'running' ? tr('bg.noOutputYet') : tr('bg.noOutput'))}</pre>
               <div class="foot">
                 {#if out.total > out.text.length}<small>{tr('bg.tail', { total: compactNumber(out.total) })}</small>{/if}
                 <span class="grow"></span>

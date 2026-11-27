@@ -18,6 +18,7 @@ import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
 import { Marked, type Token, type Tokens, type TokensList } from 'marked';
+import { currentLang } from './i18n';
 import { S } from './strings';
 
 const langs: Record<string, any> = {
@@ -67,15 +68,24 @@ const md = new Marked({
 // in the text itself (data:) are shown; one from the web becomes a link to open on purpose.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName === 'IMG') {
-    const src = node.getAttribute('src') ?? '';
+    node.removeAttribute('srcset');
+    const src = (node.getAttribute('src') ?? '').trim();
     if (!/^data:image\//i.test(src)) {
-      const a = node.ownerDocument.createElement('a');
-      a.setAttribute('href', src);
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noopener noreferrer');
-      a.className = 'remote-img';
-      a.textContent = `🖼 ${node.getAttribute('alt') || src}`;
-      node.replaceWith(a);
+      const alt = node.getAttribute('alt') || src;
+      if (/^https?:\/\//i.test(src)) {
+        const a = node.ownerDocument.createElement('a');
+        a.setAttribute('href', src);
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.className = 'remote-img';
+        a.textContent = `🖼 ${alt}`;
+        node.replaceWith(a);
+      } else {
+        const span = node.ownerDocument.createElement('span');
+        span.className = 'remote-img';
+        span.textContent = alt ? `🖼 ${alt}` : '';
+        node.replaceWith(span);
+      }
     }
     return;
   }
@@ -92,7 +102,13 @@ const memo = new Map<string, string>();
 const MEMO_ENTRIES = 300;
 const MEMO_MAX_CHARS = 40_000;
 
-const clean = (html: string) => DOMPurify.sanitize(html, { ADD_TAGS: ['button'], ADD_ATTR: ['data-copy'] });
+const clean = (html: string) =>
+  DOMPurify.sanitize(html, {
+    ADD_TAGS: ['button'],
+    ADD_ATTR: ['data-copy'],
+    FORBID_TAGS: ['audio', 'video', 'source', 'picture', 'image'],
+    FORBID_ATTR: ['srcset', 'poster'],
+  });
 
 function render(src: string): string {
   return clean(md.parse(src, { async: false }) as string);
@@ -104,14 +120,15 @@ const blocks = new Map<string, string>();
 const BLOCK_ENTRIES = 400;
 
 function renderBlock(t: Token, links: TokensList['links'], keep: boolean): string {
+  const key = keep ? `${currentLang()}\0${t.raw}` : '';
   if (keep) {
-    const hit = blocks.get(t.raw);
+    const hit = blocks.get(key);
     if (hit !== undefined) return hit;
   }
   const one = Object.assign([t], { links }) as TokensList;
   const out = clean(md.parser(one));
   if (keep) {
-    blocks.set(t.raw, out);
+    blocks.set(key, out);
     if (blocks.size > BLOCK_ENTRIES) blocks.delete(blocks.keys().next().value as string);
   }
   return out;
@@ -128,14 +145,15 @@ function renderStreaming(src: string): string {
 export function renderMarkdown(src: string, finished = false): string {
   if (!finished) return renderStreaming(src);
   if (src.length > MEMO_MAX_CHARS) return render(src);
-  const hit = memo.get(src);
+  const key = `${currentLang()}\0${src}`;
+  const hit = memo.get(key);
   if (hit !== undefined) {
-    memo.delete(src); // most recently used goes last
-    memo.set(src, hit);
+    memo.delete(key); // most recently used goes last
+    memo.set(key, hit);
     return hit;
   }
   const out = render(src);
-  memo.set(src, out);
+  memo.set(key, out);
   if (memo.size > MEMO_ENTRIES) memo.delete(memo.keys().next().value as string);
   return out;
 }

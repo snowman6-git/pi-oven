@@ -10,13 +10,13 @@
 
   // Re-parsing on every token is wasteful; coalesce to one parse per frame while streaming.
   const reveal = new Reveal();
-  let html = $state('');
+  let streamedHtml = $state('');
   let frame = 0;
 
-  function render(src: string) {
-    const out = renderMarkdown(src, !streaming);
+  function render(src: string, isStreaming: boolean) {
+    const out = renderMarkdown(src, !isStreaming);
     if (settings.fx === 'none') return out;
-    if (streaming) reveal.started = true;
+    if (isStreaming) reveal.started = true;
     // Text that was never streamed (history) stays still; text that was keeps animating to the end.
     return reveal.started ? reveal.apply(out) : out;
   }
@@ -25,13 +25,20 @@
     const src = source;
     settings.fx;
     if (!streaming) {
-      html = render(src);
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      if (reveal.started) streamedHtml = render(src, false);
       return;
     }
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => (html = render(src)));
-    return () => cancelAnimationFrame(frame);
+    if (!frame) {
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        streamedHtml = render(source, true);
+      });
+    }
   });
+  $effect(() => () => { if (frame) cancelAnimationFrame(frame); });
+
+  const html = $derived(!streaming && !reveal.started ? renderMarkdown(source, true) : streamedHtml);
 
   function onclick(e: MouseEvent) {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-copy]');

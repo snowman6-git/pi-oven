@@ -173,10 +173,10 @@
     </div>
     <div class="win">
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-      <div class="code hl" class:dead={!!failed} tabindex="0" role="group" aria-label={baseName(path)} bind:this={code} onscroll={onScroll}
+      <div class="code hl" data-priv="files" class:dead={!!failed} tabindex="0" role="group" aria-label={baseName(path)} bind:this={code} onscroll={onScroll}
         onwheel={(e) => { if (e.deltaY < 0) letGo(); }} ontouchstart={(e) => (touchY = e.touches[0].clientY)} ontouchmove={(e) => { if (e.touches[0].clientY > touchY + 4) letGo(); }}
         onkeydown={(e) => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) letGo(); }}>
-        {#if failed?.text && !failed.declined}<p class="say bad">{failed.text}</p>{/if}
+        {#if failed?.text && !failed.declined}<p class="say bad">{showcase.text(failed.text)}</p>{/if}
         {#if note}<p class="say">{note}</p>{/if}
         {#if draft?.draft.append}<p class="say">{t('live.append')}</p>{/if}
         {#if disk && disk.k === 'mod' && parts.length}<p class="say">{t('live.fromDisk')}</p>{/if}
@@ -187,7 +187,7 @@
             {#if p.above}<p class="say">{t('live.above', { n: p.above })}</p>{/if}
             {#each p.lines as l, j (p.above != null ? l.n ?? j : j)}
               {#if l.k === 'gap'}<div class="ln gap">⋯</div>
-              {:else}<div class="ln {l.k}"><span class="g" class:sign={l.n == null} aria-hidden="true">{l.n ?? (l.k === 'add' ? '+' : l.k === 'del' ? '−' : '')}</span><span class="x">{@html paint(l.x)}{#if draft?.phase === 'composing' && i === parts.length - 1 && j === p.lines.length - 1}<i class="caret"></i>{/if}</span></div>{/if}
+              {:else}<div class="ln {l.k}"><span class="g" class:sign={l.n == null} aria-hidden="true">{l.n ?? (l.k === 'add' ? '+' : l.k === 'del' ? '−' : '')}</span><span class="x">{@html paint(showcase.text(l.x))}{#if draft?.phase === 'composing' && i === parts.length - 1 && j === p.lines.length - 1}<i class="caret"></i>{/if}</span></div>{/if}
             {/each}
             {#if p.below}<p class="say">{t('live.below', { n: p.below })}</p>{/if}
           </div>

@@ -69,11 +69,8 @@ impl ModelPrefs {
         if cfg!(test) {
             return; // tests must not write the person's file
         }
-        let dir = crate::config::cache_dir();
-        let tmp = dir.join(format!("{FILE}.tmp"));
-        let ok = std::fs::create_dir_all(&dir).is_ok()
-            && serde_json::to_vec_pretty(p).is_ok_and(|b| std::fs::write(&tmp, b).is_ok())
-            && std::fs::rename(&tmp, dir.join(FILE)).is_ok();
+        let path = crate::config::cache_dir().join(FILE);
+        let ok = serde_json::to_vec_pretty(p).is_ok_and(|b| crate::config::atomic_write(&path, &b, false).is_ok());
         if !ok {
             tracing::warn!("could not save {FILE}");
         }

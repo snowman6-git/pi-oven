@@ -258,7 +258,7 @@
     <div class="chats" role="group" aria-label={t('sidebar.openChats')}>
       {#each app.chats as c (c.runtime.id)}
         {@const ttl = c.state?.sessionName || c.title || baseName(c.runtime.cwd)}
-        <button class="chat" class:cur={c.runtime.id === app.currentId} type="button" title={showcase.tip('titles', `${ttl} (${baseName(c.runtime.cwd)})`)} aria-label={showcase.active('titles') ? t('sidebar.session') : ttl}
+        <button class="chat" class:cur={c.runtime.id === app.currentId} type="button" title={`${showcase.tip('titles', ttl)} (${showcase.tip('paths', baseName(c.runtime.cwd))})`} aria-label={showcase.active('titles') ? t('sidebar.session') : ttl}
           aria-current={c.runtime.id === app.currentId ? 'true' : undefined} onclick={() => app.select(c.runtime.id)}>
           <span class="ch" data-priv="paths" aria-hidden="true">{Array.from(baseName(c.runtime.cwd))[0]?.toUpperCase() ?? '?'}</span>
           <span class="state" class:run={c.running} class:unseen={c.unseen} class:bg={!c.running && c.bg.running > 0} aria-hidden="true"></span>
@@ -377,11 +377,13 @@
   </nav>
 
   {#if app.selecting}
+    {@const tabSessions = allSessions()}
+    {@const tabPicked = tabSessions.filter((s) => app.picked.includes(s.path)).length}
     <div class="selbar" role="toolbar" aria-label={t('sidebar.selbar')}>
       <span class="count" aria-live="polite">{t('sidebar.pickedN', { n: app.picked.length })}</span>
       <span class="grow"></span>
-      <button class="btn quiet" type="button" onclick={() => app.pickMany(allSessions(), app.picked.length < allSessions().length)}>
-        {app.picked.length < allSessions().length ? t('sidebar.selectAllShort') : t('sidebar.unselect')}
+      <button class="btn quiet" type="button" disabled={tabSessions.length === 0} onclick={() => app.pickMany(tabSessions, tabPicked < tabSessions.length)}>
+        {tabPicked < tabSessions.length ? t('sidebar.selectAllShort') : t('sidebar.unselect')}
       </button>
       <button class="btn danger" type="button" disabled={app.picked.length === 0} onclick={deleteSelected}>
         <Icon name="trash" size={15} />{t('sidebar.delete')}

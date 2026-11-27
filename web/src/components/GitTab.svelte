@@ -128,7 +128,7 @@
             <div class="row">
               <input type="checkbox" aria-label={t('git.stage', { path: f.path })} checked={f.staged && !f.unstaged} use:indeterminate={f.staged && f.unstaged} disabled={busy}
                 onchange={() => stage([f.path], !(f.staged && !f.unstaged))} />
-              <button class="p" type="button" aria-expanded={open} onclick={() => pick(f)} title={f.path}>
+              <button class="p" type="button" aria-expanded={open} onclick={() => pick(f)} title={showcase.tip('files', f.path)}>
                 <span class="path mono">{#if !f.path.endsWith('/')}<span class="fic"><FileIcon name={name(f.path)} size={14} /></span>{/if}<span class="nm" data-priv="files">{name(f.path)}</span>{#if dir(f.path)} <span class="d" data-priv="files">{dir(f.path)}</span>{/if}</span>
                 <span class="meta">
                   <span class="st st-{f.status === '?' ? 'n' : f.status}">{statusName(f.status)}</span>
@@ -167,7 +167,7 @@
       </button>
       {#if showIgnored}
         <ul class="ign">
-          {#each ignored as f (f.path)}<li class="mono" title="{f.path} (.gitignore)">{f.path}</li>{/each}
+          {#each ignored as f (f.path)}<li class="mono" data-priv="files" title={showcase.tip('files', `${f.path} (.gitignore)`)}>{f.path}</li>{/each}
         </ul>
       {/if}
     {/if}

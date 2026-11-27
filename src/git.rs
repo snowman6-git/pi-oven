@@ -166,7 +166,11 @@ type LineCache = HashMap<std::path::PathBuf, (std::time::SystemTime, u64, Option
 static LINE_CACHE: LazyLock<Mutex<LineCache>> = LazyLock::new(Default::default);
 
 fn count_lines(root: &Path, rel: &str) -> Option<u32> {
-    let path = root.join(rel);
+    let base = root.canonicalize().ok()?;
+    let path = root.join(rel).canonicalize().ok()?;
+    if !path.starts_with(&base) {
+        return None;
+    }
     let meta = std::fs::metadata(&path).ok()?;
     if !meta.is_file() || meta.len() > 2_000_000 {
         return None;
@@ -188,10 +192,17 @@ fn count_lines(root: &Path, rel: &str) -> Option<u32> {
     n
 }
 
-async fn repo_root(cwd: &Path) -> Option<std::path::PathBuf> {
+async fn repo_root(app: &AppState, cwd: &Path) -> Option<std::path::PathBuf> {
     let (out, _) = git(cwd, &["rev-parse", "--show-toplevel"]).await.ok()?;
     let s = String::from_utf8_lossy(&out).trim().to_owned();
-    (!s.is_empty()).then(|| s.into())
+    if s.is_empty() {
+        return None;
+    }
+    let top = std::path::PathBuf::from(s);
+    if !crate::scope::allows(app.root.as_deref(), &top) {
+        return None;
+    }
+    Some(top)
 }
 
 async fn has_head(root: &Path) -> bool {
@@ -238,18 +249,24 @@ pub async fn status(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<Strin
         Ok(c) => c,
         Err((code, msg)) => return fail(code, msg),
     };
-    let Some(root) = repo_root(&cwd).await else {
+    let Some(root) = repo_root(&app, &cwd).await else {
         return Json(Overview { repo: false, branch: None, root: None, files: vec![], truncated: false, commits: vec![] }).into_response();
     };
-    let branch = git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]).await.ok().map(|(o, _)| String::from_utf8_lossy(&o).trim().to_owned()).filter(|b| !b.is_empty());
-    let mut files = match git(&root, &["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored"]).await {
+    let (branch_res, status_res, head_ok, log_res) = tokio::join!(
+        git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        git(&root, &["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored"]),
+        has_head(&root),
+        git(&root, &["log", "-n", "8", "-z", "--format=%h%x1f%s%x1f%ct"]),
+    );
+    let branch = branch_res.ok().map(|(o, _)| String::from_utf8_lossy(&o).trim().to_owned()).filter(|b| !b.is_empty());
+    let mut files = match status_res {
         Ok((out, _)) => parse_status(&out),
         Err(e) => return fail(StatusCode::BAD_GATEWAY, e),
     };
     files.sort_by_key(|f| f.status == '!'); // ignored files last, so they never push real changes out
     let truncated = files.len() > MAX_FILES;
     files.truncate(MAX_FILES);
-    if has_head(&root).await {
+    if head_ok {
         if let Ok((out, _)) = git(&root, &["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "HEAD", "--"]).await {
             for (path, a, r) in parse_numstat(&out) {
                 if let Some(f) = files.iter_mut().find(|f| f.path == path) {
@@ -268,7 +285,7 @@ pub async fn status(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<Strin
     })
     .await
     .unwrap_or_default();
-    let commits = match git(&root, &["log", "-n", "8", "-z", "--format=%h%x1f%s%x1f%ct"]).await {
+    let commits = match log_res {
         Ok((out, _)) => parse_log(&out),
         Err(_) => vec![], // no commits yet
     };
@@ -288,7 +305,7 @@ pub async fn diff(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String>
         Ok(c) => c,
         Err((code, msg)) => return fail(code, msg),
     };
-    let Some(root) = repo_root(&cwd).await else { return fail(StatusCode::NOT_FOUND, "not a git repository") };
+    let Some(root) = repo_root(&app, &cwd).await else { return fail(StatusCode::NOT_FOUND, "not a git repository") };
     let tracked = git(&root, &["ls-files", "--error-unmatch", "--", &q.path]).await.is_ok();
     let text = if tracked {
         let base: &[&str] = if has_head(&root).await { &["diff", "HEAD"] } else { &["diff", "--cached"] };
@@ -330,11 +347,32 @@ async fn git_write(dir: &Path, args: &[&str], stdin: Option<&str>) -> Result<(bo
     if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
         let _ = pipe.write_all(text.as_bytes()).await;
     }
-    let out = tokio::time::timeout(Duration::from_secs(60), child.wait_with_output()).await.map_err(|_| "git took too long")?.map_err(|e| e.to_string())?;
-    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let collect = async {
+        let read_cap = |mut pipe: Option<tokio::process::ChildStdout>| async move {
+            let mut buf = Vec::new();
+            if let Some(p) = pipe.as_mut() {
+                let _ = p.take(MAX_OUTPUT as u64).read_to_end(&mut buf).await;
+            }
+            buf
+        };
+        let read_err = |mut pipe: Option<tokio::process::ChildStderr>| async move {
+            let mut buf = Vec::new();
+            if let Some(p) = pipe.as_mut() {
+                let _ = p.take(MAX_OUTPUT as u64).read_to_end(&mut buf).await;
+            }
+            buf
+        };
+        let (o, e) = tokio::join!(read_cap(stdout.take()), read_err(stderr.take()));
+        let status = child.wait().await.map_err(|e| e.to_string())?;
+        Ok::<_, String>((status, o, e))
+    };
+    let (status, o, e) = tokio::time::timeout(Duration::from_secs(60), collect).await.map_err(|_| "git took too long")??;
+    let mut text = String::from_utf8_lossy(&o).into_owned();
+    text.push_str(&String::from_utf8_lossy(&e));
     text.truncate(text.char_indices().nth(8000).map_or(text.len(), |(i, _)| i));
-    Ok((out.status.success(), text.trim().to_owned()))
+    Ok((status.success(), text.trim().to_owned()))
 }
 
 #[derive(Deserialize)]
@@ -351,7 +389,7 @@ pub async fn stage(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String
         Ok(c) => c,
         Err((code, msg)) => return fail(code, msg),
     };
-    let Some(root) = repo_root(&cwd).await else { return fail(StatusCode::NOT_FOUND, "not a git repository") };
+    let Some(root) = repo_root(&app, &cwd).await else { return fail(StatusCode::NOT_FOUND, "not a git repository") };
     let mut args: Vec<&str> = if req.stage {
         vec!["add", "-A", "--"]
     } else if has_head(&root).await {
@@ -381,7 +419,7 @@ pub async fn commit(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<Strin
         Ok(c) => c,
         Err((code, msg)) => return fail(code, msg),
     };
-    let Some(root) = repo_root(&cwd).await else { return fail(StatusCode::NOT_FOUND, "not a git repository") };
+    let Some(root) = repo_root(&app, &cwd).await else { return fail(StatusCode::NOT_FOUND, "not a git repository") };
     // `diff --cached --quiet` exits 0 when the index matches HEAD: nothing to commit.
     if matches!(git_write(&root, &["diff", "--cached", "--quiet"], None).await, Ok((true, _))) {
         return fail(StatusCode::CONFLICT, "nothing is staged");

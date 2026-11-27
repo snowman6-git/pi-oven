@@ -32,7 +32,7 @@ const LOGIN_MAX_MS: u64 = 10 * 60_000;
 const LOGIN_LINES: usize = 40;
 
 fn agent_dir() -> PathBuf {
-    std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| crate::config::home_dir().join(".pi/agent"))
+    crate::config::agent_dir()
 }
 fn store_path() -> PathBuf {
     agent_dir().join("pi-oven-accounts.json")
@@ -92,22 +92,7 @@ struct Who {
 // ── files ────────────────────────────────────────────────────────────────────
 
 fn write_private(path: &Path, text: &str) -> Result<(), String> {
-    use std::io::Write;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
-    f.write_all(text.as_bytes()).and_then(|_| f.sync_all()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    crate::config::atomic_write(path, text.as_bytes(), true).map_err(|e| e.to_string())
 }
 
 fn read_store() -> Store {
@@ -121,53 +106,29 @@ fn read_auth(dir: &Path) -> Value {
     std::fs::read_to_string(dir.join("auth.json")).ok().and_then(|t| serde_json::from_str(t.trim_start_matches('\u{feff}')).ok()).unwrap_or_else(|| json!({}))
 }
 
-/// Run `f` holding pi's own lock on `auth.json` (proper-lockfile: a `<file>.lock` folder; one older than 10 s is stale).
-fn with_auth_lock<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    let path = agent_dir().join("auth.json");
-    let real = path.canonicalize().unwrap_or(path);
-    let lock = PathBuf::from(format!("{}.lock", real.display()));
-    let mut held = false;
-    for _ in 0..80 {
-        match std::fs::create_dir(&lock) {
-            Ok(()) => {
-                held = true;
-                break;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let stale = lock.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d.as_secs() > 10);
-                if stale {
-                    let _ = std::fs::remove_dir(&lock);
-                    continue;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    if !held {
-        return Err("auth.json is locked by pi; try again".into());
-    }
-    let out = f();
-    let _ = std::fs::remove_dir(&lock);
-    out
-}
-
 /// Put `cred` in `auth.json` under `provider`, keeping everything else in it.
-fn write_auth(provider: &str, cred: &Value) -> Result<(), String> {
-    with_auth_lock(|| {
-        let dir = agent_dir();
+fn write_auth_blocking(provider: &str, cred: &Value) -> Result<(), String> {
+    let dir = agent_dir();
+    let path = dir.join("auth.json");
+    let real = path.canonicalize().unwrap_or(path);
+    crate::config::with_lockfile(&real, "auth.json", || {
         // a file that cannot be read or parsed is left alone: writing over it would lose every other provider's sign-in
-        let mut auth = match std::fs::read_to_string(dir.join("auth.json")) {
+        let mut auth = match std::fs::read_to_string(&real) {
             Ok(t) => serde_json::from_str(t.trim_start_matches('\u{feff}')).map_err(|e| format!("auth.json is not valid JSON: {e}"))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
             Err(e) => return Err(format!("could not read auth.json: {e}")),
         };
         let obj = auth.as_object_mut().ok_or("auth.json is not an object")?;
         obj.insert(provider.to_owned(), cred.clone());
-        let path = dir.join("auth.json");
-        let real = path.canonicalize().unwrap_or(path);
         write_private(&real, &serde_json::to_string_pretty(&auth).map_err(|e| e.to_string())?)
     })
+}
+
+async fn write_auth(provider: &str, cred: &Value) -> Result<(), String> {
+    let (provider, cred) = (provider.to_owned(), cred.clone());
+    tokio::task::spawn_blocking(move || write_auth_blocking(&provider, &cred))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ── who is it ────────────────────────────────────────────────────────────────
@@ -349,11 +310,13 @@ pub struct Accounts {
     /// Accounts not in use whose numbers were last asked for (account id → when), so they are asked at most every 5 min.
     asked: std::sync::Mutex<std::collections::BTreeMap<String, u64>>,
     login: Arc<tokio::sync::Mutex<Option<Login>>>,
+    login_seq: std::sync::atomic::AtomicU64,
     /// Account changes, for every session's page: the account in use is one for all of them (`auth.json`).
     changes: std::sync::OnceLock<tokio::sync::broadcast::Sender<Arc<str>>>,
 }
 
 struct Login {
+    gen: u64,
     provider: String,
     lines: Vec<String>,
     /// running | done | failed
@@ -467,7 +430,7 @@ impl Accounts {
         save_store(&store)?;
         let a = store.accounts.iter().find(|a| a.id == id).ok_or("no such account")?.clone();
         if current.get(&a.provider) != Some(&a.id) {
-            write_auth(&a.provider, &a.cred)?;
+            write_auth(&a.provider, &a.cred).await?;
             self.handed_over(&a.provider, current.get(&a.provider).map(String::as_str), &a.id, limits);
         }
         Ok(a)
@@ -477,17 +440,20 @@ impl Accounts {
     /// own, the one taking over shows what is known of it until it is asked).
     fn handed_over(&self, provider: &str, from: Option<&str>, to: &str, limits: &crate::limits::Limits) {
         let now = now_ms();
-        let mut others = self.others.lock().unwrap();
-        if let (Some(from), Some(e)) = (from, limits.entry(provider)) {
-            others.insert(from.to_owned(), (e, now));
-        }
-        match others.remove(to) {
-            Some((e, _)) => limits.replace(e),
+        let prev = from.and_then(|_| limits.entry(provider));
+        let next_entry = {
+            let mut others = self.others.lock().unwrap();
+            if let (Some(from), Some(e)) = (from, prev) {
+                others.insert(from.to_owned(), (e, now));
+            }
+            others.remove(to).map(|(e, _)| e)
+        };
+        match next_entry {
+            Some(e) => limits.replace(e),
             // nothing known of it yet: no numbers rather than the other account's (the next reply or question fills them)
             None => limits.replace(crate::limits::Entry { provider: provider.to_owned(), plan: None, at: 0, limit_reached: false, windows: vec![], resets: None, reset_kinds: vec![] }),
         }
         self.current.lock().unwrap().insert(provider.to_owned(), to.to_owned());
-        drop(others);
         self.save_numbers();
     }
 
@@ -558,7 +524,7 @@ impl Accounts {
             }
             Pick::None => return Baton::No,
         };
-        if let Err(e) = write_auth(provider, &next.cred) {
+        if let Err(e) = write_auth(provider, &next.cred).await {
             tracing::warn!("Baton Touch: {e}");
             return Baton::No;
         }
@@ -700,30 +666,27 @@ impl Accounts {
         if fresh {
             return a.cred["access"].as_str().map(str::to_owned);
         }
-        let dir = crate::config::cache_dir().join(format!("refresh-{}", now_ms()));
-        std::fs::create_dir_all(&dir).ok()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-        }
-        let out = async {
-            write_private(&dir.join("auth.json"), &json!({ (a.provider.clone()): a.cred }).to_string()).ok()?;
-            let token = token_in(pi_bin, &a.provider, Some(&dir)).await?;
-            let cred = read_auth(&dir)[&a.provider].clone();
-            // keep the refreshed sign-in, unless the account has been put in use meanwhile (auth.json rules then)
-            let _one = self.busy.lock().await;
-            let mut store = read_store();
-            let in_use = self.current.lock().unwrap().get(&a.provider) == Some(&a.id);
-            if let Some(s) = store.accounts.iter_mut().find(|s| s.id == a.id).filter(|_| !in_use && cred.is_object()) {
-                s.cred = cred;
-                let _ = save_store(&store);
+        struct TempDir(PathBuf);
+        impl Drop for TempDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
             }
-            Some(token)
         }
-        .await;
-        let _ = std::fs::remove_dir_all(&dir);
-        out
+        let dir = crate::config::cache_dir().join(format!("refresh-{}-{}", now_ms(), crate::config::random_hex(4)));
+        crate::config::create_private_dir(&dir).ok()?;
+        let _cleanup = TempDir(dir.clone());
+        write_private(&dir.join("auth.json"), &json!({ (a.provider.clone()): a.cred }).to_string()).ok()?;
+        let token = token_in(pi_bin, &a.provider, Some(&dir)).await?;
+        let cred = read_auth(&dir)[&a.provider].clone();
+        // keep the refreshed sign-in, unless the account has been put in use meanwhile (auth.json rules then)
+        let _one = self.busy.lock().await;
+        let mut store = read_store();
+        let in_use = self.current.lock().unwrap().get(&a.provider) == Some(&a.id);
+        if let Some(s) = store.accounts.iter_mut().find(|s| s.id == a.id).filter(|_| !in_use && cred.is_object()) {
+            s.cred = cred;
+            let _ = save_store(&store);
+        }
+        Some(token)
     }
 
     /// The limits as the page sees them, with who each provider's numbers belong to and the other accounts' cards.
@@ -767,13 +730,8 @@ impl Accounts {
         if slot.as_ref().is_some_and(|l| l.state == "running") {
             return Err("a sign-in is already under way".into());
         }
-        let dir = crate::config::cache_dir().join(format!("login-{}", now_ms()));
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-        }
+        let dir = crate::config::cache_dir().join(format!("login-{}-{}", now_ms(), crate::config::random_hex(4)));
+        crate::config::create_private_dir(&dir).map_err(|e| e.to_string())?;
         // a wide terminal, so the sign-in address stays on one line
         let line = format!("stty cols 2000 rows 40 2>/dev/null; exec '{pi_bin}' auth login {provider} --no-browser");
         let mut child = tokio::process::Command::new("script")
@@ -782,7 +740,7 @@ impl Accounts {
             .env("TERM", "xterm")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| {
@@ -791,7 +749,8 @@ impl Accounts {
             })?;
         let stdout = child.stdout.take().ok_or("no output")?;
         let (kill_tx, kill_rx) = tokio::sync::oneshot::channel();
-        *slot = Some(Login { provider: provider.to_owned(), lines: vec![], state: "running", error: None, account: None, stdin: child.stdin.take(), kill: Some(kill_tx) });
+        let gen = self.login_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        *slot = Some(Login { gen, provider: provider.to_owned(), lines: vec![], state: "running", error: None, account: None, stdin: child.stdin.take(), kill: Some(kill_tx) });
         drop(slot);
 
         // what it says, for the page
@@ -806,10 +765,14 @@ impl Accounts {
                 }
                 text.push_str(&String::from_utf8_lossy(&buf[..n]));
                 if text.len() > 64 * 1024 {
-                    text.drain(..text.len() - 32 * 1024);
+                    let mut cut = text.len() - 32 * 1024;
+                    while cut < text.len() && !text.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    text.drain(..cut);
                 }
                 let lines = screen_lines(&text);
-                if let Some(l) = shared.lock().await.as_mut() {
+                if let Some(l) = shared.lock().await.as_mut().filter(|l| l.gen == gen) {
                     l.lines = lines;
                 }
             }
@@ -838,7 +801,7 @@ impl Accounts {
                 Err(if status.is_none() { "cancelled".to_owned() } else { "sign-in did not finish".to_owned() })
             };
             let _ = std::fs::remove_dir_all(&dir);
-            if let Some(l) = me.login.lock().await.as_mut() {
+            if let Some(l) = me.login.lock().await.as_mut().filter(|l| l.gen == gen) {
                 l.stdin = None;
                 l.kill = None;
                 match result {
@@ -864,8 +827,14 @@ impl Accounts {
         }
         let mut slot = self.login.lock().await;
         let stdin = slot.as_mut().and_then(|l| l.stdin.as_mut()).ok_or("no sign-in is waiting")?;
-        stdin.write_all(format!("{text}\r").as_bytes()).await.map_err(|e| e.to_string())?;
-        stdin.flush().await.map_err(|e| e.to_string())
+        let line = format!("{text}\r");
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            stdin.write_all(line.as_bytes()).await?;
+            stdin.flush().await
+        })
+        .await
+        .map_err(|_| "sign-in input timed out".to_owned())?
+        .map_err(|e| e.to_string())
     }
 
     async fn login_cancel(&self) {

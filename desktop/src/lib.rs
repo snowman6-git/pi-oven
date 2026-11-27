@@ -89,16 +89,16 @@ fn show_server(app: &AppHandle, url: Url) -> tauri::Result<()> {
     #[cfg(desktop)]
     let b = b
         .on_navigation(move |u| {
-            if u.scheme() != "pi-oven-launcher" {
-                return true;
-            }
-            // Open the launcher first so that closing this window never leaves the app without one.
-            if show_launcher(&handle).is_ok() {
-                if let Some(w) = handle.get_webview_window("main") {
-                    let _ = w.close();
+            if u.scheme() == "pi-oven-launcher" {
+                // Open the launcher first so that closing this window never leaves the app without one.
+                if show_launcher(&handle).is_ok() {
+                    if let Some(w) = handle.get_webview_window("main") {
+                        let _ = w.close();
+                    }
                 }
+                return false;
             }
-            false
+            matches!(u.scheme(), "http" | "https" | "about" | "blob" | "data")
         })
         .inner_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1)
         .min_inner_size(640.0, 360.0)
@@ -138,16 +138,21 @@ fn show_launcher(app: &AppHandle) -> tauri::Result<()> {
     // from another thread.
     #[cfg(mobile)]
     let b = {
-        *PHONE_SERVER.lock().unwrap() = saved_server(app).and_then(|v| parse_server(&v).ok());
+        *PHONE_SERVER.lock().unwrap_or_else(|e| e.into_inner()) = saved_server(app).and_then(|v| parse_server(&v).ok());
         let handle = app.clone();
         b.initialization_script(BACK_SCRIPT).on_navigation(move |u| {
             if !matches!(u.scheme(), "http" | "https") {
                 return true;
             }
-            if u.host_str().is_some_and(|h| h.ends_with("tauri.localhost") || h == "localhost") {
+            if u.host_str().is_some_and(|h| h == "tauri.localhost" || h.ends_with(".tauri.localhost")) {
                 return true;
             }
-            if PHONE_SERVER.lock().unwrap().as_ref().is_some_and(|s| s.origin() == u.origin()) {
+            if PHONE_SERVER
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some_and(|s| s.origin() == u.origin() || (s.host_str().is_some() && s.host_str() == u.host_str() && u.scheme() == "https"))
+            {
                 return true;
             }
             let (handle, url) = (handle.clone(), u.to_string());
@@ -182,18 +187,29 @@ fn connect(app: AppHandle, window: WebviewWindow, url: String) -> Result<(), Str
     if let Some(path) = config_file(&app) {
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
-        }
-        if fs::write(&path, parsed.as_str()).is_ok() {
+            let tmp = dir.join(format!(".server-{}.tmp", std::process::id()));
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
             #[cfg(unix)]
             {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+            }
+            if let Ok(mut f) = opts.open(&tmp) {
+                use std::io::Write;
+                if f.write_all(parsed.as_str().as_bytes()).is_ok() && f.sync_all().is_ok() {
+                    if fs::rename(&tmp, &path).is_err() {
+                        let _ = fs::remove_file(&tmp);
+                    }
+                } else {
+                    let _ = fs::remove_file(&tmp);
+                }
             }
         }
     }
     #[cfg(mobile)]
     {
-        *PHONE_SERVER.lock().unwrap() = Some(parsed.clone());
+        *PHONE_SERVER.lock().unwrap_or_else(|e| e.into_inner()) = Some(parsed.clone());
     }
     show_server(&app, parsed).map_err(|e| e.to_string())?;
     #[cfg(desktop)]

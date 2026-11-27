@@ -113,10 +113,11 @@
   // its height, so the view is moved back by as much: what the reader was looking at stays where it was.
   const NEAR_TOP = 900;
   async function older() {
-    if (!chat.hasOlder || chat.loadingOlder) return;
+    if (!scroller || !chat.hasOlder || chat.loadingOlder) return;
     const h = scroller.scrollHeight;
     await chat.loadOlder();
     await tick();
+    if (!scroller) return;
     scroller.scrollTop += scroller.scrollHeight - h;
     settle();
   }
@@ -124,7 +125,7 @@
   $effect(() => {
     void chat.items.length;
     if (chat.loaded && chat.hasOlder && !chat.loadingOlder) {
-      void tick().then(() => { if (scroller.scrollHeight - scroller.clientHeight < NEAR_TOP) void older(); });
+      void tick().then(() => { if (scroller && scroller.scrollHeight - scroller.clientHeight < NEAR_TOP) void older(); });
     }
   });
 

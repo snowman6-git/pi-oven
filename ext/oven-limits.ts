@@ -29,6 +29,7 @@ function send(ctx: ExtensionContext, limits: Limits | null) {
 }
 
 const num = (v: unknown): number | null => {
+	if (typeof v === "string" && !v.trim()) return null;
 	const n = typeof v === "string" ? Number(v) : v;
 	return typeof n === "number" && Number.isFinite(n) ? n : null;
 };
@@ -80,7 +81,8 @@ function chatgptFromHeaders(provider: string, h: Headers, status: number, now: n
 function windowMinutes(name: string): number | null {
 	const m = /^(\d{1,4})(m|h|d)$/.exec(name);
 	if (!m) return null;
-	return Number(m[1]) * (m[2] === "d" ? 1440 : m[2] === "h" ? 60 : 1);
+	const mins = Number(m[1]) * (m[2] === "d" ? 1440 : m[2] === "h" ? 60 : 1);
+	return mins > 0 ? mins : null;
 }
 
 function claudeFromHeaders(provider: string, h: Headers, status: number, now: number): Limits | null {
@@ -115,26 +117,44 @@ function claudeFromHeaders(provider: string, h: Headers, status: number, now: nu
 const TRACE = "oven-trace";
 let previous: { sys: string; tools: string; msgs: string[] } | null = null;
 
-const hashOf = (v: unknown): string =>
+function hashPart(v: unknown): { hash: string; bytes: number; hasCache: boolean } {
+	let hasCache = false;
 	// `cache_control` marks move to the newest messages with every request: not a change of the content
-	createHash("sha1").update(JSON.stringify(v, (k, x) => (k === "cache_control" ? undefined : x)) ?? "").digest("base64");
+	const s =
+		JSON.stringify(v, (k, x) => {
+			if (k === "cache_control") {
+				hasCache = true;
+				return undefined;
+			}
+			return x;
+		}) ?? "";
+	return { hash: createHash("sha1").update(s).digest("base64"), bytes: Buffer.byteLength(s, "utf8"), hasCache };
+}
 
 function trace(payload: any): Record<string, unknown> | null {
 	if (!payload || typeof payload !== "object") return null;
 	const msgs: unknown[] = Array.isArray(payload.messages) ? payload.messages : Array.isArray(payload.input) ? payload.input : Array.isArray(payload.contents) ? payload.contents : [];
-	const now = { sys: hashOf(payload.system ?? payload.instructions ?? payload.systemInstruction ?? null), tools: hashOf(payload.tools ?? null), msgs: msgs.map(hashOf) };
+	const sysInfo = hashPart(payload.system ?? payload.instructions ?? payload.systemInstruction ?? null);
+	const toolsInfo = hashPart(payload.tools ?? null);
+	const msgHashes: string[] = [];
 	const marks: number[] = [];
-	msgs.forEach((m, i) => {
-		if (JSON.stringify(m).includes('"cache_control"')) marks.push(i);
-	});
-	const out: Record<string, unknown> = { at: Date.now(), n: msgs.length, marks, bytes: JSON.stringify(payload).length };
+	let bytes = sysInfo.bytes + toolsInfo.bytes;
+	for (let i = 0; i < msgs.length; i++) {
+		const info = hashPart(msgs[i]);
+		msgHashes.push(info.hash);
+		bytes += info.bytes;
+		if (info.hasCache) marks.push(i);
+	}
+	const now = { sys: sysInfo.hash, tools: toolsInfo.hash, msgs: msgHashes };
+	const out: Record<string, unknown> = { at: Date.now(), n: msgs.length, marks, bytes };
 	if (previous) {
 		const common = Math.min(previous.msgs.length, now.msgs.length);
 		let first = 0;
 		while (first < common && previous.msgs[first] === now.msgs[first]) first++;
 		out.prevN = previous.msgs.length;
 		// the first message that is not the one before at that place (`null`: this request only adds to the last one)
-		out.first = first < common ? first : null;
+		const diverged = first < common || now.msgs.length < previous.msgs.length;
+		out.first = diverged ? first : null;
 		if (first < common) out.role = (msgs[first] as any)?.role ?? (msgs[first] as any)?.type ?? null;
 		out.sys = now.sys !== previous.sys;
 		out.tools = now.tools !== previous.tools;
@@ -146,6 +166,10 @@ function trace(payload: any): Record<string, unknown> | null {
 // ── wiring ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	pi.on("session_start", () => {
+		previous = null;
+	});
+
 	pi.on("before_provider_request", (event, ctx) => {
 		try {
 			const t = trace(event.payload);
@@ -157,17 +181,24 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("provider_stream_event", (event, ctx) => {
-		send(ctx, chatgptFromEvent(String(event.provider), event.data, Date.now()));
+		if (typeof event.provider !== "string" || !event.provider) return;
+		send(ctx, chatgptFromEvent(event.provider, event.data, Date.now()));
 	});
 
 	pi.on("after_provider_response", (event, ctx) => {
 		const h: Headers = {};
-		for (const [k, v] of Object.entries(event.headers ?? {})) h[k.toLowerCase()] = String(v);
+		for (const [k, v] of Object.entries(event.headers ?? {})) {
+			const val = Array.isArray(v) ? v[0] : v;
+			if (val != null) h[k.toLowerCase()] = String(val);
+		}
 		const now = Date.now();
+		const evProvider = typeof (event as { provider?: unknown }).provider === "string" ? (event as { provider: string }).provider : null;
+		// Attribute by response header family (or explicit event.provider) so a compaction summary on another provider
+		// never overwrites the conversation's provider limits.
 		send(
 			ctx,
-			chatgptFromHeaders(ctx.model?.provider ?? "openai-codex", h, event.status, now) ??
-				claudeFromHeaders(ctx.model?.provider ?? "anthropic", h, event.status, now),
+			chatgptFromHeaders(evProvider ?? "openai-codex", h, event.status, now) ??
+				claudeFromHeaders(evProvider ?? "anthropic", h, event.status, now),
 		);
 	});
 }

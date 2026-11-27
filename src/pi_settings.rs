@@ -17,76 +17,87 @@ pub const DEFAULT_KEEP: u64 = 20_000;
 const MAX_KEEP: u64 = 100_000_000;
 
 fn path() -> PathBuf {
-    std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| crate::config::home_dir().join(".pi/agent")).join("settings.json")
+    crate::config::agent_dir().join("settings.json")
 }
 
 /// The member `key` of the object that starts at `open` (a `{`): where its value starts and ends, and where its key starts.
-/// The text is known to be valid JSON.
+/// The text is known to be valid JSON. Keeps the last occurrence on duplicate keys (matching serde_json::Value).
 fn member(text: &str, open: usize, key: &str) -> Option<(usize, usize, usize)> {
     let b = text.as_bytes();
+    if b.get(open) != Some(&b'{') {
+        return None;
+    }
     let mut i = open + 1;
+    let mut found = None;
     loop {
         while i < b.len() && (b[i].is_ascii_whitespace() || b[i] == b',') {
             i += 1;
         }
         if i >= b.len() || b[i] == b'}' {
-            return None;
+            return found;
         }
         let key_at = i;
-        let key_end = string_end(b, i);
+        let key_end = string_end(b, i)?;
         let name: String = serde_json::from_str(&text[key_at..key_end]).ok()?;
         i = key_end;
-        while b[i] != b':' {
+        while i < b.len() && b[i] != b':' {
             i += 1;
         }
+        if i >= b.len() {
+            return None;
+        }
         i += 1;
-        while b[i].is_ascii_whitespace() {
+        while i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
         }
         let val_at = i;
-        i = value_end(b, i);
+        i = value_end(b, i)?;
         if name == key {
-            return Some((key_at, val_at, i));
+            found = Some((key_at, val_at, i));
         }
     }
 }
 
 /// One past the closing quote of the string starting at `i`.
-fn string_end(b: &[u8], mut i: usize) -> usize {
+fn string_end(b: &[u8], mut i: usize) -> Option<usize> {
+    if b.get(i) != Some(&b'"') {
+        return None;
+    }
     i += 1;
-    while b[i] != b'"' {
+    while i < b.len() && b[i] != b'"' {
         i += if b[i] == b'\\' { 2 } else { 1 };
     }
-    i + 1
+    (i < b.len()).then_some(i + 1)
 }
 
 /// One past the value starting at `i`.
-fn value_end(b: &[u8], mut i: usize) -> usize {
-    match b[i] {
+fn value_end(b: &[u8], mut i: usize) -> Option<usize> {
+    match *b.get(i)? {
         b'"' => string_end(b, i),
         b'{' | b'[' => {
-            let mut depth = 0;
-            loop {
+            let mut depth = 0usize;
+            while i < b.len() {
                 match b[i] {
                     b'"' => {
-                        i = string_end(b, i);
+                        i = string_end(b, i)?;
                         continue;
                     }
                     b'{' | b'[' => depth += 1,
-                    b'}' | b']' => depth -= 1,
+                    b'}' | b']' => depth = depth.checked_sub(1)?,
                     _ => {}
                 }
                 i += 1;
                 if depth == 0 {
-                    return i;
+                    return Some(i);
                 }
             }
+            None
         }
         _ => {
             while i < b.len() && !matches!(b[i], b',' | b'}' | b']') && !b[i].is_ascii_whitespace() {
                 i += 1;
             }
-            i
+            Some(i)
         }
     }
 }
@@ -170,57 +181,17 @@ fn read_text(p: &std::path::Path) -> Result<String, String> {
 
 /// One backup of the file as it was, then the new one by rename (permissions kept), so pi never reads half of it.
 fn write_text(p: &std::path::Path, text: &str) -> std::io::Result<()> {
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
     let mode = std::fs::metadata(p).ok().map(|m| m.permissions());
-    if p.exists() {
-        let _ = std::fs::copy(p, p.with_extension("json.bak"));
+    if let Ok(prev) = std::fs::read(p) {
+        let _ = crate::config::atomic_write_with_mode(&p.with_extension("json.bak"), &prev, mode.clone(), false);
     }
-    let tmp = p.with_extension(format!("json.tmp-{}", std::process::id()));
-    std::fs::write(&tmp, text)?;
-    if let Some(m) = mode {
-        let _ = std::fs::set_permissions(&tmp, m);
-    }
-    std::fs::rename(&tmp, p).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
-    })
-}
-
-/// Run `f` holding pi's own lock on the file (proper-lockfile: a `<file>.lock` folder; one older than 10 s is stale),
-/// as `accounts.rs` does for `auth.json`.
-fn with_lock<T>(real: &std::path::Path, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    let lock = PathBuf::from(format!("{}.lock", real.display()));
-    let mut held = false;
-    for _ in 0..80 {
-        match std::fs::create_dir(&lock) {
-            Ok(()) => {
-                held = true;
-                break;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let stale = lock.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d.as_secs() > 10);
-                if stale {
-                    let _ = std::fs::remove_dir(&lock);
-                    continue;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    if !held {
-        return Err("settings.json is locked by pi; try again".into());
-    }
-    let out = f();
-    let _ = std::fs::remove_dir(&lock);
-    out
+    crate::config::atomic_write_with_mode(p, text.as_bytes(), mode, false)
 }
 
 /// Under pi's lock, and on the real file when `p` is a link (a dotfiles setup keeps its link).
 pub fn set_keep_in(p: &std::path::Path, n: u64) -> Result<(), String> {
     let real = p.canonicalize().unwrap_or_else(|_| p.to_owned());
-    with_lock(&real, || {
+    crate::config::with_lockfile(&real, "settings.json", || {
         let text = read_text(&real)?;
         let out = with_keep(&text, n)?;
         write_text(&real, &out).map_err(|e| e.to_string())
@@ -288,6 +259,9 @@ mod tests {
         assert!(with_keep("[1]", 5).is_err());
         assert!(with_keep("{\"compaction\": null}", 5).is_err());
         assert!(current_keep("{ nope").is_err());
+        // duplicate key where an earlier value is a string with trailing escape must not panic
+        let dup = "{\"compaction\":\"a\\\\\",\"compaction\":{}}";
+        assert_eq!(current_keep(&with_keep(dup, 777).unwrap()).unwrap(), Some(777));
     }
 
     #[test]

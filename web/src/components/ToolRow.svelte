@@ -82,7 +82,7 @@
   {/if}
 
   {#if tool.status === 'running' && !open && tool.name === 'bash' && tail}
-    <pre class="peek mono">{tail}</pre>
+    <pre class="peek mono">{showcase.text(tail)}</pre>
   {/if}
 
   {#if open}
@@ -111,7 +111,7 @@
       {/if}
 
       {#each tool.images ?? [] as img, n}
-        <button class="shotbtn" type="button" aria-label={t('viewer.open')} onclick={() => app.view(tool.images ?? [], n)}>
+        <button class="shotbtn" type="button" data-priv="files" aria-label={t('viewer.open')} onclick={() => app.view(tool.images ?? [], n)}>
           <img class="shot" alt="" src={`data:${img.mimeType};base64,${img.data}`} />
         </button>
       {/each}

@@ -158,7 +158,7 @@
         {/if}
         {#if item.text}<div class="text" data-priv="chat">{showcase.text(item.text)}</div>{/if}
         {#if item.images.length}
-          <div class="thumbs">
+          <div class="thumbs" data-priv="chat">
             {#each item.images as img, n}<button type="button" aria-label={t('viewer.open')} onclick={() => app.view(item.images, n)}><img alt="" src={`data:${img.mimeType};base64,${img.data}`} /></button>{/each}
           </div>
         {/if}
@@ -190,7 +190,7 @@
       {/each}
       {#if waiting}<WaitBubble {chat} />{/if}
       {#if liveSpeed}<div class="speed mono" aria-hidden="true">{speedText(liveSpeed)}</div>{/if}
-      {#if item.error}<p class="blk error" class:shake={fresh(item.errorAt)}>{item.error}</p>{/if}
+      {#if item.error}<p class="blk error" class:shake={fresh(item.errorAt)}>{showcase.text(item.error)}</p>{/if}
       {#if item.stop === 'aborted'}<p class="faint">{S.aborted}</p>{/if}
       {#if showBar}
         <div class="acts" role="group" aria-label={t('turn.answerActions')}>

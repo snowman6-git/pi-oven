@@ -45,10 +45,14 @@
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      el.removeEventListener('lostpointercapture', up);
       chat.editors.setSplitFrac(chat.editors.splitFrac, true);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
     e.preventDefault();
   }
   function gripSplitKey(e: KeyboardEvent, chat: NonNullable<typeof app.current>) {
@@ -114,7 +118,7 @@
   const overlayCount = () => {
     const c = app.current;
     return [
-      !!c?.bgOpen, !!c?.extTitle, app.folderPicker, app.settingsOpen, !!app.treeTarget, !!app.viewer, !!app.dialog, menu.open,
+      !!c?.bgOpen, !!c?.dialogs.length, app.folderPicker, app.settingsOpen, !!app.treeTarget, !!app.viewer, !!app.dialog, menu.open,
       app.narrow && app.sidebarOpen, app.narrow && app.inspectorDrawer,
     ].filter(Boolean).length + popovers.count;
   };
@@ -166,10 +170,14 @@
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      el.removeEventListener('lostpointercapture', up);
       app.setInspectorWidth(app.inspectorW, true);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
     e.preventDefault();
   }
   function gripKey(e: KeyboardEvent) {
@@ -267,7 +275,7 @@
           <div class="grip" role="separator" aria-orientation="vertical" aria-label={t('app.panelGrip')} aria-valuenow={app.inspectorW} aria-valuemin="280" aria-valuemax="760" tabindex="0"
             onpointerdown={grab} onkeydown={gripKey} ondblclick={() => app.setInspectorWidth(340, true)}></div>
         {/if}
-        <Inspector {chat} />
+        {#key chat.runtime.id}<Inspector {chat} />{/key}
       </div>
     {/if}
   </div>

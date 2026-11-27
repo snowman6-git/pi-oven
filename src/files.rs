@@ -156,7 +156,7 @@ pub async fn list(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String>
             let link = e.file_type().map(|t| t.is_symlink()).unwrap_or(false);
             let (meta, blocked) = if link {
                 match e.path().canonicalize() {
-                    Ok(t) if t.starts_with(&root) => (fs::metadata(&t).ok(), false),
+                    Ok(t) if t.starts_with(&root) && !t.strip_prefix(&root).is_ok_and(|r| protected(&r.to_string_lossy())) => (fs::metadata(&t).ok(), false),
                     _ => (None, true),
                 }
             } else {
@@ -326,9 +326,8 @@ pub async fn write(State(app): State<Arc<AppState>>, UrlPath(id): UrlPath<String
             data.insert(0, '\u{feff}');
         }
         let dir = target.parent().ok_or((StatusCode::BAD_REQUEST, "bad path"))?;
-        let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let stamp = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let tmp = dir.join(format!(".{name}.oven-{}-{stamp}.tmp", std::process::id()));
+        let tmp = dir.join(format!(".oven-{}-{stamp}.tmp", std::process::id()));
         let put = (|| -> std::io::Result<()> {
             let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
             f.write_all(data.as_bytes())?;

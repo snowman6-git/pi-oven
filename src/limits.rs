@@ -112,6 +112,7 @@ pub fn read(line: &str) -> Option<Entry> {
 #[derive(Default)]
 pub struct Limits {
     map: Mutex<BTreeMap<String, Entry>>,
+    io: Mutex<()>,
     file: Option<PathBuf>,
     /// Providers whose last direct question failed: why, and when the next may go out. Shown, so a chip that does not
     /// follow a model switch has a reason on screen instead of looking stuck.
@@ -144,7 +145,7 @@ impl Limits {
             .filter_map(Entry::clean)
             .map(|e| (e.provider.clone(), e))
             .collect();
-        Self { map: Mutex::new(map), file, problems: Default::default(), switched: Default::default(), reached: Default::default() }
+        Self { map: Mutex::new(map), io: Default::default(), file, problems: Default::default(), switched: Default::default(), reached: Default::default() }
     }
 
     /// The numbers held for `provider` (those of the account in use).
@@ -224,7 +225,7 @@ impl Limits {
                 r.remove(&e.provider);
             }
         }
-        let all: Vec<Entry> = {
+        {
             let mut map = self.map.lock().unwrap();
             let old = map.get(&e.provider);
             if old.is_some_and(|old| old.at > e.at) {
@@ -246,13 +247,8 @@ impl Limits {
                 crate::logs::event("limits", serde_json::json!({ "provider": e.provider, "plan": e.plan, "windows": windows, "reached": e.limit_reached, "source": source }));
             }
             map.insert(e.provider.clone(), e);
-            map.values().cloned().collect()
-        };
-        let Some(file) = &self.file else { return };
-        let tmp = file.with_extension("tmp");
-        if serde_json::to_vec(&all).is_ok_and(|b| std::fs::write(&tmp, b).is_ok()) {
-            let _ = std::fs::rename(&tmp, file);
         }
+        self.save();
     }
 
     /// After a usage-limit error: the window that ran out, when it resets, and whether that is known rather than
@@ -312,11 +308,11 @@ impl Limits {
     }
 
     fn save(&self) {
-        let all: Vec<Entry> = self.map.lock().unwrap().values().cloned().collect();
         let Some(file) = &self.file else { return };
-        let tmp = file.with_extension("tmp");
-        if serde_json::to_vec(&all).is_ok_and(|b| std::fs::write(&tmp, b).is_ok()) {
-            let _ = std::fs::rename(&tmp, file);
+        let _io = self.io.lock().unwrap_or_else(|e| e.into_inner());
+        let all: Vec<Entry> = self.map.lock().unwrap().values().cloned().collect();
+        if let Ok(bytes) = serde_json::to_vec(&all) {
+            let _ = crate::config::atomic_write(file, &bytes, false);
         }
     }
 

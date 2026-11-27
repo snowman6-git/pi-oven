@@ -209,9 +209,12 @@
     color: var(--ink-2);
     font-weight: 520;
   }
+  .chip[aria-expanded='true'] {
+    background: var(--paper-sunk);
+    color: var(--ink);
+  }
   @media (hover: hover) {
-    .chip:hover,
-    .chip[aria-expanded='true'] {
+    .chip:hover {
       background: var(--paper-sunk);
       color: var(--ink);
     }

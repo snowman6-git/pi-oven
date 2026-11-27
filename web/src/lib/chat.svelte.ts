@@ -401,10 +401,11 @@ export class Chat {
 
   /** The task list, and what changed in it since last time. While anything runs it asks again every couple of seconds. */
   async refreshBgTasks() {
-    if (this.#bgFetching) return;
+    if (this.#disposed || this.#bgFetching) return;
     this.#bgFetching = true;
     try {
       const list = await api.tasks(this.runtime.id);
+      if (this.#disposed) return;
       const before = new Map(this.bgTasks.map((t) => [t.id, t.status]));
       const first = !this.#bgBaseline; // what already ran before this page looked is not news
       this.#bgBaseline = true;
@@ -427,7 +428,7 @@ export class Chat {
       this.#bgFetching = false;
     }
     clearTimeout(this.#bgTimer);
-    if (this.bgTasks.some((t) => t.status === 'running')) this.#bgTimer = setTimeout(() => void this.refreshBgTasks(), 2000);
+    if (!this.#disposed && this.bgTasks.some((t) => t.status === 'running')) this.#bgTimer = setTimeout(() => void this.refreshBgTasks(), 2000);
   }
 
   #remember(ids: string[]) {
@@ -714,6 +715,8 @@ export class Chat {
     this.#statsTimer = setTimeout(() => void this.refreshStats(), 400);
   }
 
+  #sendTimer: ReturnType<typeof setTimeout> | undefined;
+
   // ── commands ─────────────────────────────────────────────────────────────
   async send(text: string, images: ImagePart[] = [], mode: 'steer' | 'followUp' = 'steer') {
     const cmd: Record<string, unknown> = { type: 'prompt', message: text };
@@ -723,7 +726,8 @@ export class Chat {
     if (!this.running && !text.trim().startsWith('/')) {
       this.waitSince = Date.now();
       this.#sending = true;
-      setTimeout(() => (this.#sending = false), 15_000);
+      clearTimeout(this.#sendTimer);
+      this.#sendTimer = setTimeout(() => (this.#sending = false), 15_000);
     }
     try {
       const r = await this.conn.request<{ held?: unknown } | undefined>(cmd);
@@ -881,6 +885,7 @@ export class Chat {
 
   dispose() {
     this.#disposed = true;
+    clearTimeout(this.#sendTimer);
     clearTimeout(this.#noticeTimer);
     clearTimeout(this.#rereadTimer);
     this.#awaitingNotice.clear();

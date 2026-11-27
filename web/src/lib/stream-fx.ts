@@ -48,8 +48,12 @@ export class Reveal {
     let offset = 0;
     for (const node of nodes) {
       const text = node.data;
-      while (this.#births.length < offset + text.length) this.#births.push(now);
-      if (node.parentElement?.closest('pre, button')) { offset += text.length; continue; }
+      const end = offset + text.length;
+      while (this.#births.length < end) this.#births.push(now);
+      if (!text.length || node.parentElement?.closest('pre, button') || now - this.#births[end - 1] >= FX_MS) {
+        offset = end;
+        continue;
+      }
 
       const frag = document.createDocumentFragment();
       let fresh = false;
@@ -65,7 +69,7 @@ export class Reveal {
         } else frag.append(part);
         offset += part.length;
       }
-      if (fresh || frag.childNodes.length) node.replaceWith(frag);
+      if (fresh) node.replaceWith(frag);
     }
     return tpl.innerHTML;
   }

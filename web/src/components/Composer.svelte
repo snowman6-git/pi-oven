@@ -15,6 +15,7 @@
   import TodoTray from './TodoTray.svelte';
   import SubagentTray from './SubagentTray.svelte';
   import { settings } from '../lib/settings.svelte';
+  import { showcase } from '../lib/showcase.svelte';
   import { FILE_MIME } from '../lib/editor.svelte';
   import Icon from './Icon.svelte';
 
@@ -39,11 +40,12 @@
     menu = menu === m ? null : m;
   };
 
+  const INTERNAL_COMMANDS = new Set(['oven-permission', 'oven-retry', 'oven-note', 'oven-models']);
   const entries = $derived.by(() => {
     const seen = new Set<string>();
     const all = [
       ...builtins.map((b) => ({ name: b.name, description: b.description })),
-      ...chat.commands.filter((c) => c.name !== 'oven-permission' && c.name !== 'oven-retry').map((c) => ({ name: c.name, description: c.description ?? '' })),
+      ...chat.commands.filter((c) => !INTERNAL_COMMANDS.has(c.name)).map((c) => ({ name: c.name, description: c.description ?? '' })),
     ];
     return all.filter((c) => !seen.has(c.name) && seen.add(c.name));
   });
@@ -145,12 +147,13 @@
   async function addFiles(files: Iterable<File>) {
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
-      const data = await new Promise<string>((res) => {
+      const data = await new Promise<string | null>((res) => {
         const r = new FileReader();
         r.onload = () => res(String(r.result).split(',')[1] ?? '');
+        r.onerror = r.onabort = () => res(null);
         r.readAsDataURL(f);
       });
-      images.push({ type: 'image', data, mimeType: f.type });
+      if (data) images.push({ type: 'image', data, mimeType: f.type });
     }
   }
 
@@ -209,8 +212,8 @@
     <section class="queue" aria-label={S.queue}>
       <span class="qhead"><Icon name="clock" size={13} />{S.queue} {queued}</span>
       <ul>
-        {#each chat.queue.steering as q}<li><b>{S.steer}</b><span class="q">{q}</span></li>{/each}
-        {#each chat.queue.followUp as q}<li><b>{S.followUp}</b><span class="q">{q}</span></li>{/each}
+        {#each chat.queue.steering as q}<li><b>{S.steer}</b><span class="q" data-priv="chat">{showcase.text(q)}</span></li>{/each}
+        {#each chat.queue.followUp as q}<li><b>{S.followUp}</b><span class="q" data-priv="chat">{showcase.text(q)}</span></li>{/each}
       </ul>
       {#if chat.running}
         <button class="now" type="button" title={S.sendNowHint} onclick={() => void chat.sendNow('')}><Icon name="now" size={14} />{S.sendNow}</button>
@@ -294,7 +297,7 @@
         placeholder={chat.running ? (app.narrow ? S.composerPlaceholderRunningShort : S.composerPlaceholderRunning) : S.composerPlaceholder}
         aria-label={t('composer.message')}
         spellcheck="false"
-        enterkeyhint={'new-line' as never} /* spec value predates the tooling's enum */
+        enterkeyhint="enter"
       ></textarea>
 
       {#if chat.running && !canSend}

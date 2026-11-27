@@ -36,7 +36,9 @@
   });
   // an account changed elsewhere (Baton Touch, another device): the list follows
   $effect(() => {
-    if (limits.swap) setTimeout(() => void load(), 600);
+    if (!limits.swap) return;
+    const t = setTimeout(() => void load(), 600);
+    return () => clearTimeout(t);
   });
   // while a sign-in runs, its text comes in as it is printed
   const signing = $derived(view?.login?.state === 'running');

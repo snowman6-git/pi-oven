@@ -5,6 +5,7 @@
   import { showIn } from '../lib/showin';
   import { t as tr } from '../lib/i18n.svelte';
   import { runClock } from '../lib/util';
+  import { showcase } from '../lib/showcase.svelte';
   import type { Chat } from '../lib/chat.svelte';
   import { runCount, runName, type Run } from '../addons/subagents';
   import Icon from './Icon.svelte';
@@ -56,7 +57,7 @@
         {:else}
           <span class="who running">{runName(lead)}</span>
         {/if}
-        <span class="what" data-priv="paths">{lead.state === 'running' && busy?.tool ? `${busy.tool}${busy.toolArgs ? ' ' + busy.toolArgs : ''}` : ''}</span>
+        <span class="what" data-priv="paths">{lead.state === 'running' && busy?.tool ? `${busy.tool}${busy.toolArgs ? ' ' + showcase.text(busy.toolArgs) : ''}` : ''}</span>
         {#if runs.length > 1}<span class="more">+{runs.length - 1}</span>{/if}
         <span class="clock" class:go={lead.state === 'running'}>{lead.state === 'running' ? runClock(Math.max(0, now - lead.startedAt)) : tr(lead.state === 'done' ? 'sa.done' : 'sa.failed')}</span>
       {/if}

@@ -87,7 +87,7 @@
   function ember(from: P, to: () => P | null, total: number, rise: number): Promise<void> {
     return new Promise((done) => {
       const first = to();
-      if (!first) return done();
+      if (!first || !alive || !layer) return done();
       const el = document.createElement('div');
       el.className = 'ember';
       layer.append(el);
@@ -97,6 +97,7 @@
       let lastTrail: P | null = null;     // where the last spark was left: sparks follow distance, not the clock, so the trail is even at any frame rate
 
       const trail = (p: P, size: number) => {
+        if (!alive || !layer) return;
         const d = document.createElement('div');
         d.className = 'spark';
         d.style.cssText = `left:${p.x - size / 2}px;top:${p.y - size / 2}px;width:${size}px;height:${size}px`;
@@ -105,6 +106,7 @@
       };
 
       const frame = (now: number) => {
+        if (!alive || !layer) { el.remove(); return done(); }
         const end = to();
         const k = Math.max(0, Math.min(1, (now - t0) / total));   // rAF's timestamp can be a hair older than t0
         if (!end) { el.remove(); return done(); }
@@ -194,7 +196,7 @@
         );
       });
     };
-    if (!chip || !rect || !dot || !at() || calm() || document.hidden) return arrive();
+    if (!alive || !layer || !chip || !rect || !dot || !at() || calm() || document.hidden) return arrive();
     const from = mid(dot);
     const ghost = chip.cloneNode(true) as HTMLElement;
     ghost.removeAttribute('data-bg-chip');
@@ -211,17 +213,21 @@
   // Launches fly one after another, each to the chip of its own task, so two never sit on top of each other.
   // With a long line waiting (a script starting ten at once) each trip gets shorter rather than skipped,
   // so the row still fills from the left, in order.
+  let alive = true;
   const queue: { toolId: string; taskId: string | null }[] = [];
   let flying = false;
   async function drain() {
-    if (flying) return;
+    if (flying || !alive) return;
     flying = true;
-    while (queue.length) {
-      const next = queue.shift()!;
-      await fly(next.toolId, next.taskId, Math.max(300, TOTAL - 90 * queue.length));
-      await new Promise((r) => setTimeout(r, 90)); // a beat between chips, so they read as one after another
+    try {
+      while (queue.length && alive) {
+        const next = queue.shift()!;
+        await fly(next.toolId, next.taskId, Math.max(300, TOTAL - 90 * queue.length));
+        await new Promise((r) => setTimeout(r, 90)); // a beat between chips, so they read as one after another
+      }
+    } finally {
+      flying = false;
     }
-    flying = false;
   }
 
   // where the effects are in each queue lives on the session (`chat.played`): this component is made again each time
@@ -234,6 +240,7 @@
     for (const h of chat.bgHandoffs) if (h.n <= chat.played.handoff && chat.bgHandoffHold.includes(h.id)) chat.landed(h.id);
     const saFlown = new Set(chat.sa.launches.filter((l) => l.n <= chat.played.saLaunch).map((l) => l.toolId));
     if (chat.sa.landing.some((id) => saFlown.has(id))) chat.sa.landing = chat.sa.landing.filter((id) => !saFlown.has(id));
+    return () => { alive = false; };
   });
   $effect(() => {
     for (const l of chat.bgLaunches) {
@@ -248,13 +255,17 @@
   const handQueue: string[] = [];
   let handing = false;
   async function drainHandoffs() {
-    if (handing) return;
+    if (handing || !alive) return;
     handing = true;
-    while (handQueue.length) {
-      while (flying || queue.length) await new Promise((r) => setTimeout(r, 120));
-      await handoff(handQueue.shift()!);
+    try {
+      while (handQueue.length && alive) {
+        while ((flying || queue.length) && alive) await new Promise((r) => setTimeout(r, 120));
+        if (!alive) break;
+        await handoff(handQueue.shift()!);
+      }
+    } finally {
+      handing = false;
     }
-    handing = false;
   }
   $effect(() => {
     for (const h of chat.bgHandoffs) {

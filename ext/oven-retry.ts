@@ -28,7 +28,8 @@ const MODELS_COMMAND = "oven-models";
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand(TYPE, {
 		description: "Try the failed request again (used by pi-oven)",
-		handler: async () => {
+		handler: async (_args, ctx) => {
+			if (!ctx.isIdle()) return;
 			pi.sendMessage({ customType: TYPE, content: TEXT, display: false }, { triggerTurn: true });
 		},
 	});
@@ -42,7 +43,8 @@ export default function (pi: ExtensionAPI) {
 			} catch {
 				return;
 			}
-			const rest = typeof details === "object" && details !== null && (details as { note?: unknown }).note === "rest";
+			if (typeof details !== "object" || details === null || Array.isArray(details)) return;
+			const rest = (details as { note?: unknown }).note === "rest";
 			const message = { customType: rest ? REST : NOTE, content: "", display: true, details };
 			if (ctx.isIdle()) pi.sendMessage(message);
 			else pi.sendMessage(message, { deliverAs: "nextTurn" });
@@ -52,7 +54,11 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand(MODELS_COMMAND, {
 		description: "Read models.json again (used by pi-oven)",
 		handler: async (_args, ctx) => {
-			await ctx.modelRegistry.refresh();
+			try {
+				await ctx.modelRegistry.refresh();
+			} catch {
+				return;
+			}
 			const cur = ctx.model;
 			const next = cur && ctx.modelRegistry.find(cur.provider, cur.id);
 			if (!cur || !next || JSON.stringify(next) === JSON.stringify(cur)) return;
@@ -68,8 +74,22 @@ export default function (pi: ExtensionAPI) {
 	pi.on("context", async (event) => {
 		const isOurs = (m: { role: string; customType?: string }) => m.role === "custom" && m.customType === TYPE;
 		const isNote = (m: { role: string; customType?: string }) => m.role === "custom" && (m.customType === NOTE || m.customType === REST);
-		const last = event.messages.findLastIndex(isOurs);
-		if (last < 0 && !event.messages.some(isNote)) return undefined;
-		return { messages: event.messages.filter((m, i) => !isNote(m) && (i === last || !isOurs(m))) };
+		// Collapse consecutive retry messages (e.g. 100 failed tries in a row → 1) without retroactively deleting
+		// retry messages from earlier completed turns, which would invalidate the prompt cache.
+		const kept: typeof event.messages = [];
+		let changed = false;
+		for (const m of event.messages) {
+			if (isNote(m)) {
+				changed = true;
+				continue;
+			}
+			if (isOurs(m) && kept.length > 0 && isOurs(kept[kept.length - 1])) {
+				kept[kept.length - 1] = m;
+				changed = true;
+				continue;
+			}
+			kept.push(m);
+		}
+		return changed ? { messages: kept } : undefined;
 	});
 }

@@ -64,6 +64,7 @@ function pass() {
     }
   }
   for (const [t, m] of masked) if (!t.isConnected) masked.delete(t);
+  observer?.takeRecords();
 }
 
 function schedule() {

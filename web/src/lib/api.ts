@@ -228,7 +228,7 @@ export const api = {
   statFiles: (id: string, paths: string[]) =>
     call<Record<string, FileStat | null>>(`/api/runtimes/${id}/files/stat`, { method: 'POST', body: JSON.stringify({ paths }) }, BG),
   gitDiff: (id: string, path: string) => callText(`/api/runtimes/${id}/git/diff?path=${encodeURIComponent(path)}`),
-  info: () => call<{ version: string; build?: string | null; home: string; sessionsDir: string }>('/api/info'),
+  info: (timeoutMs = BG) => call<{ version: string; build?: string | null; home: string; sessionsDir: string }>('/api/info', {}, timeoutMs),
   ovenCheck: () => call<OvenRelease>('/api/oven/update'),
   ovenStatus: () => call<OvenStatus>('/api/oven/status'),
   setOvenAuto: (enabled: boolean) => call<OvenStatus>('/api/oven/auto', { method: 'PUT', body: JSON.stringify({ enabled }) }),
@@ -281,13 +281,31 @@ export const api = {
   longAct: (id: string, action: 'now' | 'stop') =>
     call<void>(`/api/runtimes/${id}/retry`, { method: 'POST', body: JSON.stringify({ action }) }),
   async taskOutput(id: string, task: string, tail = 24 * 1024): Promise<{ text: string; total: number }> {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), BG);
     const headers = new Headers();
-    if (auth.token) headers.set('Authorization', `Bearer ${auth.token}`);
+    const sent = auth.token;
+    if (sent) headers.set('Authorization', `Bearer ${sent}`);
     headers.set('X-Pi-Oven-Lang', currentLang());
-    const res = await fetch(`${serverUrl.value}/api/runtimes/${id}/tasks/${task}/output?tail=${tail}`, { headers });
-    if (res.status === 404) return { text: '', total: 0 };       // nothing written yet
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return { text: await res.text(), total: Number(res.headers.get('x-total-bytes') ?? 0) };
+    try {
+      let res: Response;
+      try {
+        res = await fetch(`${serverUrl.value}/api/runtimes/${id}/tasks/${task}/output?tail=${tail}`, { headers, signal: ctl.signal });
+      } catch {
+        if (ctl.signal.aborted) throw new Error('timeout');
+        throw new Error('network');
+      }
+      if (res.status === 401) {
+        forget(sent);
+        throw new AuthError();
+      }
+      if (res.status === 429) throw new AuthError('locked');
+      if (res.status === 404) return { text: '', total: 0 };       // nothing written yet
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return { text: await res.text(), total: Number(res.headers.get('x-total-bytes') ?? 0) };
+    } finally {
+      clearTimeout(timer);
+    }
   },
   closeRuntime: (id: string) => call<void>(`/api/runtimes/${id}`, { method: 'DELETE' }),
   mkdir: (parent: string, name: string) =>

@@ -124,6 +124,9 @@ fn prune(dir: &Path, today: u64, max: u64) {
 
 /// Keep one event: `{"t":…,"kind":…, …fields}`. Never fails the caller; a disk that cannot be written loses the line.
 pub fn event(kind: &str, mut fields: serde_json::Value) {
+    if cfg!(test) {
+        return;
+    }
     let now = crate::runtime::now_ms();
     if !fields.is_object() {
         fields = serde_json::json!({ "value": fields });

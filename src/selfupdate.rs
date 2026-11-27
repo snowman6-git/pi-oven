@@ -121,7 +121,11 @@ pub async fn fetch_latest() -> Result<Staged, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let archive = dir.join("server.tar.gz");
     curl(&url(&server), Some(&archive)).await?;
-    let got = sha256_file(&archive).map_err(|e| e.to_string())?;
+    let archive2 = archive.clone();
+    let got = tokio::task::spawn_blocking(move || sha256_file(&archive2))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
     if got != expected {
         let _ = std::fs::remove_file(&archive);
         return Err(tr!("내려받은 파일의 해시가 SHA256SUMS와 다릅니다", "the downloaded file does not match SHA256SUMS").to_string());
@@ -137,7 +141,11 @@ pub async fn fetch_latest() -> Result<Staged, String> {
     if !meta.is_file() {
         return Err("pi-oven in the archive is not a file".into());
     }
-    let hash = sha256_file(&bin).map_err(|e| e.to_string())?;
+    let bin2 = bin.clone();
+    let hash = tokio::task::spawn_blocking(move || sha256_file(&bin2))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
     let notes: String = rel["body"].as_str().unwrap_or("").chars().take(MAX_NOTES).collect();
     Ok(Staged { tag, hash, updated_at: server["updated_at"].as_str().unwrap_or("").to_owned(), bin, notes, archive: expected })
 }
@@ -195,7 +203,10 @@ impl Default for SelfUpdate {
     fn default() -> Self {
         let dir = crate::config::cache_dir();
         let auto = std::fs::read_to_string(dir.join("update-check")).map(|v| v.trim() != "off").unwrap_or(true);
-        let known = std::fs::read(dir.join("update-known.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        let known = std::fs::read(dir.join("update-known.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Known>(&b).ok())
+            .filter(|k| k.binary.len() == 64 && k.binary.bytes().all(|b| b.is_ascii_hexdigit()));
         Self { busy: Default::default(), staged: Default::default(), auto: auto.into(), known: Mutex::new(known) }
     }
 }
@@ -203,9 +214,9 @@ impl Default for SelfUpdate {
 impl SelfUpdate {
     fn remember(&self, s: &Staged) {
         let k = Known { tag: s.tag.clone(), archive: s.archive.clone(), binary: s.hash.clone(), checked_at: crate::runtime::now_ms() };
-        let dir = crate::config::cache_dir();
-        if std::fs::create_dir_all(&dir).is_ok() {
-            let _ = std::fs::write(dir.join("update-known.json"), serde_json::to_vec(&k).unwrap_or_default());
+        let path = crate::config::cache_dir().join("update-known.json");
+        if let Ok(bytes) = serde_json::to_vec(&k) {
+            let _ = crate::config::atomic_write(&path, &bytes, false);
         }
         *self.known.lock().unwrap() = Some(k);
         crate::events::changed("updates");
@@ -219,8 +230,8 @@ impl SelfUpdate {
             "auto": self.auto.load(std::sync::atomic::Ordering::Relaxed),
             "available": match (&k, &current) { (Some(k), Some(c)) => k.binary != *c, _ => false },
             "tag": k.as_ref().map(|k| k.tag.clone()),
-            "latest": k.as_ref().map(|k| k.binary[..12].to_owned()),
-            "current": current.map(|c| c[..12].to_owned()),
+            "latest": k.as_ref().and_then(|k| k.binary.get(..12).map(str::to_owned)),
+            "current": current.and_then(|c| c.get(..12).map(str::to_owned)),
             "checkedAt": k.as_ref().map(|k| k.checked_at),
         })
     }
@@ -327,8 +338,11 @@ pub async fn apply(State(app): State<Arc<AppState>>) -> Response {
     if exe().is_some_and(|(_, h)| *h == s.hash) {
         return fail(StatusCode::CONFLICT, tr!("이미 최신입니다", "already up to date"));
     }
-    if let Err(e) = replace_exe(&s.bin) {
-        return fail(StatusCode::INTERNAL_SERVER_ERROR, e);
+    let bin = s.bin.clone();
+    match tokio::task::spawn_blocking(move || replace_exe(&bin)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
     tracing::info!(tag = %s.tag, hash = %&s.hash[..12], "pi-oven updated; restarting");
     let runtimes = app.runtimes.clone();

@@ -75,7 +75,7 @@
       {/if}
     </div>
 
-    <button class="icon-btn panel-btn" type="button" aria-label={S.inspector} aria-pressed={app.inspectorOpen} onclick={() => app.toggleInspector()}>
+    <button class="icon-btn panel-btn" type="button" aria-label={S.inspector} aria-pressed={app.showInspector} onclick={() => app.toggleInspector()}>
       <Icon name="panel" />
       {#if chat.live.drafts.length && !(app.narrow ? app.inspectorDrawer : app.inspectorOpen)}<i class="busy" role="img" aria-label={t('live.busy')}></i>{/if}
     </button>
@@ -106,8 +106,8 @@
         <button class="btn" type="button" onclick={() => chat.longAct('stop')}>{t('long.stop')}</button>
       </span>
     {:else if resume}
-      <span class="msg" title={(resume.known ? (resume.window ? t('resume.tipWindow', { window: windowName(resume.window), clock: clock(resume.at) }) : t('resume.tip', { clock: clock(resume.at) })) : t('resume.tipGuess')) + '\n' + resume.text}>
-        {t('resume.reached')} · {#if !resume.known}{t('resume.about')} {/if}<b class="clock">{runClock(resume.at - now)}</b> {t('resume.then', { text: resume.text })}
+      <span class="msg" title={(resume.known ? (resume.window ? t('resume.tipWindow', { window: windowName(resume.window), clock: clock(resume.at) }) : t('resume.tip', { clock: clock(resume.at) })) : t('resume.tipGuess')) + '\n' + showcase.tip('chat', resume.text)}>
+        {t('resume.reached')} · {#if !resume.known}{t('resume.about')} {/if}<b class="clock">{runClock(resume.at - now)}</b> <span data-priv="chat">{t('resume.then', { text: showcase.text(resume.text) })}</span>
       </span>
       <span class="acts">
         <button class="btn go" type="button" onclick={() => chat.resumeAct('now')}>{t('resume.now')}</button>

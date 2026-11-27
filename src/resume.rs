@@ -64,11 +64,10 @@ impl Resume {
     }
 
     fn set(&self, s: Settings) -> std::io::Result<()> {
-        *self.s.lock().unwrap() = s.clone();
+        let mut g = self.s.lock().unwrap();
+        *g = s.clone();
         let Some(file) = &self.file else { return Ok(()) };
-        let tmp = file.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_vec(&s).unwrap_or_default())?;
-        std::fs::rename(&tmp, file)
+        crate::config::atomic_write(file, &serde_json::to_vec(&s).unwrap_or_default(), false)
     }
 }
 

@@ -45,7 +45,7 @@ pub struct Config {
     #[arg(long, alias = "passwd-file", env = "PI_OVEN_PASSWORD_FILE", value_name = "FILE", help_heading = "Access")]
     pub password_file: Option<PathBuf>,
 
-    /// Behind a reverse proxy: count failed sign-ins per client (first X-Forwarded-For address). Only when the proxy sets that header itself.
+    /// Behind a reverse proxy: count failed sign-ins per client (last X-Forwarded-For address). Only when the proxy appends the client IP itself.
     #[arg(long, help_heading = "Access")]
     pub trust_proxy: bool,
 
@@ -111,7 +111,7 @@ pub fn parse_args() -> Config {
             ("token_file", "접근 제어", "토큰을 파일에서 읽기(첫 줄)."),
             ("password", "접근 제어", "접속 비밀번호(8자 이상, 공백 없는 영문·숫자·기호). 접속 화면에 직접 입력합니다. 토큰과 함께 쓰면 둘 다 통합니다."),
             ("password_file", "접근 제어", "비밀번호를 파일에서 읽기(첫 줄)."),
-            ("trust_proxy", "접근 제어", "리버스 프록시 뒤에서 실행: 실패 횟수 제한을 접속자별(X-Forwarded-For의 첫 주소)로 셉니다. 프록시가 이 헤더를 직접 채울 때만 켜세요."),
+            ("trust_proxy", "접근 제어", "리버스 프록시 뒤에서 실행: 실패 횟수 제한을 접속자별(X-Forwarded-For의 마지막 주소)로 셉니다. 프록시가 이 헤더에 접속자 IP를 직접 덧붙일 때만 켜세요."),
             ("allow_origins", "접근 제어", "이 서버의 API를 호출해도 되는 다른 브라우저 출처(여러 번 가능). 예: https://pi.example.com"),
             ("pi_bin", "pi", "실행할 pi 프로그램."),
             ("pi_args", "pi", "모든 `pi --mode rpc` 프로세스에 넘길 인자(여러 번 가능). 예: --pi-arg=--approve"),
@@ -227,6 +227,109 @@ fn install(name: &str, body: &str) -> Option<PathBuf> {
     let path = dir.join(name);
     std::fs::write(&path, body).ok()?;
     Some(path)
+}
+
+/// pi's agent config folder (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`).
+pub fn agent_dir() -> PathBuf {
+    std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| home_dir().join(".pi/agent"))
+}
+
+static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Atomically write `bytes` to `path` via a unique temp file in the same folder, then rename.
+/// When `private` is true, the temp file is created with mode 0600 from the start (no world-readable window).
+pub fn atomic_write(path: &std::path::Path, bytes: &[u8], private: bool) -> std::io::Result<()> {
+    atomic_write_with_mode(path, bytes, None, private)
+}
+
+/// Like `atomic_write`, optionally preserving an explicit `mode` (when `None`, uses `0o600` if `private`).
+pub fn atomic_write_with_mode(
+    path: &std::path::Path,
+    bytes: &[u8],
+    mode: Option<std::fs::Permissions>,
+    private: bool,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = path.parent().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent folder"))?;
+    std::fs::create_dir_all(dir)?;
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".oven-{}-{seq}.tmp", std::process::id()));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        if let Some(m) = &mode {
+            opts.mode(m.mode() & 0o777);
+        } else if private {
+            opts.mode(0o600);
+        }
+    }
+    let res = (|| -> std::io::Result<()> {
+        let mut f = opts.open(&tmp)?;
+        #[cfg(unix)]
+        if let Some(m) = &mode {
+            std::fs::set_permissions(&tmp, m.clone())?;
+        } else if private {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
+}
+
+/// Create a private (`0o700`) directory, setting permissions at creation time on Unix.
+pub fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut b = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        b.mode(0o700);
+    }
+    b.create(dir)
+}
+
+/// Run `f` holding pi's own lock on `real` (proper-lockfile: a `<file>.lock` folder; one older than 10 s is stale).
+/// Blocking: call from `spawn_blocking` when inside an async context.
+pub fn with_lockfile<T>(real: &std::path::Path, label: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    struct Guard(PathBuf);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir(&self.0);
+        }
+    }
+    let lock = PathBuf::from(format!("{}.lock", real.display()));
+    let mut guard = None;
+    for _ in 0..80 {
+        match std::fs::create_dir(&lock) {
+            Ok(()) => {
+                guard = Some(Guard(lock));
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let stale = lock.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d.as_secs() > 10);
+                if stale {
+                    let _ = std::fs::remove_dir(&lock);
+                    continue;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let Some(_guard) = guard else {
+        return Err(format!("{label} is locked by pi; try again"));
+    };
+    f()
 }
 
 /// 16 random bytes from the OS as hex.

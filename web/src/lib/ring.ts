@@ -4,6 +4,7 @@
 
 /** Spread a ring `spread` px out from `el` over `ms`, in `color`, starting at `strength` (0..1) opacity. */
 export function ring(el: HTMLElement, color: string, spread = 12, ms = 700, strength = 0.6) {
+  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const r = el.getBoundingClientRect();
   if (!r.width || !r.height) return;
   const o = document.createElement('span');

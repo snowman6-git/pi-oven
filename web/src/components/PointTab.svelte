@@ -63,8 +63,11 @@
   function addByHand() {
     const v = value.trim();
     if (!v) return;
-    const isUrl = /^https?:\/\//i.test(v);
-    pin(isUrl ? 'url' : 'note', label.trim() || (isUrl ? new URL(v).host : t('point.memo')), v);
+    let urlHost: string | null = null;
+    if (/^https?:\/\//i.test(v)) {
+      try { urlHost = new URL(v).host; } catch { urlHost = null; }
+    }
+    pin(urlHost ? 'url' : 'note', label.trim() || (urlHost ?? t('point.memo')), v);
     label = value = '';
   }
 
@@ -104,7 +107,7 @@
             <span class="btns">
               {#if p.kind === 'secret'}<button class="icon-btn sm" type="button" aria-label={shown[p.id] ? t('point.hide') : t('point.show')} onclick={() => (shown[p.id] = !shown[p.id])}><Icon name={shown[p.id] ? 'eyeOff' : 'eye'} size={15} /></button>{/if}
               <button class="icon-btn sm" type="button" aria-label={S.copy} title={S.copy} onclick={() => app.copy(p.value)}><Icon name="copy" size={15} /></button>
-              {#if p.kind === 'url'}<button class="icon-btn sm" type="button" aria-label={t('point.open')} title={swapped(p.value) ? t('point.openAs', { url: swapped(p.value) ?? '' }) : t('point.open')} onclick={() => open(p.value)}><Icon name="external" size={15} /></button>{/if}
+              {#if p.kind === 'url'}<button class="icon-btn sm" type="button" aria-label={t('point.open')} title={swapped(p.value) ? showcase.tip('hosts', t('point.openAs', { url: swapped(p.value) ?? '' })) : t('point.open')} onclick={() => open(p.value)}><Icon name="external" size={15} /></button>{/if}
               <button class="icon-btn sm" type="button" aria-label={t('point.unpin')} title={t('point.unpin')} onclick={() => unpin(p)}><Icon name="x" size={15} /></button>
             </span>
           </div>
@@ -134,11 +137,11 @@
             <a class="mono val link" data-priv="hosts" href={reachable(u.value, host)} target="_blank" rel="noopener noreferrer">{displayUrl(u.value)}</a>
             <span class="btns">
               <button class="icon-btn sm" type="button" aria-label={S.copy} title={S.copy} onclick={() => app.copy(u.value)}><Icon name="copy" size={15} /></button>
-              <button class="icon-btn sm" type="button" aria-label={t('point.open')} title={swapped(u.value) ? t('point.openAs', { url: swapped(u.value) ?? '' }) : t('point.open')} onclick={() => open(u.value)}><Icon name="external" size={15} /></button>
+              <button class="icon-btn sm" type="button" aria-label={t('point.open')} title={swapped(u.value) ? showcase.tip('hosts', t('point.openAs', { url: swapped(u.value) ?? '' })) : t('point.open')} onclick={() => open(u.value)}><Icon name="external" size={15} /></button>
               <button class="icon-btn sm" type="button" aria-label={t('point.pin')} title={t('point.pin')} disabled={pinned(u.value)} onclick={() => pin('url', u.host + (u.port ? ':' + u.port : ''), u.value)}><Icon name="pin" size={15} /></button>
             </span>
           </div>
-          <small>{#if isLocalHost(u.host) && swapped(u.value)}{t('point.local', { host })}{:else}{t('point.seen', { n: u.count })}{/if}</small>
+          <small>{#if isLocalHost(u.host) && swapped(u.value)}<span data-priv="hosts">{t('point.local', { host })}</span>{:else}{t('point.seen', { n: u.count })}{/if}</small>
         </li>
       {/each}
     </ul>

@@ -31,11 +31,22 @@ export default function (pi: ExtensionAPI) {
 	let mode: Mode = saved() ?? (process.env.PI_OVEN_PERMISSION === "manual" ? "manual" : "auto");
 	const status = () => (chosen ? mode : `${mode}-default`);
 
-	const describe = (name: string, input: Record<string, unknown>): string => {
-		if (name === "bash") return String(input.command ?? "");
-		if (typeof input.path === "string") return `${name} ${input.path}`;
-		const first = Object.values(input).find((v) => typeof v === "string") as string | undefined;
+	const describe = (name: string, input: unknown): string => {
+		const inp = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+		if (name === "bash") return String(inp.command ?? "").slice(0, 2000);
+		if (typeof inp.path === "string") return `${name} ${inp.path}`;
+		const first = Object.values(inp).find((v) => typeof v === "string") as string | undefined;
 		return first ? `${name}: ${first.slice(0, 300)}` : name;
+	};
+
+	const syncSaved = () => {
+		const now = saved();
+		if (now && (!chosen || now !== mode)) {
+			mode = now;
+			chosen = true;
+			return true;
+		}
+		return false;
 	};
 
 	pi.registerCommand("oven-permission", {
@@ -47,8 +58,9 @@ export default function (pi: ExtensionAPI) {
 				chosen = true;
 				if (file) {
 					try {
-						writeFileSync(file + ".tmp", mode);
-						renameSync(file + ".tmp", file);
+						const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+						writeFileSync(tmp, mode);
+						renameSync(tmp, file);
 					} catch {
 						/* this process still follows it */
 					}
@@ -59,20 +71,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		syncSaved();
 		ctx.ui.setStatus("oven-permission", status());
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
-		const now = saved(); // another session or device may have changed it since
-		if (now && now !== mode) {
-			mode = now;
-			chosen = true;
+		if (syncSaved()) {
 			ctx.ui.setStatus("oven-permission", status());
 		}
 		if (mode !== "manual" || READ_ONLY.has(event.toolName)) return undefined;
 		if (!ctx.hasUI) return { block: true, reason: "Manual permission mode needs a UI to confirm" };
 		// pi-oven's page words this title in its own language (it knows this exact shape)
-		const ok = await ctx.ui.confirm(`Allow ${event.toolName} to run?`, describe(event.toolName, event.input as Record<string, unknown>));
+		const ok = await ctx.ui.confirm(`Allow ${event.toolName} to run?`, describe(event.toolName, event.input));
 		return ok ? undefined : { block: true, reason: "The user declined this tool call" };
 	});
 }

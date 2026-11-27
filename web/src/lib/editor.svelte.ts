@@ -92,6 +92,7 @@ export class Editors {
   #timer: ReturnType<typeof setInterval> | undefined;
   #soon: ReturnType<typeof setTimeout> | undefined;
   #polling = false;
+  #disposed = false;
   /** A revision seen on disk once: it is only taken in when it is seen again, so a file caught half-written is not. */
   #seen = new Map<string, string>();
   /** Saved, made or renamed here a moment ago: the folder watch telling of it is no news. */
@@ -105,6 +106,7 @@ export class Editors {
   }
 
   dispose() {
+    this.#disposed = true;
     clearInterval(this.#timer);
     clearTimeout(this.#soon);
   }
@@ -189,8 +191,11 @@ export class Editors {
       if (!ok) return false;
     }
     const i = this.docs.findIndex((d) => d.path === path);
+    if (i < 0) return true;
     this.docs.splice(i, 1);
     if (this.active === path) this.active = this.docs[Math.min(i, this.docs.length - 1)]?.path ?? null;
+    if (this.last === path) this.last = this.active ?? this.docs[0]?.path ?? null;
+    this.previewing = this.previewing.filter((p) => p !== path);
     this.#persist();
     return true;
   }
@@ -201,13 +206,26 @@ export class Editors {
 
   /** A file or folder was renamed: tabs inside it follow. */
   renamed(from: string, to: string) {
+    const remap = (p: string) => (p === from || p.startsWith(from + '/') ? to + p.slice(from.length) : p);
     for (const d of this.docs) {
       if (d.path === from || d.path.startsWith(from + '/')) {
         const was = d.path;
-        d.path = to + d.path.slice(from.length);
+        d.path = remap(was);
         d.name = nameOf(d.path);
         if (this.active === was) this.active = d.path;
+        if (this.last === was) this.last = d.path;
+        if (this.inView === was) this.inView = d.path;
+        const seen = this.#seen.get(was);
+        if (seen !== undefined) {
+          this.#seen.delete(was);
+          this.#seen.set(d.path, seen);
+        }
       }
+    }
+    this.previewing = this.previewing.map(remap);
+    if (this.selection) {
+      const next = remap(this.selection.path);
+      if (next !== this.selection.path) this.selection = { ...this.selection, path: next };
     }
     this.#persist();
   }
@@ -311,15 +329,16 @@ export class Editors {
 
   /** Look at the disk for every open file: what pi (or anything else) changed is brought in, not overwritten. */
   async poll() {
-    if (this.#polling || document.hidden) return;
+    if (this.#disposed || this.#polling || document.hidden) return;
     const open = this.docs.filter((d) => !d.loading && !d.error);
     if (!open.length) return;
     this.#polling = true;
     let again = false;
     try {
       const now = await api.statFiles(this.runtimeId, open.map((d) => d.path));
+      if (this.#disposed) return;
       for (const d of open) {
-        if (d.saving) continue;
+        if (this.#disposed || !this.get(d.path) || d.saving) continue;
         const st = now[d.path];
         if (st === undefined) continue;
         if (d.image) {
@@ -346,13 +365,14 @@ export class Editors {
     finally {
       this.#polling = false;
     }
-    if (again) this.pollSoon(600);
+    if (again && !this.#disposed) this.pollSoon(600);
   }
 
   /** The disk has a newer version: take in the lines that changed. Returns false if it should be tried again. */
   async #bringIn(d: Doc, rev: string): Promise<boolean> {
     let f: FileText;
     try { f = await api.readFile(this.runtimeId, d.path, true); } catch { return true; }
+    if (this.#disposed || !this.get(d.path) || d.saving) return true;
     if (f.rev !== rev) return false; // it moved on while being read
     const r = this.applyRemote?.(d.path, f) ?? { result: 'none' as const };
     if (r.result !== 'applied') {
@@ -370,12 +390,14 @@ export class Editors {
     d.eol = f.eol;
     d.bom = f.bom;
     d.conflict = null;
+    d.version++;
     this.host.flash(t(d.dirty ? 'editor.merged' : 'editor.applied', { name: d.name, n: r.lines }));
     return true;
   }
 
   /** pi just ran something that may have written files. */
   pollSoon(ms = 350) {
+    if (this.#disposed) return;
     clearTimeout(this.#soon);
     this.#soon = setTimeout(() => void this.poll(), ms);
   }

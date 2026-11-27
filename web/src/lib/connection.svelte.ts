@@ -95,6 +95,7 @@ export class Connection {
     clearTimeout(this.#openTimer);
     this.#openTimer = setTimeout(() => { if (ws.readyState !== WebSocket.OPEN) ws.close(); }, CONNECT_TIMEOUT);
     ws.onopen = () => {
+      if (this.#disposed || ws !== this.#ws) return;
       clearTimeout(this.#openTimer);
       this.#lastRx = performance.now();
       this.#retry = 0;
@@ -104,6 +105,7 @@ export class Connection {
       this.onOpen(again);
     };
     ws.onmessage = (e) => {
+      if (this.#disposed || ws !== this.#ws) return;
       this.#lastRx = performance.now();
       let rec: any;
       try { rec = JSON.parse(e.data); } catch { return; }
@@ -171,10 +173,10 @@ export class Connection {
 
   /** The page came back to the front, or the network came back: make sure there is a live connection, now. */
   nudge() {
-    if (this.#disposed || this.link === 'exited') return;
+    if (this.#disposed || this.link === 'exited' || this.#stalled) return;
     const ws = this.#ws;
     if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) return this.#replace();
-    if (ws.readyState === WebSocket.OPEN) void this.#probe();
+    if (ws.readyState === WebSocket.OPEN && !this.#awaitingHistory()) void this.#probe();
   }
 
   #awaitingHistory() {
@@ -220,6 +222,11 @@ export class Connection {
     clearTimeout(this.#openTimer);
     clearInterval(this.#idleTimer);
     this.#failPending(new Error('disposed'));
-    this.#ws?.close();
+    const ws = this.#ws;
+    this.#ws = null;
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = null;
+      try { ws.close(); } catch { /* already gone */ }
+    }
   }
 }

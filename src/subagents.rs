@@ -69,7 +69,12 @@ fn child(runs: &Path, s: &Value) -> Option<Value> {
     if id.is_empty() || id.len() > 100 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return None;
     }
-    read_file(&runs.join(id)).ok()
+    let runs_canon = runs.canonicalize().ok()?;
+    let d = runs.join(id).canonicalize().ok()?;
+    if d.parent() != Some(runs_canon.as_path()) {
+        return None;
+    }
+    read_file(&d).ok()
 }
 
 /// What the page draws, and nothing else (the file also holds paths, pids and budgets).
@@ -210,7 +215,7 @@ fn settings(path: &Path) -> (Option<String>, serde_json::Map<String, Value>) {
 }
 
 pub fn agents(cwd: Option<&Path>) -> Vec<AgentDef> {
-    let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| crate::config::home_dir().join(".pi/agent"));
+    let agent_dir = crate::config::agent_dir();
     let mut found = std::collections::BTreeMap::new();
     definitions(&agent_dir.join("npm/node_modules/pi-subagents/agents"), "builtin", &mut found);
     definitions(&agent_dir.join("agents"), "user", &mut found);
@@ -249,7 +254,7 @@ pub fn agents(cwd: Option<&Path>) -> Vec<AgentDef> {
         let tool_list: Vec<String> = get("tools").map(|t| t.split(',').map(|x| x.trim().to_owned()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
         let tools = tool_list.len();
         let role = get("acceptanceRole");
-        let edits = role.as_deref() == Some("writer") || (role.as_deref() != Some("read-only") && tool_list.iter().any(|t| t == "edit"));
+        let edits = role.as_deref() == Some("writer") || (role.as_deref() != Some("read-only") && tool_list.iter().any(|t| t == "edit" || t == "write"));
         out.push(AgentDef {
             name: name.chars().take(80).collect(),
             description: get("description").map(|d| d.chars().take(200).collect()),
@@ -330,13 +335,20 @@ mod tests {
         let wf = json!({ "state": "running", "mode": "workflow", "steps": [
             { "agent": "reviewer", "label": "task-1", "status": "running", "runId": "c1" },
             { "agent": "reviewer", "label": "task-2", "status": "running", "runId": "../../etc" },
+            { "agent": "reviewer", "label": "task-3", "status": "running", "runId": "escape" },
         ]});
+        let outside = base.join("outside-child");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("status.json"), r#"{"steps":[{"turnCount":99}]}"#).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, runs.join("escape")).unwrap();
         let t = trim(&wf, Some(&runs));
         assert_eq!(t["steps"][0]["turnCount"], 19);
         assert_eq!(t["steps"][0]["recentTool"], "grep");
         assert_eq!(t["steps"][0]["context"], 130959);
         assert_eq!(t["steps"][0]["sessionName"], "reviewer: 읽기 전용 검토");
         assert!(t["steps"][1]["turnCount"].is_null(), "a run id that is not a plain name is not followed");
+        assert!(t["steps"][2]["turnCount"].is_null(), "a symlink leaving runs is not followed");
         std::fs::remove_dir_all(&base).unwrap();
     }
 

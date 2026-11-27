@@ -113,13 +113,10 @@ impl AutoCompact {
 
     /// Saved first: a setting that could not be written is not applied either.
     fn set(&self, s: Settings) -> std::io::Result<()> {
-        let tmp = self.file.with_extension("tmp");
-        if let Some(dir) = self.file.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(&tmp, serde_json::to_vec(&s).unwrap_or_default())?;
-        std::fs::rename(&tmp, &self.file)?;
-        *self.s.lock().unwrap() = s;
+        let mut g = self.s.lock().unwrap();
+        let bytes = serde_json::to_vec(&s).unwrap_or_default();
+        crate::config::atomic_write(&self.file, &bytes, false)?;
+        *g = s;
         Ok(())
     }
 
@@ -128,7 +125,17 @@ impl AutoCompact {
     }
 
     pub fn mark_limit_done(&self, session: &str, window: DoneWindow) {
-        self.limit_done.lock().unwrap().entry(session.to_owned()).or_default().push(window);
+        let now = crate::runtime::now_ms();
+        let mut map = self.limit_done.lock().unwrap();
+        let list = map.entry(session.to_owned()).or_default();
+        list.retain(|(_, _, reset_at)| *reset_at + 10 * 60_000 > now);
+        list.push(window);
+        if map.len() > 500 {
+            map.retain(|_, v| {
+                v.retain(|(_, _, reset_at)| *reset_at + 10 * 60_000 > now);
+                !v.is_empty()
+            });
+        }
     }
 }
 

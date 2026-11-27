@@ -189,15 +189,27 @@ fn read_lines(file: &PathBuf) -> std::io::Result<Vec<Vec<u8>>> {
 }
 
 pub fn read_tree(file: &PathBuf) -> Result<Tree, String> {
-    let lines = read_lines(file).map_err(|e| e.to_string())?;
-    let header: Value = lines.first().and_then(|l| serde_json::from_slice(l).ok()).ok_or("empty or unreadable session file")?;
+    let mut rd = BufReader::new(std::fs::File::open(file).map_err(|e| e.to_string())?);
+    let mut buf = Vec::new();
+    let n = rd.read_until(b'\n', &mut buf).map_err(|e| e.to_string())?;
+    if n == 0 || buf.last() != Some(&b'\n') {
+        return Err("empty or unreadable session file".into());
+    }
+    buf.pop();
+    let header: Value = serde_json::from_slice(&buf).map_err(|_| "empty or unreadable session file".to_owned())?;
     if header["type"] != "session" {
         return Err("not a pi session (no header)".into());
     }
     let mut entries = Vec::new();
     let mut labels = HashMap::new();
-    for line in &lines[1..] {
-        let Ok(raw) = serde_json::from_slice::<Raw>(line) else { continue };
+    loop {
+        buf.clear();
+        let n = rd.read_until(b'\n', &mut buf).map_err(|e| e.to_string())?;
+        if n == 0 || buf.last() != Some(&b'\n') {
+            break; // a line without its newline is still being written
+        }
+        buf.pop();
+        let Ok(raw) = serde_json::from_slice::<Raw>(&buf) else { continue };
         if raw.kind == "label" {
             if let (Some(t), l) = (raw.target_id.clone(), raw.label.clone()) {
                 match l {
@@ -397,7 +409,7 @@ pub async fn rename(State(app): State<Arc<AppState>>, Json(req): Json<RenameReq>
         Ok(f) => f,
         Err((code, msg)) => return fail(code, msg),
     };
-    if app.runtimes.list().await.iter().any(|r| r.session_path.as_deref().map(std::path::Path::new).and_then(|p| p.canonicalize().ok()).as_ref() == Some(&file)) {
+    if !app.runtimes.using_file(&file).await.is_empty() {
         return fail(StatusCode::CONFLICT, "the session is open: rename it from its own window");
     }
     match tokio::task::spawn_blocking(move || rename_session(&file, &req.name)).await {

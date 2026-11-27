@@ -157,16 +157,18 @@
       const e = stateFor(d);
       view!.setState(e.state);
       shown = d;
-      void cm!.languageFor(d.path).then((ext) => { if (shown === d) view!.dispatch({ effects: cm!.language.reconfigure(ext) }); });
+      void cm!.languageFor(d.path).then((ext) => { if (view && shown === d) view.dispatch({ effects: cm!.language.reconfigure(ext) }); });
       view!.dispatch({ effects: cm!.wrapping.reconfigure(wrap ? cm!.EditorView.lineWrapping : []) });
       const h = view!.state.selection.main.head;
       const ln = view!.state.doc.lineAt(h);
       pos = { line: ln.number, col: h - ln.from + 1 };
       publishSelection(d, view!.state);
-      requestAnimationFrame(() => {
-        view!.requestMeasure();
-        if (matchMedia('(pointer: fine)').matches && editors.active === d.path) view!.focus();
+      const raf = requestAnimationFrame(() => {
+        if (!view) return;
+        view.requestMeasure();
+        if (matchMedia('(pointer: fine)').matches && editors.active === d.path) view.focus();
       });
+      return () => cancelAnimationFrame(raf);
     });
   });
 

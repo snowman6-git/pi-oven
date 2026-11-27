@@ -21,7 +21,9 @@ function chosenModel(): string | null {
 	if (!file) return null;
 	try {
 		const m = JSON.parse(readFileSync(file, "utf8")).model;
-		return typeof m === "string" && m.includes("/") ? m : null;
+		if (typeof m !== "string") return null;
+		const at = m.indexOf("/");
+		return at > 0 && at < m.length - 1 ? m : null;
 	} catch {
 		return null;
 	}
@@ -61,22 +63,24 @@ export default function (pi: ExtensionAPI) {
 		const model = ctx.modelRegistry.find(want.slice(0, at), want.slice(at + 1));
 		if (!model) return back("not found");
 
-		const { messagesToSummarize, turnPrefixMessages, previousSummary, firstKeptEntryId, tokensBefore, fileOps } = preparation;
-		// the context being summarized must fit with room for the answer (a token count, not characters: no guess by language)
-		if (tokensBefore + MAX_OUTPUT > model.contextWindow) return back("its context window is too small");
-
-		const text = serializeConversation(convertToLlm([...messagesToSummarize, ...turnPrefixMessages]));
-		const previous = previousSummary ? `Previous summary:\n${previousSummary}\n\n` : "";
-		const focus = customInstructions?.trim() ? `\n\nAdditional focus: ${customInstructions.trim()}` : "";
-		const prompt = `${INSTRUCTIONS}${focus}\n\n${previous}<conversation>\n${text}\n</conversation>`;
+		const maxTokens = Math.min(MAX_OUTPUT, model.maxTokens && model.maxTokens > 0 ? model.maxTokens : MAX_OUTPUT);
 
 		try {
+			const { messagesToSummarize, turnPrefixMessages, previousSummary, firstKeptEntryId, tokensBefore, fileOps } = preparation;
+			// the context being summarized must fit with room for instructions + the answer
+			if (tokensBefore + maxTokens + 2048 > model.contextWindow) return back("its context window is too small");
+
+			const text = serializeConversation(convertToLlm([...messagesToSummarize, ...turnPrefixMessages]));
+			const previous = previousSummary ? `Previous summary:\n${previousSummary}\n\n` : "";
+			const focus = customInstructions?.trim() ? `\n\nAdditional focus: ${customInstructions.trim()}` : "";
+			const prompt = `${INSTRUCTIONS}${focus}\n\n${previous}<conversation>\n${text}\n</conversation>`;
+
 			const response = await ctx.modelRegistry.complete(
 				model,
 				{ messages: [{ role: "user" as const, content: [{ type: "text" as const, text: prompt }], timestamp: Date.now() }] },
-				{ maxTokens: MAX_OUTPUT, signal, cacheRetention: "none", sessionId: uuidv7() },
+				{ maxTokens, signal, cacheRetention: "none", sessionId: uuidv7() },
 			);
-			if (signal.aborted) return;
+			if (signal.aborted || response.stopReason === "aborted") return;
 			// pi's own rule: an error or a cut-off answer is never kept as a checkpoint
 			if (response.stopReason === "error") return back(response.errorMessage || "the call failed");
 			if (response.stopReason === "length") return back("the summary was cut off");

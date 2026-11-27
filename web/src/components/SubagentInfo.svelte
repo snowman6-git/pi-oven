@@ -16,19 +16,26 @@
   let fetched = $state<AgentDef[] | null>(null);
   const agents = $derived(sample?.agents ?? fetched);
   const shown = $derived(!!sample || !!chat?.hasSubagents);
-  // a failed read (a bad link) keeps what was there rather than emptying the section
-  const read = (id: string) => api.subagentAgents(id).then((r) => (fetched = r.agents)).catch(() => {});
   // asked when the tab shows, again for another session (another folder may have project agents), and when the page
   // comes back into view (the definitions are files the person edits elsewhere)
   $effect(() => {
     if (!chat?.hasSubagents) return;
     const id = chat.runtime.id;
+    let alive = true;
+    let lastAt = 0;
     fetched = null; // another session: its own folder's agents
-    void read(id);
-    const again = () => document.visibilityState === 'visible' && void read(id);
+    const load = () => {
+      const now = Date.now();
+      if (now - lastAt < 300) return;
+      lastAt = now;
+      void api.subagentAgents(id).then((r) => { if (alive) fetched = r.agents; }).catch(() => {});
+    };
+    load();
+    const again = () => { if (document.visibilityState === 'visible') load(); };
     window.addEventListener('focus', again);
     document.addEventListener('visibilitychange', again);
     return () => {
+      alive = false;
       window.removeEventListener('focus', again);
       document.removeEventListener('visibilitychange', again);
     };

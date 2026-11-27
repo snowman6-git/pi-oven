@@ -144,6 +144,7 @@ fn run(root: PathBuf, tx: mpsc::Sender<Msg>, rx: mpsc::Receiver<Msg>, out: broad
             let roots = vec![tree.root.clone()];
             tree.files.clear();
             tree.dirs.clear();
+            tree.full = false;
             tree.take(&mut w, roots);
         }
         let (told, more) = tree.look(&mut w, touched);
@@ -309,7 +310,11 @@ impl Tree {
         };
         // written from aside: git answers as it reads, and both pipes full would wait on each other for good
         let sink = child.stdin.take();
-        let feed = std::thread::spawn(move || sink.map(|mut s| s.write_all(&input)));
+        let Ok(feed) = std::thread::Builder::new().name("watch-git".into()).spawn(move || sink.map(|mut s| s.write_all(&input))) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return HashSet::new();
+        };
         let mut out = Vec::new();
         if let Some(mut o) = child.stdout.take() {
             let _ = o.read_to_end(&mut out);

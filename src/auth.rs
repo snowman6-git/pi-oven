@@ -18,11 +18,27 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-fn host_only(authority: &str) -> &str {
+fn host_only(authority: &str) -> Option<&str> {
     if let Some(rest) = authority.strip_prefix('[') {
-        return rest.split(']').next().unwrap_or(rest);
+        let (ip, after) = rest.split_once(']')?;
+        if after.is_empty() || after.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) {
+            return Some(ip);
+        }
+        return None;
     }
-    authority.rsplit_once(':').map_or(authority, |(h, _)| h)
+    match authority.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => Some(h),
+        Some(_) => None,
+        None => Some(authority),
+    }
+}
+
+fn origin_authority(origin: &str) -> Option<&str> {
+    let (scheme, rest) = origin.split_once("://")?;
+    if !matches!(scheme, "http" | "https") || rest.contains('/') {
+        return None;
+    }
+    Some(rest)
 }
 
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
@@ -60,6 +76,18 @@ impl Throttle {
         if map.len() > 2000 {
             map.retain(|_, e| e.locked_until.is_some_and(|u| u > now) || now.duration_since(e.since) < WINDOW);
         }
+        const MAX_ENTRIES: usize = 4096;
+        if map.len() >= MAX_ENTRIES && !map.contains_key(&ip) {
+            if let Some(victim) = map
+                .iter()
+                .filter(|(_, e)| !e.locked_until.is_some_and(|u| u > now))
+                .min_by_key(|(_, e)| e.since)
+                .or_else(|| map.iter().min_by_key(|(_, e)| e.since))
+                .map(|(k, _)| *k)
+            {
+                map.remove(&victim);
+            }
+        }
         let e = map.entry(ip).or_insert(Entry { fails: 0, since: now, locked_until: None, lockouts: 0 });
         if now.duration_since(e.since) > WINDOW {
             e.fails = 0;
@@ -84,7 +112,13 @@ impl Throttle {
 
 pub fn client_ip(headers: &HeaderMap, peer: SocketAddr, trust_proxy: bool) -> IpAddr {
     if trust_proxy {
-        if let Some(ip) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()).and_then(|v| v.split(',').next()).and_then(|v| v.trim().parse().ok()) {
+        // Rightmost entry: appended by the reverse proxy itself (leftmost entries are client-spoofable).
+        if let Some(ip) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit(',').next())
+            .and_then(|v| v.trim().parse().ok())
+        {
             return ip;
         }
     }
@@ -99,15 +133,16 @@ pub async fn guard(State(app): State<Arc<AppState>>, ConnectInfo(peer): ConnectI
     let headers = req.headers();
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
 
-    if app.secrets.is_empty() && !matches!(host_only(host), "localhost" | "127.0.0.1" | "::1") {
-        let allowed = app.allow_origins.iter().any(|o| o.split("://").nth(1).is_some_and(|a| a == host));
+    let loopback_host = host_only(host).is_some_and(|h| h.eq_ignore_ascii_case("localhost") || h == "127.0.0.1" || h == "::1");
+    if app.secrets.is_empty() && !loopback_host {
+        let allowed = app.allow_origins.iter().any(|o| origin_authority(o).is_some_and(|a| a.eq_ignore_ascii_case(host)));
         if !allowed {
             return deny(StatusCode::FORBIDDEN, "unexpected Host header");
         }
     }
 
     if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        let same = origin.split("://").nth(1).is_some_and(|a| a == host);
+        let same = origin_authority(origin).is_some_and(|a| a.eq_ignore_ascii_case(host));
         if !same && !app.allow_origins.iter().any(|o| o == origin) {
             return deny(StatusCode::FORBIDDEN, "cross-origin request blocked");
         }
@@ -219,6 +254,8 @@ const FINGERPRINT_ROUNDS: u32 = 200_000;
 /// Login sessions (kept in `<cache>/auth-sessions.json`, as hashes) and one-time WebSocket tickets (memory only).
 pub struct Auth {
     inner: Mutex<Inner>,
+    /// Serializes disk writes so snapshots never race out of order.
+    io: Arc<Mutex<()>>,
     file: std::path::PathBuf,
     salt: String,
     secrets: String,
@@ -240,7 +277,14 @@ impl Auth {
         for s in &mut list {
             s.saved_at = s.last_used_at;
         }
-        let me = Auth { inner: Mutex::new(Inner { list, tickets: HashMap::new() }), file, salt, secrets: fp, revoked: tokio::sync::broadcast::channel(64).0 };
+        let me = Auth {
+            inner: Mutex::new(Inner { list, tickets: HashMap::new() }),
+            io: Arc::new(Mutex::new(())),
+            file,
+            salt,
+            secrets: fp,
+            revoked: tokio::sync::broadcast::channel(64).0,
+        };
         if forget {
             me.save(&[]);
         }
@@ -265,49 +309,58 @@ impl Auth {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn save(&self, list: &[Session]) {
-        // a session list is a few KB; the write is atomic (temp file, then rename)
-        let write = || -> std::io::Result<()> {
-            use std::io::Write;
-            if let Some(dir) = self.file.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            let tmp = self.file.with_extension("json.tmp");
-            let mut opts = std::fs::OpenOptions::new();
-            opts.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-            let stored = serde_json::json!({ "salt": self.salt, "secrets": self.secrets, "sessions": list });
-            opts.open(&tmp)?.write_all(&serde_json::to_vec(&stored)?)?;
-            std::fs::rename(&tmp, &self.file)
-        };
-        if let Err(e) = write() {
-            tracing::warn!("could not save {}: {e}", self.file.display());
+    fn save_bytes(&self, list: &[Session]) -> Option<Vec<u8>> {
+        let stored = serde_json::json!({ "salt": self.salt, "secrets": self.secrets, "sessions": list });
+        serde_json::to_vec(&stored).ok()
+    }
+
+    fn write_file(io: &Mutex<()>, file: &std::path::Path, bytes: &[u8]) {
+        let _g = io.lock().unwrap_or_else(|e| e.into_inner());
+        if let Err(e) = crate::config::atomic_write(file, bytes, true) {
+            tracing::warn!("could not save {}: {e}", file.display());
         }
+    }
+
+    fn save(&self, list: &[Session]) {
+        let Some(bytes) = self.save_bytes(list) else { return };
+        Self::write_file(&self.io, &self.file, &bytes);
     }
 
     /// Who this token is (`Some(id)`), if it belongs to a live session.
     pub fn check(&self, token: &str) -> Option<String> {
         let hash = hash_of(token);
         let now = now_ms();
-        let mut g = self.inner();
-        // every hash is compared, so how long it takes does not say which one matched
-        let mut at = None;
-        for (i, s) in g.list.iter().enumerate() {
-            if constant_time_eq(&s.hash, &hash) {
-                at = Some(i);
+        let (id, snapshot) = {
+            let mut g = self.inner();
+            // every hash is compared, so how long it takes does not say which one matched
+            let mut at = None;
+            for (i, s) in g.list.iter().enumerate() {
+                if constant_time_eq(&s.hash, &hash) {
+                    at = Some(i);
+                }
             }
-        }
-        let i = at?;
-        let s = &mut g.list[i];
-        if now.saturating_sub(s.last_used_at) >= IDLE_LIMIT_MS {
-            return None;
-        }
-        s.last_used_at = now;
-        let id = s.id.clone();
-        if now.saturating_sub(s.saved_at) >= SAVE_EVERY_MS {
-            s.saved_at = now;
-            self.save(&g.list);
+            let i = at?;
+            let s = &mut g.list[i];
+            if now.saturating_sub(s.last_used_at) >= IDLE_LIMIT_MS {
+                return None;
+            }
+            s.last_used_at = now;
+            let id = s.id.clone();
+            let snapshot = if now.saturating_sub(s.saved_at) >= SAVE_EVERY_MS {
+                s.saved_at = now;
+                self.save_bytes(&g.list)
+            } else {
+                None
+            };
+            (id, snapshot)
+        };
+        if let Some(bytes) = snapshot {
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                let (io, file) = (self.io.clone(), self.file.clone());
+                rt.spawn_blocking(move || Self::write_file(&io, &file, &bytes));
+            } else {
+                Self::write_file(&self.io, &self.file, &bytes);
+            }
         }
         Some(id)
     }
@@ -317,15 +370,26 @@ impl Auth {
         let token = crate::config::random_hex(32);
         let id = crate::config::random_hex(6);
         let now = now_ms();
-        let mut g = self.inner();
-        g.list.retain(|s| now.saturating_sub(s.last_used_at) < IDLE_LIMIT_MS);
-        while g.list.len() >= MAX_SESSIONS {
-            let Some(oldest) = g.list.iter().enumerate().min_by_key(|(_, s)| s.last_used_at).map(|(i, _)| i) else { break };
-            g.list.remove(oldest);
+        let (snapshot, evicted) = {
+            let mut g = self.inner();
+            g.list.retain(|s| now.saturating_sub(s.last_used_at) < IDLE_LIMIT_MS);
+            let mut evicted = Vec::new();
+            while g.list.len() >= MAX_SESSIONS {
+                let Some(oldest) = g.list.iter().enumerate().min_by_key(|(_, s)| s.last_used_at).map(|(i, _)| i) else { break };
+                let gone = g.list.remove(oldest);
+                g.tickets.retain(|_, (_, of)| of != &gone.id);
+                evicted.push(gone.id);
+            }
+            let device = device.chars().take(80).collect();
+            g.list.push(Session { id: id.clone(), hash: hash_of(&token), device, created_at: now, last_used_at: now, saved_at: now });
+            (self.save_bytes(&g.list), evicted)
+        };
+        if let Some(bytes) = snapshot {
+            Self::write_file(&self.io, &self.file, &bytes);
         }
-        let device = device.chars().take(80).collect();
-        g.list.push(Session { id: id.clone(), hash: hash_of(&token), device, created_at: now, last_used_at: now, saved_at: now });
-        self.save(&g.list);
+        for gone_id in evicted {
+            let _ = self.revoked.send(gone_id);
+        }
         (token, id)
     }
 
@@ -338,13 +402,18 @@ impl Auth {
     }
 
     pub fn remove(&self, id: &str) -> bool {
-        let mut g = self.inner();
-        let before = g.list.len();
-        g.list.retain(|s| s.id != id);
-        g.tickets.retain(|_, (_, of)| of != id);
-        let removed = g.list.len() != before;
+        let (removed, snapshot) = {
+            let mut g = self.inner();
+            let before = g.list.len();
+            g.list.retain(|s| s.id != id);
+            g.tickets.retain(|_, (_, of)| of != id);
+            let removed = g.list.len() != before;
+            (removed, removed.then(|| self.save_bytes(&g.list)).flatten())
+        };
         if removed {
-            self.save(&g.list);
+            if let Some(bytes) = snapshot {
+                Self::write_file(&self.io, &self.file, &bytes);
+            }
             let _ = self.revoked.send(id.to_owned());
         }
         removed
@@ -407,5 +476,21 @@ mod tests {
         assert_eq!(gone.try_recv().ok(), Some(id), "open sockets hear that their session ended");
         assert_eq!(a.use_ticket(&t2), None, "its tickets went with it");
         let _ = std::fs::remove_dir_all(a.file.parent().unwrap());
+    }
+
+    #[test]
+    fn host_origin_and_proxy_ip_reject_spoofing() {
+        assert_eq!(host_only("[::1]:4141"), Some("::1"));
+        assert_eq!(host_only("[::1]"), Some("::1"));
+        assert_eq!(host_only("[::1]evil.com"), None);
+        assert_eq!(host_only("LOCALHOST:4141"), Some("LOCALHOST"));
+        assert_eq!(origin_authority("http://127.0.0.1:4141"), Some("127.0.0.1:4141"));
+        assert_eq!(origin_authority("javascript://127.0.0.1:4141"), None);
+        assert_eq!(origin_authority("http://127.0.0.1:4141/evil"), None);
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", "1.2.3.4, 203.0.113.9".parse().unwrap());
+        let peer: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        assert_eq!(client_ip(&h, peer, true), "203.0.113.9".parse::<IpAddr>().unwrap());
+        assert_eq!(client_ip(&h, peer, false), "127.0.0.1".parse::<IpAddr>().unwrap());
     }
 }

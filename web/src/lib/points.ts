@@ -104,7 +104,7 @@ function looksSecret(v: string): boolean {
 /** A rule the person wrote (Settings → Pin 감지 규칙): what matches (group 1 if there is one, else all of it) becomes a pin. */
 export interface CompiledRule { name: string; re: RegExp }
 
-const NESTED = /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,\d*\})/;
+const NESTED = /\((?:[^()\\]|\\.)*(?:[+*]|\{\d+,\d*\}|\|)(?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,\d*\})/;
 
 /** Why a pattern is refused, or null when it is fine. Backtracking can't be interrupted, so the shapes that blow up are turned away. */
 export function ruleProblem(pattern: string): string | null {
@@ -184,6 +184,7 @@ export function itemTexts(item: any): string[] {
     case 'assistant': {
       const out: string[] = [];
       for (const b of item.blocks ?? []) {
+        if (!b) continue;
         if (b.type === 'text') out.push(b.text);
         else if (b.type === 'tool') out.push(JSON.stringify(b.args ?? {}), b.output ?? '');
       }
@@ -194,9 +195,20 @@ export function itemTexts(item: any): string[] {
 }
 
 const signature = (item: any) => {
-  let n = item.kind === 'assistant' ? item.live : 0;
-  for (const t of itemTexts(item)) n = `${n}:${t.length}`;
-  return String(n);
+  switch (item.kind) {
+    case 'user': return `u:${item.text?.length ?? 0}`;
+    case 'bash': return `b:${item.command?.length ?? 0}:${item.output?.length ?? 0}`;
+    case 'assistant': {
+      let s = item.live ? '1' : '0';
+      for (const b of item.blocks ?? []) {
+        if (!b) { s += ':_'; continue; }
+        if (b.type === 'text') s += `:t${b.text?.length ?? 0}`;
+        else if (b.type === 'tool') s += `:x${b.status ?? ''},${b.output?.length ?? 0},${b.composing ? 1 : 0}`;
+      }
+      return s;
+    }
+    default: return '0';
+  }
 };
 
 /** Scans only what changed since the last call: re-reading a long session on every streamed token would be wasteful. */

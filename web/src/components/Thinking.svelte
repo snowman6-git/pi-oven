@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte';
   import { settings } from '../lib/settings.svelte';
+  import { showcase } from '../lib/showcase.svelte';
   import { escapeHtml, Reveal } from '../lib/stream-fx';
   import { S } from '../lib/strings';
 
@@ -11,18 +12,23 @@
   let html = $state('');
   let frame = 0;
   $effect(() => {
-    const t = text;
+    const t = showcase.text(text);
     const fx = settings.fx;
     if (live) reveal.started = true;
     const render = () => (html = fx !== 'none' && reveal.started ? reveal.applyText(t) : escapeHtml(t));
     if (!live) {
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
       render();
       return;
     }
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(frame);
+    if (!frame) {
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        render();
+      });
+    }
   });
+  $effect(() => () => { if (frame) cancelAnimationFrame(frame); });
 
 </script>
 

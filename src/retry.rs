@@ -57,9 +57,7 @@ impl Long {
     fn set(&self, on: bool) -> std::io::Result<()> {
         self.on.store(on, Ordering::Relaxed);
         let Some(file) = &self.file else { return Ok(()) };
-        let tmp = file.with_extension("tmp");
-        std::fs::write(&tmp, if on { "on" } else { "off" })?;
-        std::fs::rename(&tmp, file)
+        crate::config::atomic_write(file, if on { b"on" } else { b"off" }, false)
     }
 }
 

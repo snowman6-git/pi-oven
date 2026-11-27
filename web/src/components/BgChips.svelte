@@ -5,6 +5,7 @@
   import type { BgTask } from '../lib/protocol';
   import { runClock } from '../lib/util';
   import { settings } from '../lib/settings.svelte';
+  import { showcase } from '../lib/showcase.svelte';
   import { dismiss } from '../lib/actions';
   import { trackPopover } from '../lib/popover.svelte';
   import { grow, shrink } from '../lib/sheet';
@@ -103,9 +104,9 @@
     {#each chips.slice(0, fit) as t (t.id)}
       <span class="bgchip" data-bg-chip={t.id} class:land={chat.bgLanding.includes(t.id)} class:fading={chat.bgFading.includes(t.id)} class:run={t.status === 'running'} class:bad={t.status === 'failed' || t.status === 'killed'}>
         <button class="main" type="button" onclick={() => { chat.bgFocus = t.id; chat.bgOpen = true; chat.dismissBg(t.id); }} aria-haspopup="dialog"
-          title={t.command.split('\n')[0]}>
+          title={showcase.tip('files', t.command.split('\n')[0])}>
           <span class="dot" role="img" aria-label={tr(`bg.status.${t.status}`)}></span>
-          <span class="nm">{t.name || t.description || t.command.split('\n')[0]}</span>
+          <span class="nm" data-priv="files">{showcase.text(t.name || t.description || t.command.split('\n')[0])}</span>
           {#if t.status === 'running' && elapsed(t) >= 1000}
             <span class="st tm">{runClock(elapsed(t))}</span>
           {:else}
@@ -207,8 +208,10 @@
     font-size: 16px;
     line-height: 1;
   }
-  .bgchip .x:hover {
-    background: var(--rule);
+  @media (hover: hover) {
+    .bgchip .x:hover {
+      background: var(--rule);
+    }
   }
   /* One circle for everything that does not fit, same height as a chip so it is a true circle. */
   .stack {
