@@ -23,6 +23,8 @@
   --scrim: rgb(12 9 7 / 0.6);
   /* the colour of a file kind's drawing (file icons); muted, so a list of them is calm */
   --ft-ink: var(--ink-2); --ft-blue: #7da5d6; --ft-violet: #a58bd0; --ft-teal: #5fb8aa; --ft-green: #7bc47f; --ft-orange: #ff8a3d; --ft-amber: #d6a93a; --ft-red: #e47a6e;
+  /* a provider's own colour, only in the usage charts (Claude's clay, ChatGPT's green, one grey-blue for the rest) */
+  --pv-claude: #e08566; --pv-chatgpt: #2fb894; --pv-other: #8a9bb4;
   color-scheme: dark;
 
   --font-ui: 'NxMaple', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
@@ -53,6 +55,7 @@
   --shadow: 0 1px 0 rgb(0 0 0 / 0.04), 0 8px 24px -8px rgb(34 27 22 / 0.28);
   --scrim: rgb(34 27 22 / 0.4);
   --ft-ink: var(--ink-2); --ft-blue: #3d6fa5; --ft-violet: #7a5ba8; --ft-teal: #2f8577; --ft-green: #2c7a4b; --ft-orange: #d9560a; --ft-amber: #a77b12; --ft-red: #b3453a;
+  --pv-claude: #c6613f; --pv-chatgpt: #0e8c6d; --pv-other: #5d7192;
   color-scheme: light;
 }
 @media (prefers-color-scheme: light) {
@@ -77,6 +80,7 @@
     --shadow: 0 1px 0 rgb(0 0 0 / 0.04), 0 8px 24px -8px rgb(34 27 22 / 0.28);
     --scrim: rgb(34 27 22 / 0.4);
     --ft-ink: var(--ink-2); --ft-blue: #3d6fa5; --ft-violet: #7a5ba8; --ft-teal: #2f8577; --ft-green: #2c7a4b; --ft-orange: #d9560a; --ft-amber: #a77b12; --ft-red: #b3453a;
+    --pv-claude: #c6613f; --pv-chatgpt: #0e8c6d; --pv-other: #5d7192;
     color-scheme: light;
   }
 }

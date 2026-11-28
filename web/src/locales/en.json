@@ -1348,7 +1348,11 @@
     "output": "Output",
     "cacheRatio": "Read from cache",
     "models": "By model",
-    "apiCost": "{cost} at API prices",
+    "apiCost": "At API prices",
+    "apiCostRow": "API price",
+    "noPrice": "No price",
+    "total": "Total",
+    "daysAgo": "{n} days ago",
     "apiCostTip": "These tokens priced at pay-as-you-go API rates. Not what your subscription costs.",
     "share": "Share by provider",
     "perDay": "Tokens per day"

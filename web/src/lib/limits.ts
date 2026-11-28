@@ -50,6 +50,13 @@ export function providerName(p: string): string {
   return p;
 }
 
+/** A provider's colour in the usage charts: the `--pv-*` token in app.css. */
+export function providerColor(p: string): string {
+  if (p === 'openai-codex' || p === 'openai-chatgpt' || p === 'openai') return 'var(--pv-chatgpt)';
+  if (p === 'anthropic') return 'var(--pv-claude)';
+  return 'var(--pv-other)';
+}
+
 /** The icon for a plan's provider, when there is one. */
 export function providerIcon(p: string): 'provChatgpt' | 'provClaude' | null {
   if (p === 'openai-codex' || p === 'openai-chatgpt') return 'provChatgpt';

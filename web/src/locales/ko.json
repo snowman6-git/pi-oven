@@ -1314,7 +1314,11 @@
     "output": "출력",
     "cacheRatio": "캐시에서 읽은 비율",
     "models": "모델별",
-    "apiCost": "API 요금으로 치면 {cost}",
+    "apiCost": "API 요금으로 치면",
+    "apiCostRow": "API 요금",
+    "noPrice": "요금 정보 없음",
+    "total": "합계",
+    "daysAgo": "{n}일 전",
     "apiCostTip": "토큰을 API 종량 요금으로 계산한 값입니다. 구독 요금과는 다릅니다.",
     "share": "제공자별 비율",
     "perDay": "날짜별 토큰"
